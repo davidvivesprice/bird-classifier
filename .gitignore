@@ -1,4 +1,5 @@
 venv/
 models/
+!models/*.txt
 __pycache__/
 *.pyc

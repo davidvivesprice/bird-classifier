@@ -43,6 +43,7 @@ MODEL_DIR = Path("/Users/vives/bird-classifier/models")
 YOLO_MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
 SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
+REGIONAL_SPECIES_PATH = MODEL_DIR / "cape_cod_species.txt"
 
 # Detection thresholds
 BIRD_CLASS_ID = 14                # COCO class index for "bird"
@@ -232,6 +233,17 @@ def load_species_model(path, labels_path):
     return sess, input_name, labels
 
 
+def load_regional_filter(path):
+    """Load regional species allowlist. Returns a set of common names, or None if file missing."""
+    if not path.exists():
+        logging.warning("No regional filter at %s — all species allowed", path)
+        return None
+    with open(path) as f:
+        species = {line.strip() for line in f if line.strip()}
+    logging.info("Regional filter loaded: %d species", len(species))
+    return species
+
+
 def parse_label(raw_label):
     """Parse 'Scientific name (Common Name)' into components."""
     if "(" in raw_label and raw_label.endswith(")"):
@@ -257,24 +269,25 @@ def crop_bird(image, box, pad_ratio=CROP_PAD_RATIO):
     return image.crop((cx1, cy1, cx2, cy2))
 
 
-def classify_species(species_sess, species_input_name, labels, bird_crop):
+def classify_species(species_sess, species_input_name, labels, bird_crop, regional_species=None):
     """
     Classify a cropped bird image.
-    Returns dict with species prediction.
+    Returns (filtered_predictions, raw_predictions).
+    If regional_species is set, filtered_predictions only contains regional matches.
     """
     resized = bird_crop.resize(SPECIES_INPUT_SIZE)
     arr = np.array(resized, dtype=np.uint8)[np.newaxis]
 
     scores = species_sess.run(None, {species_input_name: arr})[0][0]
 
-    # Top 3 predictions
+    # Raw top 3
     top3_idx = np.argsort(scores)[-3:][::-1]
-    predictions = []
+    raw_predictions = []
     for idx in top3_idx:
         idx = int(idx)
         raw_score = int(scores[idx])
         scientific, common = parse_label(labels[idx])
-        predictions.append({
+        raw_predictions.append({
             "index": idx,
             "label": labels[idx],
             "scientific_name": scientific,
@@ -282,7 +295,37 @@ def classify_species(species_sess, species_input_name, labels, bird_crop):
             "raw_score": raw_score,
         })
 
-    return predictions
+    if regional_species is None:
+        return raw_predictions, raw_predictions
+
+    # Filter: walk all scores descending, pick top 3 regional matches
+    all_idx = np.argsort(scores)[::-1]
+    filtered = []
+    for idx in all_idx:
+        idx = int(idx)
+        scientific, common = parse_label(labels[idx])
+        if common in regional_species:
+            filtered.append({
+                "index": idx,
+                "label": labels[idx],
+                "scientific_name": scientific,
+                "common_name": common,
+                "raw_score": int(scores[idx]),
+            })
+            if len(filtered) >= 3:
+                break
+
+    if not filtered:
+        # No regional match — return as unidentified
+        filtered = [{
+            "index": -1,
+            "label": "unidentified",
+            "scientific_name": "unknown",
+            "common_name": "unidentified bird",
+            "raw_score": 0,
+        }]
+
+    return filtered, raw_predictions
 
 
 # ──────────────────────────────────────────────────
@@ -374,7 +417,7 @@ def sanitize_dirname(name):
     return name.replace(" ", "_").replace("'", "").replace("/", "-")
 
 
-def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path):
+def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path, regional_species=None):
     """Full pipeline: detect birds → classify species → move file."""
     fname = os.path.basename(image_path)
 
@@ -413,29 +456,36 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     bird_crop = crop_bird(img, best_det["box"])
 
     t1 = time.monotonic()
-    predictions = classify_species(species_sess, species_input_name, labels, bird_crop)
+    predictions, raw_predictions = classify_species(
+        species_sess, species_input_name, labels, bird_crop, regional_species
+    )
     classify_ms = (time.monotonic() - t1) * 1000
     total_ms = (time.monotonic() - t0) * 1000
 
     top = predictions[0]
 
-    # Skip if species model says "background" (shouldn't happen with a cropped bird, but safety)
-    if top["common_name"] == "background":
+    # Skip if species model says "background" or unidentified
+    if top["common_name"] in ("background", "unidentified bird"):
+        action = "skipped:background" if top["common_name"] == "background" else "skipped:unidentified"
         result = {
             "file": fname,
             "timestamp": datetime.now().isoformat(),
             "source_timestamp": extract_timestamp(fname),
-            "action": "skipped:background",
+            "action": action,
             "detect_ms": round(detect_ms, 1),
             "classify_ms": round(classify_ms, 1),
             "total_ms": round(total_ms, 1),
             "detections": len(detections),
             "best_detection": best_det,
+            "raw_top3": [
+                {"common_name": p["common_name"], "scientific_name": p["scientific_name"], "raw_score": p["raw_score"]}
+                for p in raw_predictions
+            ],
         }
         append_result(result)
         SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
         shutil.move(str(image_path), str(SKIPPED_DIR / fname))
-        logging.info("SKIP %s — species model said background (%.0fms)", fname, total_ms)
+        logging.info("SKIP %s — %s (raw top: %s, %dms)", fname, action, raw_predictions[0]["common_name"], total_ms)
         return result
 
     # Success: bird detected and classified
@@ -465,6 +515,10 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
             }
             for p in predictions
         ],
+        "raw_top3": [
+            {"common_name": p["common_name"], "scientific_name": p["scientific_name"], "raw_score": p["raw_score"]}
+            for p in raw_predictions
+        ],
     }
     append_result(result)
 
@@ -476,10 +530,14 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
 
     shutil.move(str(image_path), str(species_dir / fname))
 
+    raw_note = ""
+    if raw_predictions[0]["common_name"] != top["common_name"]:
+        raw_note = f" (raw: {raw_predictions[0]['common_name']})"
     logging.info(
-        "BIRD %s → %s (det=%.0f%%, species_raw=%d, %dms)",
+        "BIRD %s → %s%s (det=%.0f%%, score=%d, %dms)",
         fname,
         top["common_name"],
+        raw_note,
         best_det["confidence"] * 100,
         top["raw_score"],
         total_ms,
@@ -495,7 +553,7 @@ def get_pending_files():
     return [f for f in files if not f.name.endswith(".tmp")]
 
 
-def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels):
+def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
     """Process all pending files."""
     files = get_pending_files()
     if not files:
@@ -503,7 +561,7 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
 
     results = []
     for fpath in files:
-        r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath)
+        r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath, regional_species)
         if r:
             results.append(r)
 
@@ -527,12 +585,12 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
     return len(results)
 
 
-def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels):
+def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
     """Continuously watch for new files."""
     logging.info("Watch mode started (polling every %ds)", WATCH_INTERVAL)
     try:
         while True:
-            n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
+            n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
             if n > 0:
                 logging.info("Processed %d file(s), waiting for more...", n)
             time.sleep(WATCH_INTERVAL)
@@ -540,7 +598,7 @@ def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, lab
         logging.info("Watch mode stopped")
 
 
-def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels):
+def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
     """Move images from classified/ and skipped/ back to incoming/ and reprocess."""
     count = 0
     for src_dir in [CLASSIFIED_DIR, SKIPPED_DIR]:
@@ -556,7 +614,7 @@ def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labe
         return
 
     logging.info("Moved %d files back to incoming/, reprocessing...", count)
-    process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
+    process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
 
 
 def print_summary():
@@ -622,14 +680,15 @@ def main():
     # Load both models
     yolo_sess, yolo_input_name = load_yolo(YOLO_MODEL_PATH)
     species_sess, species_input_name, labels = load_species_model(SPECIES_MODEL_PATH, LABELS_PATH)
+    regional_species = load_regional_filter(REGIONAL_SPECIES_PATH)
 
     if args.reprocess:
-        reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
+        reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
     elif args.watch:
-        process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
-        watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
+        process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+        watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
     else:
-        n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels)
+        n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
         if n == 0:
             logging.info("No pending files in %s", INCOMING_DIR)
         print_summary()
