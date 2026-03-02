@@ -430,6 +430,8 @@
   .btn-wrong:hover { background: #dc2626; }
   .btn-skip { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border); }
   .btn-skip:hover { background: var(--border); color: var(--text-primary); }
+  .btn-trash { background: #4b5563; color: #d1d5db; }
+  .btn-trash:hover { background: #6b7280; color: #fff; }
 
   .review-wrong-dropdown {
     display: none;
@@ -587,7 +589,7 @@
       <div class="panel">
         <div class="panel-header"><span class="icon">&#x1F3A5;</span> Live Camera Feed</div>
         <div class="live-wrapper">
-          <iframe src="/api/stream.html?src=feeder-main" allow="autoplay; fullscreen" loading="lazy"></iframe>
+          <iframe src="/stream.html?src=feeder-main" allow="autoplay; fullscreen" loading="lazy"></iframe>
         </div>
       </div>
       <div class="panel">
@@ -650,16 +652,31 @@
   let regionalSpecies = [];
 
   // ── Helpers ──
+  function parseTimestamp(ts) {
+    if (!ts) return NaN;
+    // Fix dashed time: "2026-03-02 11-10-42" → "2026-03-02T11:10:42"
+    var m = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2})-(\d{2})-(\d{2})$/);
+    if (m) return new Date(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4]).getTime();
+    return new Date(ts).getTime();
+  }
+
+  function tsHour(ts) {
+    if (!ts) return 12;
+    var m = ts.match(/(\d{2})[-:](\d{2})[-:](\d{2})$/);
+    return m ? parseInt(m[1], 10) : 12;
+  }
+
   function timeAgo(ts) {
     if (!ts) return '';
     const now = Date.now();
-    const t = new Date(ts).getTime();
+    const t = parseTimestamp(ts);
+    if (isNaN(t)) return '';
     const diff = Math.max(0, Math.floor((now - t) / 1000));
     if (diff < 60) return 'just now';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
     if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
-    return new Date(ts).toLocaleDateString();
+    return new Date(t).toLocaleDateString();
   }
 
   function confClass(val) {
@@ -900,7 +917,10 @@
 
     grid.innerHTML = sorted.map(sp => {
       const dets = speciesDetections[sp.common_name] || [];
-      const thumbFile = dets.length > 0 ? dets[0].file : null;
+      // Prefer daytime thumbnail (hour 7-17) to avoid black nighttime images
+      const daytimeDets = dets.filter(d => { var h = tsHour(d.source_timestamp); return h >= 7 && h < 18; });
+      const thumbDet = daytimeDets.length > 0 ? daytimeDets[0] : (dets.length > 0 ? dets[0] : null);
+      const thumbFile = thumbDet ? thumbDet.file : null;
       const thumbUrl = thumbFile ? '/bird-api/image/' + encodeURIComponent(thumbFile) : '';
       const lastSeen = sp.last_seen ? timeAgo(sp.last_seen) : 'unknown';
 
@@ -1008,6 +1028,7 @@
         '<div class="review-actions">' +
           '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">&#x2713; Correct</button>' +
           '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">&#x2717; Wrong</button>' +
+          '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">&#x1F5D1; Trash</button>' +
           '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">&#x2192; Skip</button>' +
         '</div>' +
         '<div class="review-wrong-dropdown" id="wrong-dropdown">' +
@@ -1052,7 +1073,7 @@
       updateReviewProgress();
       reviewIndex++;
       renderReviewItem();
-      showToast(verdict === 'correct' ? 'Marked correct' : verdict === 'skip' ? 'Skipped' : 'Submitted', 'success');
+      showToast(verdict === 'correct' ? 'Marked correct' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : 'Submitted', 'success');
     } catch (e) {
       showToast('Failed to submit review', 'error');
     }

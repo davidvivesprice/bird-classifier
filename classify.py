@@ -18,11 +18,12 @@ Usage:
 import argparse
 import json
 import logging
+import math
 import os
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -53,11 +54,74 @@ CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of b
 
 # Watch mode
 WATCH_INTERVAL = 10  # seconds
+NIGHT_CHECK_INTERVAL = 300  # seconds (5 min) — poll interval when nighttime
+
+# Location: Cape Cod, MA (for sunset/sunrise calculation)
+LATITUDE = 41.39
+LONGITUDE = -70.61
+NIGHT_OFFSET_MINUTES = 30  # keep running this many minutes after sunset
 
 # YOLO input
 YOLO_INPUT_SIZE = 640
 # Species classifier input
 SPECIES_INPUT_SIZE = (224, 224)
+
+
+def _solar_times(lat, lon, dt=None):
+    """Calculate sunrise and sunset hours (UTC) using NOAA simplified algorithm."""
+    if dt is None:
+        dt = date.today()
+    doy = dt.timetuple().tm_yday
+    lat_rad = math.radians(lat)
+    gamma = 2 * math.pi / 365 * (doy - 1)
+    eqtime = 229.18 * (
+        0.000075 + 0.001868 * math.cos(gamma)
+        - 0.032077 * math.sin(gamma)
+        - 0.014615 * math.cos(2 * gamma)
+        - 0.040849 * math.sin(2 * gamma)
+    )
+    decl = (
+        0.006918 - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2 * gamma)
+        + 0.000907 * math.sin(2 * gamma)
+        - 0.002697 * math.cos(3 * gamma)
+        + 0.00148 * math.sin(3 * gamma)
+    )
+    cos_ha = math.cos(math.radians(90.833)) / (
+        math.cos(lat_rad) * math.cos(decl)
+    ) - math.tan(lat_rad) * math.tan(decl)
+    cos_ha = max(-1.0, min(1.0, cos_ha))
+    ha = math.degrees(math.acos(cos_ha))
+    noon_utc = 720 - 4 * lon - eqtime
+    sunrise_utc = (noon_utc - ha * 4) / 60  # hours
+    sunset_utc = (noon_utc + ha * 4) / 60   # hours
+    return sunrise_utc, sunset_utc
+
+
+def _utc_offset_for_date(dt):
+    """Return UTC offset for US Eastern time (EST=-5, EDT=-4)."""
+    year = dt.year
+    march1 = date(year, 3, 1)
+    nov1 = date(year, 11, 1)
+    # DST starts 2nd Sunday of March
+    dst_start = march1 + timedelta(days=(6 - march1.weekday()) % 7 + 7)
+    # DST ends 1st Sunday of November
+    dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
+    return -4 if dst_start <= dt <= dst_end else -5
+
+
+def is_nighttime():
+    """Check if it's past sunset+offset or before sunrise for Cape Cod, MA."""
+    now = datetime.now()
+    today = now.date()
+    sunrise_utc, sunset_utc = _solar_times(LATITUDE, LONGITUDE, today)
+    offset = _utc_offset_for_date(today)
+    sunrise_local = sunrise_utc + offset
+    sunset_local = sunset_utc + offset
+    current_hours = now.hour + now.minute / 60.0
+    sunset_cutoff = sunset_local + NIGHT_OFFSET_MINUTES / 60.0
+    return current_hours >= sunset_cutoff or current_hours < sunrise_local
 
 
 def setup_logging():
@@ -397,10 +461,14 @@ def annotate_image(image, detections, predictions, best_idx=0):
 # ──────────────────────────────────────────────────
 
 def extract_timestamp(filename):
-    """Extract timestamp from filename like 2026-03-01_16-54-01.jpg."""
+    """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'."""
     try:
         stem = filename.rsplit(".", 1)[0]
-        return stem.replace("_", " ").replace("-", ":", 2).replace(":", "-", 2)
+        parts = stem.split("_", 1)
+        if len(parts) == 2:
+            date_part, time_part = parts
+            return date_part + " " + time_part.replace("-", ":")
+        return stem
     except Exception:
         return None
 
@@ -586,10 +654,20 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
 
 
 def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
-    """Continuously watch for new files."""
+    """Continuously watch for new files. Pauses during nighttime."""
     logging.info("Watch mode started (polling every %ds)", WATCH_INTERVAL)
+    was_night = False
     try:
         while True:
+            if is_nighttime():
+                if not was_night:
+                    logging.info("Nighttime — pausing classification until sunrise")
+                    was_night = True
+                time.sleep(NIGHT_CHECK_INTERVAL)
+                continue
+            if was_night:
+                logging.info("Daytime resumed — restarting classification")
+                was_night = False
             n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
             if n > 0:
                 logging.info("Processed %d file(s), waiting for more...", n)

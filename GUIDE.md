@@ -79,6 +79,10 @@ Uses SSH+SCP (not rsync — macOS openrsync has SSH transport bugs) to pull new 
 **Plist**: `/Users/vives/Library/LaunchAgents/com.vives.bird-classifier.plist`
 **Venv**: `/Users/vives/bird-classifier/venv/` (Python 3.12.12)
 
+#### Nighttime Scheduling
+
+The classifier automatically pauses ~30 minutes after sunset and resumes at sunrise. Uses NOAA solar algorithm for Cape Cod coordinates (41.39°N, 70.61°W). Night vision confuses the species model, so this avoids wasting time on unusable nighttime frames. In watch mode, it polls every 5 minutes during nighttime instead of every 10 seconds.
+
 #### Two-Stage Pipeline
 
 **Stage 1 — Bird Detection (YOLOv8n)**:
@@ -155,7 +159,7 @@ FastAPI serving classifier data over REST:
 | `/api/recent?limit=50` | GET | Recent detections |
 | `/api/image/{filename}` | GET | Annotated JPEG |
 | `/api/review/pending` | GET | Unreviewed items |
-| `/api/review/{filename}` | POST | Submit verdict |
+| `/api/review/{filename}` | POST | Submit verdict (correct/wrong/skip/trash) |
 | `/api/regional-species` | GET | Species filter list |
 
 ### 5. BirdNET-Go Audio Detection (VivesSyn)
@@ -196,14 +200,15 @@ Queries the BirdNET SQLite DB and exports a JSON summary with species counts, av
 
 Single-page app with two tabs:
 - **Dashboard**: Live camera feed, species bar chart, species cards, recent sightings
-- **Review**: Annotation GUI for confirming/rejecting classifications
+- **Review**: Annotation GUI for confirming/rejecting/trashing classifications
 
 **Nginx routing** (`/volume1/docker/birds-hls/nginx.conf`):
 
 | Path | Target |
 |------|--------|
 | `/` | `index.html` (dashboard SPA) |
-| `/api/` | `go2rtc:1984` (WebRTC/HLS live feed) |
+| `/stream.html` | `go2rtc:1984` (WebRTC streaming page) |
+| `/api/` | `go2rtc:1984` (WebRTC/HLS API) |
 | `/hls/` | `go2rtc:1984` (HLS fallback) |
 | `/bird-api/` | `192.168.4.68:8099` (iMac classifier API) |
 | `/birdnet-data/` | Static JSON files |

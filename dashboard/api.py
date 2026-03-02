@@ -9,6 +9,7 @@ Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 
 import json
 import os
+import shutil
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 BASE_DIR = Path("/Users/vives/bird-snapshots")
 JSONL_PATH = BASE_DIR / "logs" / "classifications.jsonl"
 ANNOTATED_DIR = BASE_DIR / "annotated"
+TRASH_DIR = BASE_DIR / "trash"
 REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
 REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/cape_cod_species.txt")
 
@@ -224,8 +226,8 @@ def review_pending():
 def submit_review(filename: str, verdict: str, correct_species: str = ""):
     """Submit a review verdict for a classification."""
     safe_name = os.path.basename(filename)
-    if verdict not in ("correct", "wrong", "skip"):
-        raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', or 'skip'")
+    if verdict not in ("correct", "wrong", "skip", "trash"):
+        raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', 'skip', or 'trash'")
 
     review = {
         "file": safe_name,
@@ -236,6 +238,13 @@ def submit_review(filename: str, verdict: str, correct_species: str = ""):
 
     with open(REVIEWS_PATH, "a") as f:
         f.write(json.dumps(review) + "\n")
+
+    # Move trashed images out of annotated dir
+    if verdict == "trash":
+        TRASH_DIR.mkdir(parents=True, exist_ok=True)
+        src = ANNOTATED_DIR / safe_name
+        if src.exists():
+            shutil.move(str(src), str(TRASH_DIR / safe_name))
 
     return {"status": "ok", "review": review}
 
