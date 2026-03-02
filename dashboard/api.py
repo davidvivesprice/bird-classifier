@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 # --- Paths ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
 JSONL_PATH = BASE_DIR / "logs" / "classifications.jsonl"
+CLASSIFIED_DIR = BASE_DIR / "classified"
 ANNOTATED_DIR = BASE_DIR / "annotated"
 TRASH_DIR = BASE_DIR / "trash"
 REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
@@ -182,13 +183,25 @@ def recent(limit: int = 50):
 
 @app.get("/api/image/{filename}")
 def get_image(filename: str):
-    """Serve an annotated image."""
-    # Sanitize filename
+    """Serve an annotated image (with bounding boxes)."""
     safe_name = os.path.basename(filename)
     path = ANNOTATED_DIR / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(str(path), media_type="image/jpeg")
+
+
+@app.get("/api/image-raw/{filename}")
+def get_image_raw(filename: str):
+    """Serve the original image (no bounding boxes) from classified/ subdirectories."""
+    safe_name = os.path.basename(filename)
+    # Search through all species subdirectories
+    for species_dir in CLASSIFIED_DIR.iterdir():
+        if species_dir.is_dir():
+            path = species_dir / safe_name
+            if path.exists():
+                return FileResponse(str(path), media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="Raw image not found")
 
 
 @app.get("/api/review/pending")

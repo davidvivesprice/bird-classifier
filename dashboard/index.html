@@ -143,11 +143,12 @@
     background: #000;
   }
 
-  .live-wrapper iframe {
+  .live-wrapper video {
     position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
-    border: none;
+    object-fit: contain;
+    background: #000;
   }
 
   .live-offline {
@@ -559,7 +560,125 @@
     .review-actions { flex-direction: column; }
     .review-btn { justify-content: center; }
     .tab-btn { padding: 7px 12px; font-size: 0.82rem; }
+    .lightbox-body { padding: 12px; }
+    .lightbox-img { max-height: 60vh; }
   }
+
+  /* ── Lightbox / Image Popup ── */
+  .lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .lightbox-overlay.visible { display: flex; }
+
+  .lightbox {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-width: 1100px;
+    width: 100%;
+    max-height: 92vh;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .lightbox-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .lightbox-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+  }
+
+  .lightbox-sci {
+    font-style: italic;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-left: 10px;
+  }
+
+  .lightbox-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.6rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    line-height: 1;
+  }
+
+  .lightbox-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+  .lightbox-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    flex-shrink: 0;
+  }
+
+  .lightbox-tab {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+
+  .lightbox-tab:hover { color: var(--text-primary); }
+  .lightbox-tab.active { color: var(--accent-green); border-bottom-color: var(--accent-green); }
+
+  .lightbox-body {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: #000;
+    min-height: 300px;
+  }
+
+  .lightbox-img {
+    max-width: 100%;
+    max-height: 75vh;
+    display: block;
+    border-radius: 4px;
+  }
+
+  .lightbox-footer {
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 16px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .lightbox-footer b { color: var(--text-primary); }
 </style>
 </head>
 <body>
@@ -589,7 +708,11 @@
       <div class="panel">
         <div class="panel-header"><span class="icon">&#x1F3A5;</span> Live Camera Feed</div>
         <div class="live-wrapper">
-          <iframe src="/stream.html?src=feeder-main" allow="autoplay; fullscreen" loading="lazy"></iframe>
+          <video id="live-video" autoplay muted playsinline></video>
+          <div class="live-offline" id="live-offline">
+            <span class="big">&#x1F4F7;</span>
+            <div>Connecting to camera...</div>
+          </div>
         </div>
       </div>
       <div class="panel">
@@ -632,6 +755,27 @@
     </div>
   </div>
 
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox-overlay" id="lightbox-overlay" onclick="if(event.target===this)closeLightbox()">
+  <div class="lightbox">
+    <div class="lightbox-header">
+      <div>
+        <span class="lightbox-title" id="lightbox-title"></span>
+        <span class="lightbox-sci" id="lightbox-sci"></span>
+      </div>
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    </div>
+    <div class="lightbox-tabs">
+      <button class="lightbox-tab active" data-lbtab="photo" onclick="switchLightboxTab('photo')">Photo</button>
+      <button class="lightbox-tab" data-lbtab="annotated" onclick="switchLightboxTab('annotated')">Annotated</button>
+    </div>
+    <div class="lightbox-body">
+      <img class="lightbox-img" id="lightbox-img" alt="Bird photo">
+    </div>
+    <div class="lightbox-footer" id="lightbox-footer"></div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -701,6 +845,170 @@
     return resp.json();
   }
 
+  // ── Live Feed: MSE over WebSocket (go2rtc) ──
+  function initLiveFeed() {
+    const video = document.getElementById('live-video');
+    const offline = document.getElementById('live-offline');
+    if (!video) return;
+
+    let ws, mediaSource, sourceBuffer, queue = [];
+
+    function cleanup() {
+      if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+      if (mediaSource && mediaSource.readyState === 'open') {
+        try { mediaSource.endOfStream(); } catch(e) {}
+      }
+      mediaSource = null;
+      sourceBuffer = null;
+      queue = [];
+    }
+
+    function flushQueue() {
+      if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
+      // Trim buffer to keep latency low
+      try {
+        if (video.buffered.length > 0) {
+          var end = video.buffered.end(video.buffered.length - 1);
+          var start = video.buffered.start(0);
+          if (end - start > 8) {
+            sourceBuffer.remove(start, end - 4);
+            return;
+          }
+          // Jump to live edge if playback falls behind
+          if (video.currentTime < end - 3) {
+            video.currentTime = end - 0.5;
+          }
+        }
+      } catch(e) {}
+      try {
+        sourceBuffer.appendBuffer(queue.shift());
+      } catch(e) {
+        queue = [];
+      }
+    }
+
+    function connect() {
+      cleanup();
+      if (offline) offline.style.display = '';
+
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(proto + '//' + location.host + '/api/ws?src=feeder-main');
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = function() {
+        if (offline) offline.style.display = 'none';
+        mediaSource = new MediaSource();
+        video.src = URL.createObjectURL(mediaSource);
+        mediaSource.addEventListener('sourceopen', function() {
+          // MediaSource ready — request MSE stream from go2rtc
+          ws.send(JSON.stringify({type: 'mse'}));
+        });
+      };
+
+      ws.onmessage = function(event) {
+        if (typeof event.data === 'string') {
+          try {
+            var msg = JSON.parse(event.data);
+            if (msg.type === 'mse' && mediaSource.readyState === 'open') {
+              sourceBuffer = mediaSource.addSourceBuffer(msg.value);
+              sourceBuffer.mode = 'segments';
+              sourceBuffer.addEventListener('updateend', flushQueue);
+              video.play().catch(function(){});
+            }
+          } catch(e) {}
+        } else if (sourceBuffer) {
+          if (sourceBuffer.updating || queue.length > 0) {
+            queue.push(event.data);
+          } else {
+            try {
+              sourceBuffer.appendBuffer(event.data);
+            } catch(e) {
+              queue = [];
+            }
+          }
+        }
+      };
+
+      ws.onclose = function() {
+        if (offline) offline.style.display = '';
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = function() { ws.close(); };
+    }
+
+    connect();
+  }
+
+  // ── Lightbox ──
+  let lightboxFile = '';
+  let lightboxTab = 'photo';
+  let _lbReg = []; // registry for lightbox items (avoids inline escaping issues)
+
+  function regLB(file, name, sci, conf, ts) {
+    _lbReg.push({file: file, name: name, sci: sci, conf: conf, ts: ts});
+    return _lbReg.length - 1;
+  }
+
+  window.openLB = function(idx) {
+    var item = _lbReg[idx];
+    if (item) openLightbox(item.file, item.name, item.sci, item.conf, item.ts);
+  };
+
+  window.openLightbox = function(file, name, sci, conf, ts) {
+    lightboxFile = file;
+    lightboxTab = 'photo';
+    document.getElementById('lightbox-title').textContent = name || 'Unknown';
+    document.getElementById('lightbox-sci').textContent = sci || '';
+    // Set photo tab active
+    document.querySelectorAll('.lightbox-tab').forEach(t => t.classList.toggle('active', t.dataset.lbtab === 'photo'));
+    // Load raw image
+    var img = document.getElementById('lightbox-img');
+    img.src = '/bird-api/image-raw/' + encodeURIComponent(file);
+    img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(file); };
+    // Footer metadata
+    var footer = document.getElementById('lightbox-footer');
+    var parts = [];
+    if (conf) parts.push('<span>Detection: <b>' + (conf * 100).toFixed(0) + '%</b></span>');
+    if (ts) parts.push('<span>' + timeAgo(ts) + '</span>');
+    parts.push('<span>' + escHtml(file) + '</span>');
+    footer.innerHTML = parts.join('');
+    document.getElementById('lightbox-overlay').classList.add('visible');
+  };
+
+  window.switchLightboxTab = function(tab) {
+    lightboxTab = tab;
+    document.querySelectorAll('.lightbox-tab').forEach(t => t.classList.toggle('active', t.dataset.lbtab === tab));
+    var img = document.getElementById('lightbox-img');
+    if (tab === 'photo') {
+      img.src = '/bird-api/image-raw/' + encodeURIComponent(lightboxFile);
+      img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(lightboxFile); };
+    } else {
+      img.onerror = null;
+      img.src = '/bird-api/image/' + encodeURIComponent(lightboxFile);
+    }
+  };
+
+  window.closeLightbox = function() {
+    document.getElementById('lightbox-overlay').classList.remove('visible');
+    document.getElementById('lightbox-img').src = '';
+  };
+
+  window.openDetection = function(idx) {
+    var d = recentDetections[idx];
+    if (!d || !d.file) return;
+    var name = d.top_prediction ? d.top_prediction.common_name : 'Unknown';
+    var sci = d.top_prediction ? d.top_prediction.scientific_name : '';
+    var conf = d.best_detection ? d.best_detection.confidence : 0;
+    var ts = d.source_timestamp || d.timestamp;
+    openLightbox(d.file, name, sci, conf, ts);
+  };
+
+  // Close on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
   function showToast(msg, type) {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -750,12 +1058,12 @@
       el.innerHTML = '<div class="loading-msg">No recent detections</div>';
       return;
     }
-    el.innerHTML = recentDetections.map(d => {
+    el.innerHTML = recentDetections.slice(0, 10).map((d, i) => {
       const name = d.top_prediction ? d.top_prediction.common_name : 'Unknown';
       const conf = d.best_detection ? d.best_detection.confidence : (d.top_prediction ? d.top_prediction.raw_score : 0);
       const ts = d.source_timestamp || d.timestamp;
       const thumbUrl = d.file ? '/bird-api/image/' + encodeURIComponent(d.file) : '';
-      return '<div class="recent-item">' +
+      return '<div class="recent-item" style="cursor:pointer" onclick="openDetection(' + i + ')">' +
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
           '<div class="recent-species">' + escHtml(name) + '</div>' +
@@ -905,6 +1213,8 @@
 
     const sorted = [...visualSpecies].sort((a, b) => (b.count || 0) - (a.count || 0));
 
+    _lbReg = []; // Reset lightbox registry for fresh render
+
     // Build a map of species to their recent detections for thumbnails
     const speciesDetections = {};
     recentDetections.forEach(d => {
@@ -927,16 +1237,20 @@
       const expandHtml = dets.slice(0, 5).map(d => {
         const c = d.best_detection ? d.best_detection.confidence : 0;
         const ts = d.source_timestamp || d.timestamp;
-        return '<div class="expand-det">' +
-          '<img class="expand-det-thumb" src="/bird-api/image/' + encodeURIComponent(d.file) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+        const ef = encodeURIComponent(d.file);
+        const lbi = regLB(d.file, sp.common_name, sp.scientific_name || '', c, ts);
+        return '<div class="expand-det" style="cursor:pointer" onclick="event.stopPropagation();openLB(' + lbi + ')">' +
+          '<img class="expand-det-thumb" src="/bird-api/image/' + ef + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
           '<span>' + timeAgo(ts) + '</span>' +
           '<span class="confidence-badge ' + confClass(c) + '">' + confLabel(c) + '</span>' +
         '</div>';
       }).join('');
 
+      const thumbLbi = thumbFile ? regLB(thumbFile, sp.common_name, sp.scientific_name || '', 0, '') : -1;
+
       return '<div class="species-card" onclick="this.classList.toggle(\'expanded\')">' +
         (thumbUrl
-          ? '<img class="species-card-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+          ? '<img class="species-card-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'"' + (thumbLbi >= 0 ? ' onclick="event.stopPropagation();openLB(' + thumbLbi + ')" style="cursor:zoom-in"' : '') + '>'
           : '<div class="species-card-thumb" style="background:var(--bg-primary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2rem;">&#x1F426;</div>'
         ) +
         '<div class="species-card-body">' +
@@ -1114,6 +1428,7 @@
 
   // ── Init & Refresh ──
   async function init() {
+    initLiveFeed();
     await Promise.all([loadStats(), loadAllRecent()]);
     renderRecent();
     await loadSpeciesData();
