@@ -10,11 +10,14 @@ Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 import json
 import os
 import shutil
+import time as _time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -23,9 +26,12 @@ BASE_DIR = Path("/Users/vives/bird-snapshots")
 JSONL_PATH = BASE_DIR / "logs" / "classifications.jsonl"
 CLASSIFIED_DIR = BASE_DIR / "classified"
 ANNOTATED_DIR = BASE_DIR / "annotated"
+SKIPPED_DIR = BASE_DIR / "skipped"
 TRASH_DIR = BASE_DIR / "trash"
+BACKGROUND_DIR = BASE_DIR / "classified" / "background"
 REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
 REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/cape_cod_species.txt")
+SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
@@ -72,36 +78,51 @@ def load_regional_species():
         return [line.strip() for line in f if line.strip() and line.strip() != "background"]
 
 
+def filter_by_date(entries, date_str):
+    """Filter entries to a specific date (YYYY-MM-DD) using source_timestamp."""
+    if not date_str or date_str == "all":
+        return entries
+    return [e for e in entries if (e.get("source_timestamp") or "")[:10] == date_str]
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
 @app.get("/api/stats")
-def stats():
-    """Overall classification statistics."""
+def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'")):
+    """Overall classification statistics, optionally filtered by date."""
     entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
-    skipped = [e for e in entries if e["action"].startswith("skipped")]
+    filtered = filter_by_date(entries, date)
+    classified = [e for e in filtered if e["action"] == "classified"]
+    skipped = [e for e in filtered if e["action"].startswith("skipped")]
     species = set()
     for e in classified:
         if "top_prediction" in e:
             species.add(e["top_prediction"]["common_name"])
 
+    # Server timezone offset in minutes west of UTC (matches JS getTimezoneOffset convention)
+    # e.g. EST=300, EDT=240
+    _lt = _time.localtime()
+    tz_offset_min = (_time.altzone if _time.daylight and _lt.tm_isdst else _time.timezone) // 60
+
     return {
-        "total": len(entries),
+        "total": len(filtered),
         "classified": len(classified),
         "skipped": len(skipped),
         "species_count": len(species),
         "last_updated": entries[-1]["timestamp"] if entries else None,
+        "server_tz_offset": tz_offset_min,
     }
 
 
 @app.get("/api/species")
-def species_list():
-    """List all detected species with counts and metadata."""
+def species_list(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'")):
+    """List all detected species with counts and metadata, optionally filtered by date."""
     entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
+    filtered = filter_by_date(entries, date)
+    classified = [e for e in filtered if e["action"] == "classified"]
 
     species_data = defaultdict(lambda: {
         "count": 0,
@@ -222,6 +243,7 @@ def review_pending():
                 "raw_score": e.get("top_prediction", {}).get("raw_score", 0),
                 "top3": e.get("top3", []),
                 "raw_top3": e.get("raw_top3", []),
+                "birds": e.get("birds", []),
             })
 
     total_classified = len(classified)
@@ -262,7 +284,139 @@ def submit_review(filename: str, verdict: str, correct_species: str = ""):
     return {"status": "ok", "review": review}
 
 
+@app.get("/api/dates")
+def available_dates():
+    """Return list of dates that have classified detections, newest first."""
+    entries = load_classifications()
+    classified = [e for e in entries if e["action"] == "classified"]
+    dates = set()
+    for e in classified:
+        ts = e.get("source_timestamp") or ""
+        if len(ts) >= 10:
+            dates.add(ts[:10])
+    return sorted(dates, reverse=True)
+
+
+@app.get("/api/species-info/{name}")
+def species_info(name: str):
+    """Return cached species info (description, photos, audio)."""
+    if not SPECIES_INFO_PATH.exists():
+        raise HTTPException(status_code=404, detail="Species info cache not found")
+
+    with open(SPECIES_INFO_PATH) as f:
+        cache = json.load(f)
+
+    # Exact match first
+    if name in cache:
+        return cache[name]
+
+    # Case-insensitive fallback
+    lower = name.lower()
+    for key, val in cache.items():
+        if key.lower() == lower:
+            return val
+
+    raise HTTPException(status_code=404, detail=f"No info for species '{name}'")
+
+
 @app.get("/api/regional-species")
 def regional_species():
     """Return the regional species filter list (for the annotation dropdown)."""
     return load_regional_species()
+
+
+# ──────────────────────────────────────────────────
+# Skipped Frame Review
+# ──────────────────────────────────────────────────
+
+@app.get("/api/skipped")
+def skipped_list(limit: int = 200, offset: int = 0):
+    """List skipped images, most recent first."""
+    if not SKIPPED_DIR.exists():
+        return {"files": [], "total": 0}
+
+    files = sorted(SKIPPED_DIR.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+    total = len(files)
+
+    # Load reviews to filter out already-reviewed skipped frames
+    reviews = load_reviews()
+    skipped_reviews = {r["file"]: r for r in reviews.values() if r.get("source") == "skipped"}
+
+    page = files[offset:offset + limit]
+    result = []
+    for f in page:
+        fname = f.name
+        reviewed = fname in skipped_reviews
+        result.append({
+            "file": fname,
+            "timestamp": extract_timestamp_from_filename(fname),
+            "reviewed": reviewed,
+            "verdict": skipped_reviews[fname]["verdict"] if reviewed else None,
+        })
+
+    return {"files": result, "total": total}
+
+
+@app.get("/api/skipped/image/{filename}")
+def get_skipped_image(filename: str):
+    """Serve a skipped image."""
+    safe_name = os.path.basename(filename)
+    path = SKIPPED_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Skipped image not found")
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
+@app.post("/api/skipped/{filename}/requeue")
+def requeue_skipped(filename: str):
+    """Move a skipped image back to incoming/ for re-classification."""
+    safe_name = os.path.basename(filename)
+    src = SKIPPED_DIR / safe_name
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Skipped image not found")
+
+    incoming = BASE_DIR / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    dest = incoming / safe_name
+    shutil.move(str(src), str(dest))
+    return {"status": "ok", "action": "requeued", "file": safe_name}
+
+
+@app.post("/api/skipped/{filename}/trash")
+def trash_skipped(filename: str):
+    """Move a skipped image to trash."""
+    safe_name = os.path.basename(filename)
+    src = SKIPPED_DIR / safe_name
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Skipped image not found")
+
+    TRASH_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(TRASH_DIR / safe_name))
+    return {"status": "ok", "action": "trashed", "file": safe_name}
+
+
+@app.post("/api/skipped/{filename}/confirm-empty")
+def confirm_empty(filename: str):
+    """Save a skipped image as a confirmed background/empty training sample."""
+    safe_name = os.path.basename(filename)
+    src = SKIPPED_DIR / safe_name
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Skipped image not found")
+
+    BACKGROUND_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(src), str(BACKGROUND_DIR / safe_name))
+    # Remove from skipped after confirming
+    src.unlink()
+    return {"status": "ok", "action": "confirmed_empty", "file": safe_name}
+
+
+def extract_timestamp_from_filename(filename):
+    """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'."""
+    try:
+        stem = filename.rsplit(".", 1)[0]
+        parts = stem.split("_", 1)
+        if len(parts) == 2:
+            return parts[0] + " " + parts[1].replace("-", ":")
+        return stem
+    except Exception:
+        return None

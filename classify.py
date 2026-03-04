@@ -396,9 +396,11 @@ def classify_species(species_sess, species_input_name, labels, bird_crop, region
 # Annotation: draw bounding boxes + labels on image
 # ──────────────────────────────────────────────────
 
-def annotate_image(image, detections, predictions, best_idx=0):
+def annotate_image(image, detections, all_predictions, best_idx=0):
     """
     Draw bounding boxes and species labels on a copy of the image.
+    all_predictions: list parallel to detections — each element is a list of
+                     top predictions for that detection (or None/[] if not classified).
     Returns annotated PIL Image.
     """
     img = image.copy()
@@ -418,40 +420,68 @@ def annotate_image(image, detections, predictions, best_idx=0):
         font = ImageFont.load_default()
         font_small = font
 
+    # Color palette for multiple birds — best is green, rest cycle through colors
+    OTHER_COLORS = [
+        (255, 255, 0),   # yellow
+        (0, 200, 255),   # cyan
+        (255, 128, 0),   # orange
+        (200, 100, 255), # purple
+    ]
+
     for i, det in enumerate(detections):
         x1, y1, x2, y2 = det["box"]
         conf = det["confidence"]
         is_best = (i == best_idx)
+        preds = all_predictions[i] if i < len(all_predictions) else []
 
-        # Box color: green for best detection, yellow for others
-        color = (0, 255, 0) if is_best else (255, 255, 0)
-        width = 3 if is_best else 2
+        # Box color: green for best detection, cycle colors for others
+        if is_best:
+            color = (0, 255, 0)
+            width = 3
+        else:
+            color = OTHER_COLORS[(i - (1 if i > best_idx else 0)) % len(OTHER_COLORS)]
+            width = 2
         draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
 
-        if is_best and predictions:
-            top = predictions[0]
+        if preds:
+            top = preds[0]
             label = f'{top["common_name"]} ({top["raw_score"]})'
             conf_label = f'det: {conf:.0%}'
 
-            # Draw label background
-            bbox = draw.textbbox((x1, y1), label, font=font)
+            # Measure text to position label outside the bounding box
+            label_bbox = draw.textbbox((0, 0), label, font=font)
+            label_w = label_bbox[2] - label_bbox[0]
+            label_h = label_bbox[3] - label_bbox[1]
+            conf_bbox = draw.textbbox((0, 0), conf_label, font=font_small)
+            conf_h = conf_bbox[3] - conf_bbox[1]
             pad = 4
-            bg_rect = [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad]
+            gap = 2
+            total_h = pad + label_h + gap + conf_h + pad
+
+            # Place label ABOVE the box if room, otherwise BELOW
+            if y1 - total_h >= 0:
+                block_top = y1 - total_h
+            else:
+                block_top = y2
+            species_y = block_top + pad
+            conf_y = species_y + label_h + gap
+
+            # Draw background behind both lines
+            bg_rect = [x1 - pad, block_top, x1 + label_w + pad, block_top + total_h]
             draw.rectangle(bg_rect, fill=(0, 0, 0, 200))
-            draw.text((x1, y1), label, fill=color, font=font)
-
-            # Detection confidence below the species label
-            cy = bg_rect[3] + 2
-            draw.text((x1, cy), conf_label, fill=(200, 200, 200), font=font_small)
-
-            # Top 3 in bottom-left corner
-            y_off = img.height - 80
-            for j, p in enumerate(predictions[:3]):
-                line = f'#{j+1} {p["common_name"]} (raw={p["raw_score"]})'
-                draw.text((10, y_off), line, fill=(255, 255, 255), font=font_small)
-                y_off += 22
+            draw.text((x1, species_y), label, fill=color, font=font)
+            draw.text((x1, conf_y), conf_label, fill=(200, 200, 200), font=font_small)
         else:
             draw.text((x1, y1 - 20), f'bird {conf:.0%}', fill=color, font=font_small)
+
+    # Top 3 for the BEST detection in bottom-left corner
+    best_preds = all_predictions[best_idx] if best_idx < len(all_predictions) else []
+    if best_preds:
+        y_off = img.height - 80
+        for j, p in enumerate(best_preds[:3]):
+            line = f'#{j+1} {p["common_name"]} (raw={p["raw_score"]})'
+            draw.text((10, y_off), line, fill=(255, 255, 255), font=font_small)
+            y_off += 22
 
     return img
 
@@ -519,20 +549,30 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         logging.info("SKIP %s — no bird detected (%.0fms)", fname, detect_ms)
         return result
 
-    # Stage 2: Classify each detected bird (use highest-confidence detection)
-    best_det = max(detections, key=lambda d: d["confidence"])
-    bird_crop = crop_bird(img, best_det["box"])
+    # Stage 2: Classify ALL detected birds (sorted by confidence, best first)
+    detections.sort(key=lambda d: d["confidence"], reverse=True)
+    best_det = detections[0]
+    best_idx = 0
 
     t1 = time.monotonic()
-    predictions, raw_predictions = classify_species(
-        species_sess, species_input_name, labels, bird_crop, regional_species
-    )
+
+    # Classify each detection
+    all_predictions = []   # list of filtered predictions per detection
+    all_raw = []           # list of raw predictions per detection
+    for det in detections:
+        bird_crop = crop_bird(img, det["box"])
+        preds, raw_preds = classify_species(
+            species_sess, species_input_name, labels, bird_crop, regional_species
+        )
+        all_predictions.append(preds)
+        all_raw.append(raw_preds)
+
     classify_ms = (time.monotonic() - t1) * 1000
     total_ms = (time.monotonic() - t0) * 1000
 
-    top = predictions[0]
+    top = all_predictions[0][0]  # best detection's top prediction
 
-    # Skip if species model says "background" or unidentified
+    # Skip if the best bird's species model says "background" or unidentified
     if top["common_name"] in ("background", "unidentified bird"):
         action = "skipped:background" if top["common_name"] == "background" else "skipped:unidentified"
         result = {
@@ -547,18 +587,34 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
             "best_detection": best_det,
             "raw_top3": [
                 {"common_name": p["common_name"], "scientific_name": p["scientific_name"], "raw_score": p["raw_score"]}
-                for p in raw_predictions
+                for p in all_raw[0]
             ],
         }
         append_result(result)
         SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
         shutil.move(str(image_path), str(SKIPPED_DIR / fname))
-        logging.info("SKIP %s — %s (raw top: %s, %dms)", fname, action, raw_predictions[0]["common_name"], total_ms)
+        logging.info("SKIP %s — %s (raw top: %s, %dms)", fname, action, all_raw[0][0]["common_name"], total_ms)
         return result
 
-    # Success: bird detected and classified
+    # Success: bird(s) detected and classified
     species_dir = CLASSIFIED_DIR / sanitize_dirname(top["common_name"])
     species_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build per-bird array for multi-bird data
+    birds = []
+    for idx, (det, preds, raw_preds) in enumerate(zip(detections, all_predictions, all_raw)):
+        bird_top = preds[0] if preds else None
+        if bird_top and bird_top["common_name"] not in ("background", "unidentified bird"):
+            birds.append({
+                "detection": det,
+                "species": bird_top["common_name"],
+                "scientific_name": bird_top["scientific_name"],
+                "raw_score": bird_top["raw_score"],
+                "top3": [
+                    {"common_name": p["common_name"], "scientific_name": p["scientific_name"], "raw_score": p["raw_score"]}
+                    for p in preds
+                ],
+            })
 
     result = {
         "file": fname,
@@ -570,6 +626,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         "total_ms": round(total_ms, 1),
         "detections": len(detections),
         "best_detection": best_det,
+        # Primary bird (backward compatible)
         "top_prediction": {
             "common_name": top["common_name"],
             "scientific_name": top["scientific_name"],
@@ -581,31 +638,34 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
                 "scientific_name": p["scientific_name"],
                 "raw_score": p["raw_score"],
             }
-            for p in predictions
+            for p in all_predictions[0]
         ],
         "raw_top3": [
             {"common_name": p["common_name"], "scientific_name": p["scientific_name"], "raw_score": p["raw_score"]}
-            for p in raw_predictions
+            for p in all_raw[0]
         ],
+        # All birds in this frame
+        "birds": birds,
     }
     append_result(result)
 
-    # Save annotated image with bounding box + label
-    best_idx = detections.index(best_det)
-    annotated = annotate_image(img, detections, predictions, best_idx)
+    # Save annotated image with bounding box + labels for ALL birds
+    annotated = annotate_image(img, detections, all_predictions, best_idx)
     ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
     annotated.save(str(ANNOTATED_DIR / fname), quality=90)
 
     shutil.move(str(image_path), str(species_dir / fname))
 
     raw_note = ""
-    if raw_predictions[0]["common_name"] != top["common_name"]:
-        raw_note = f" (raw: {raw_predictions[0]['common_name']})"
+    if all_raw[0][0]["common_name"] != top["common_name"]:
+        raw_note = f" (raw: {all_raw[0][0]['common_name']})"
+    bird_count = f" +{len(birds)-1} more" if len(birds) > 1 else ""
     logging.info(
-        "BIRD %s → %s%s (det=%.0f%%, score=%d, %dms)",
+        "BIRD %s → %s%s%s (det=%.0f%%, score=%d, %dms)",
         fname,
         top["common_name"],
         raw_note,
+        bird_count,
         best_det["confidence"] * 100,
         top["raw_score"],
         total_ms,
