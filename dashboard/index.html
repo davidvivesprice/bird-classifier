@@ -96,6 +96,24 @@
     color: var(--text-primary);
   }
 
+  /* Real-time SSE detection highlight */
+  @keyframes yard-pulse {
+    0% { background: rgba(251, 191, 36, 0.35); }
+    100% { background: transparent; }
+  }
+  .yard-species-new {
+    animation: yard-pulse 2.5s ease-out;
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  .sse-status {
+    font-size: 0.7rem;
+    margin-left: 4px;
+    opacity: 0.6;
+  }
+  .sse-status.connected { color: var(--accent-green); }
+  .sse-status.disconnected { color: var(--accent-red); }
+
   .tab-nav {
     display: flex;
     gap: 4px;
@@ -167,10 +185,10 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
-  /* Row 1: Live + Recent */
+  /* Row 1: Live + Yard + Recent */
   .row-live {
     display: grid;
-    grid-template-columns: 1.5fr 1fr;
+    grid-template-columns: 1.5fr 0.8fr 0.8fr;
     gap: 20px;
     margin-bottom: 24px;
   }
@@ -324,6 +342,53 @@
   .conf-high { background: rgba(74,222,128,0.15); color: var(--accent-green); }
   .conf-med { background: rgba(251,191,36,0.15); color: var(--accent-amber); }
   .conf-low { background: rgba(248,113,113,0.15); color: var(--accent-red); }
+
+  /* In the Yard panel */
+  .yard-list {
+    max-height: 480px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .yard-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .yard-item:hover { background: var(--bg-hover); }
+  .yard-item:last-child { border-bottom: none; }
+  .yard-item-new { animation: yard-pulse 2.5s ease-out; }
+  .yard-thumb {
+    width: 44px; height: 44px;
+    border-radius: 8px;
+    background: var(--bg-primary);
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .yard-info { flex: 1; min-width: 0; }
+  .yard-species-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .yard-meta { font-size: 0.75rem; color: var(--text-muted); }
+  .yard-play-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    width: 28px; height: 28px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+  }
+  .yard-play-btn:hover { background: var(--bg-hover); border-color: var(--accent-amber); color: var(--accent-amber); }
+  .yard-play-btn.playing { border-color: var(--accent-green); color: var(--accent-green); background: rgba(74,222,128,0.1); }
+  .yard-empty { padding: 20px 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+  .panel-header .sse-status { margin-left: 8px; }
 
   /* Row 2: Chart */
   .row-chart { margin-bottom: 24px; }
@@ -550,6 +615,10 @@
   .btn-skip:hover { background: var(--border); color: var(--text-primary); }
   .btn-trash { background: #4b5563; color: #d1d5db; }
   .btn-trash:hover { background: #6b7280; color: #fff; }
+  .btn-missed { background: var(--accent-amber); color: #000; }
+  .btn-missed:hover { background: #f59e0b; }
+  .btn-nav { background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); padding: 12px 16px; }
+  .btn-nav:hover { background: var(--border); color: var(--text-primary); }
 
   .review-wrong-dropdown {
     display: none;
@@ -925,6 +994,7 @@
   @media (max-width: 1024px) {
     .row-live { grid-template-columns: 1fr; }
     .recent-list { max-height: 300px; }
+    .yard-list { max-height: 300px; }
     .species-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   }
 
@@ -1312,6 +1382,12 @@
         </div>
       </div>
       <div class="panel">
+        <div class="panel-header"><span class="icon">&#x1F3A4;</span> In the Yard <span class="sse-status" id="sse-dot" title="Connecting…">●</span></div>
+        <div class="yard-list" id="yard-list">
+          <div class="yard-empty">Listening for birds…</div>
+        </div>
+      </div>
+      <div class="panel">
         <div class="panel-header"><span class="icon">&#x1F424;</span> Recent Sightings</div>
         <div class="recent-list" id="recent-list">
           <div class="loading-msg">Loading recent sightings...</div>
@@ -1388,12 +1464,15 @@
 
 <!-- Lightbox -->
 <div class="lightbox-overlay" id="lightbox-overlay" onclick="if(event.target===this)closeLightbox()">
-  <div class="lightbox">
-    <div class="lightbox-header">
-      <div>
+  <div class="lightbox" style="max-height:90vh;overflow-y:auto;">
+    <div class="lightbox-header" style="display:flex;align-items:center;gap:8px;">
+      <button id="lb-nav-left" onclick="lightboxNav(-1)" style="display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:1.1rem;" title="Previous detection (←)">&#x2190;</button>
+      <div style="flex:1;">
         <span class="lightbox-title" id="lightbox-title"></span>
         <span class="lightbox-sci" id="lightbox-sci"></span>
+        <span id="lb-nav-pos" style="display:none;font-size:0.75rem;color:var(--text-muted);margin-left:8px;"></span>
       </div>
+      <button id="lb-nav-right" onclick="lightboxNav(1)" style="display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:1.1rem;" title="Next detection (→)">&#x2192;</button>
       <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
     </div>
     <div class="lightbox-tabs">
@@ -1404,11 +1483,23 @@
       <img class="lightbox-img" id="lightbox-img" alt="Bird photo">
     </div>
     <div class="lightbox-footer" id="lightbox-footer"></div>
-    <div class="lightbox-review" id="lightbox-review" style="display:none;padding:10px 16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;border-top:1px solid var(--border);">
-      <button class="review-btn btn-correct" onclick="lightboxReview('correct')">&#x2713; Correct</button>
-      <button class="review-btn btn-wrong" onclick="lightboxReview('wrong')">&#x2717; Wrong</button>
-      <button class="review-btn btn-trash" onclick="lightboxReview('trash')">&#x1F5D1; Trash</button>
-      <button class="review-btn btn-skip" onclick="lightboxReview('skip')">&#x2192; Skip</button>
+    <div id="lightbox-details" style="padding:8px 16px;"></div>
+    <div class="lightbox-review" id="lightbox-review" style="padding:10px 16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;border-top:1px solid var(--border);">
+        <button class="review-btn btn-correct" onclick="lightboxReview('correct')">&#x2713; Correct</button>
+        <button class="review-btn btn-wrong" onclick="lightboxToggleWrongDropdown()">&#x2717; Wrong</button>
+        <button class="review-btn btn-trash" onclick="lightboxReview('trash')">&#x1F5D1; Trash</button>
+        <button class="review-btn btn-skip" onclick="lightboxReview('skip')">&#x2192; Skip</button>
+        <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>
+        <span id="lb-review-nav-group" style="display:none;gap:4px;align-items:center;">
+          <button class="review-btn btn-nav" id="lb-review-nav-left" onclick="lightboxNav(-1)" title="Previous detection (&larr;)">&#x2190;</button>
+          <button class="review-btn btn-nav" id="lb-review-nav-right" onclick="lightboxNav(1)" title="Next detection (&rarr;)">&#x2192;</button>
+        </span>
+      <div id="lightbox-wrong-dropdown" style="display:none;padding:8px 0;">
+        <label for="lb-wrong-search" style="font-size:0.85rem;color:var(--text-secondary);">Select the correct species:</label>
+        <input type="text" id="lb-wrong-search" placeholder="Type to filter species..." oninput="filterLightboxSpecies()" style="width:100%;padding:6px 8px;margin:4px 0;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:0.85rem;">
+        <select id="lb-wrong-species" size="6" style="width:100%;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:0.85rem;"></select>
+        <button onclick="submitLightboxWrong()" style="margin-top:6px;padding:6px 14px;background:var(--accent-red);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.85rem;">Submit Correction</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1444,8 +1535,22 @@
   </div>
 </div>
 
+<!-- Species Review Modal -->
+<div id="species-review-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;overflow-y:auto;" onclick="if(event.target===this)closeSpeciesReviewModal()">
+  <div style="max-width:900px;margin:40px auto;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;">
+    <div style="background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px;display:flex;justify-content:space-between;align-items:center;">
+      <div id="modal-species-name" style="font-size:1.2rem;font-weight:600;color:var(--text-primary);"></div>
+      <button onclick="closeSpeciesReviewModal()" style="background:none;border:none;color:var(--text-muted);font-size:1.5rem;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <div id="modal-review-content" style="padding:20px;"></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Hidden audio element for BirdNET clip playback -->
+<audio id="yard-audio" preload="none" style="display:none"></audio>
 
 <script>
 (function() {
@@ -1462,6 +1567,9 @@
   let reviewStats = { total_classified: 0, total_reviewed: 0, remaining: 0 };
   let regionalSpecies = [];
   let availableDates = [];
+  let reviewFilterSpecies = null; // Filter review to specific species
+  let _tabVisible = true; // Track tab visibility for resource management
+  let _yardRenderTimer = null; // Debounce yard re-renders
 
   // Server timezone offset in minutes west of UTC (matches JS getTimezoneOffset convention).
   // Default 300 = US Eastern Standard Time. Updated from API on first load.
@@ -1526,6 +1634,95 @@
       '<div class="also-heard-list">' + tags + '</div>' +
     '</div>';
   }
+
+  // ── Lightbox helper functions (extracted from Review tab patterns) ──
+
+  /**
+   * Build top-3 predictions HTML for lightbox details panel.
+   */
+  function buildTop3Html(top3) {
+    if (!top3 || !top3.length) return '';
+    var scoreSum = top3.reduce(function(s, t) { return s + (t.raw_score || 0); }, 0);
+    var items = top3.map(function(t, i) {
+      var pct = scoreSum > 0 ? ((t.raw_score || 0) / scoreSum * 100).toFixed(1) + '%' : '';
+      return '<div class="review-top3-item">' +
+        '<span class="review-top3-rank">' + (i + 1) + '</span>' +
+        '<span>' + (t.common_name ? spLink(t.common_name) : '') + '</span>' +
+        '<span class="review-top3-score">' + pct + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="review-top3"><div class="review-top3-title">Top 3 Predictions</div>' + items + '</div>';
+  }
+
+  /**
+   * Build multi-bird display HTML for lightbox details panel.
+   */
+  function buildOtherBirdsHtml(birds, currentSpecies) {
+    if (!birds || birds.length <= 1) return '';
+    var otherItems = birds.filter(function(b) {
+      return b.species !== currentSpecies;
+    }).map(function(b) {
+      var detConf = b.detection ? Math.round(b.detection.confidence * 100) + '%' : '';
+      return '<div class="other-bird-item">' +
+        '<span>📷</span> ' +
+        spLink(b.species) +
+        ' <span class="ob-score">(score: ' + b.raw_score + ', det: ' + detConf + ')</span>' +
+      '</div>';
+    }).join('');
+    if (!otherItems) return '';
+    return '<div class="other-birds">' +
+      '<div class="other-birds-title">📷 Other birds in this frame</div>' +
+      otherItems +
+    '</div>';
+  }
+
+  /**
+   * Update lightbox navigation arrows visibility and position indicator.
+   */
+  function updateLightboxNav() {
+    var navLeft = document.getElementById('lb-nav-left');
+    var navRight = document.getElementById('lb-nav-right');
+    var navPos = document.getElementById('lb-nav-pos');
+    var reviewNavGroup = document.getElementById('lb-review-nav-group');
+    var hasNav = lightboxDetectionList.length > 1;
+    if (navLeft) navLeft.style.display = hasNav ? '' : 'none';
+    if (navRight) navRight.style.display = hasNav ? '' : 'none';
+    if (reviewNavGroup) reviewNavGroup.style.display = hasNav ? 'inline-flex' : 'none';
+    if (navPos) {
+      if (hasNav && lightboxDetectionIndex >= 0) {
+        navPos.textContent = (lightboxDetectionIndex + 1) + ' of ' + lightboxDetectionList.length;
+        navPos.style.display = '';
+      } else {
+        navPos.style.display = 'none';
+      }
+    }
+  }
+
+  /**
+   * Navigate to previous/next detection in lightbox (wrap-around).
+   */
+  window.lightboxNav = function(direction) {
+    if (lightboxDetectionList.length < 2) return;
+    var newIdx = lightboxDetectionIndex + direction;
+    // Wrap around
+    if (newIdx < 0) newIdx = lightboxDetectionList.length - 1;
+    if (newIdx >= lightboxDetectionList.length) newIdx = 0;
+    lightboxDetectionIndex = newIdx;
+    var item = lightboxDetectionList[newIdx];
+    if (!item) return;
+    // Re-open lightbox with new detection (preserves the list context)
+    var savedList = lightboxDetectionList;
+    var savedIdx = lightboxDetectionIndex;
+    var savedSpecies = lightboxListSpecies;
+    var savedSci = lightboxListSciName;
+    openLightbox(item.file, item.name || lightboxListSpecies, item.sci || lightboxListSciName, item.conf, item.ts, item.detection);
+    // Restore list context (openLightbox doesn't reset these)
+    lightboxDetectionList = savedList;
+    lightboxDetectionIndex = savedIdx;
+    lightboxListSpecies = savedSpecies;
+    lightboxListSciName = savedSci;
+    updateLightboxNav();
+  };
 
   // ── Date selector state ──
   function todayStr() {
@@ -1640,13 +1837,29 @@
     icon.innerHTML = isFs ? '&#x2716;' : '&#x26F6;';
   }
 
-  // ── Live Feed: MSE over WebSocket (go2rtc) ──
+  // ── Live Feed: go2rtc with MSE → HLS → MP4 fallback ──
   function initLiveFeed() {
-    const video = document.getElementById('live-video');
-    const offline = document.getElementById('live-offline');
+    var video = document.getElementById('live-video');
+    var offline = document.getElementById('live-offline');
     if (!video) return;
 
-    let ws, mediaSource, sourceBuffer, queue = [];
+    var hasMSE = 'MediaSource' in window || 'ManagedMediaSource' in window;
+    var hasNativeHLS = video.canPlayType('application/vnd.apple.mpegurl') !== '';
+
+    console.log('[LiveFeed] MSE=' + hasMSE + ' NativeHLS=' + hasNativeHLS);
+
+    if (hasMSE) {
+      connectMSE(video, offline);
+    } else if (hasNativeHLS) {
+      connectHLS(video, offline);
+    } else {
+      connectMP4(video, offline);
+    }
+  }
+
+  // ── MSE over WebSocket (desktop Chrome/Firefox/Edge) ──
+  function connectMSE(video, offline) {
+    var ws, mediaSource, sourceBuffer, queue = [];
 
     function cleanup() {
       if (ws) { try { ws.close(); } catch(e) {} ws = null; }
@@ -1660,7 +1873,6 @@
 
     function flushQueue() {
       if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
-      // Trim buffer to keep latency low
       try {
         if (video.buffered.length > 0) {
           var end = video.buffered.end(video.buffered.length - 1);
@@ -1669,7 +1881,6 @@
             sourceBuffer.remove(start, end - 4);
             return;
           }
-          // Jump to live edge if playback falls behind
           if (video.currentTime < end - 3) {
             video.currentTime = end - 0.5;
           }
@@ -1692,10 +1903,15 @@
 
       ws.onopen = function() {
         if (offline) offline.style.display = 'none';
-        mediaSource = new MediaSource();
-        video.src = URL.createObjectURL(mediaSource);
+        var MSConstructor = window.ManagedMediaSource || window.MediaSource;
+        mediaSource = new MSConstructor();
+        if (window.ManagedMediaSource) {
+          video.disableRemotePlayback = true;
+          video.srcObject = mediaSource;
+        } else {
+          video.src = URL.createObjectURL(mediaSource);
+        }
         mediaSource.addEventListener('sourceopen', function() {
-          // MediaSource ready — request MSE stream from go2rtc
           ws.send(JSON.stringify({type: 'mse'}));
         });
       };
@@ -1714,6 +1930,10 @@
         } else if (sourceBuffer) {
           if (sourceBuffer.updating || queue.length > 0) {
             queue.push(event.data);
+            // Cap queue to prevent unbounded memory growth when tab is background
+            if (queue.length > 30) {
+              queue.splice(0, queue.length - 10); // Keep only last 10 segments
+            }
           } else {
             try {
               sourceBuffer.appendBuffer(event.data);
@@ -1735,27 +1955,141 @@
     connect();
   }
 
+  // ── HLS via WebSocket negotiation (Safari / iOS) ──
+  function connectHLS(video, offline) {
+    var ws;
+    var reconnectTimer;
+    var hlsFailed = false;
+
+    function cleanup() {
+      if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    }
+
+    function connect() {
+      cleanup();
+      if (offline) offline.style.display = '';
+      console.log('[LiveFeed] Connecting via HLS...');
+
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsURL = proto + '//' + location.host + '/api/ws?src=feeder-main';
+      ws = new WebSocket(wsURL);
+
+      // Timeout: if no HLS response in 10s, fall back to MP4
+      var hlsTimeout = setTimeout(function() {
+        if (!hlsFailed) {
+          console.warn('[LiveFeed] HLS negotiation timeout, falling back to MP4');
+          hlsFailed = true;
+          cleanup();
+          connectMP4(video, offline);
+        }
+      }, 10000);
+
+      ws.onopen = function() {
+        var codecs = '';
+        var testCodecs = ['avc1.640029','avc1.64002A','mp4a.40.2','mp4a.40.5'];
+        for (var i = 0; i < testCodecs.length; i++) {
+          if (video.canPlayType('video/mp4; codecs="' + testCodecs[i] + '"')) {
+            codecs += (codecs ? ',' : '') + testCodecs[i];
+          }
+        }
+        ws.send(JSON.stringify({type: 'hls', value: codecs}));
+      };
+
+      ws.onmessage = function(event) {
+        if (typeof event.data !== 'string') return;
+        try {
+          var msg = JSON.parse(event.data);
+          if (msg.type === 'hls' && msg.value) {
+            clearTimeout(hlsTimeout);
+            // Rewrite relative HLS URLs to absolute, matching go2rtc's approach
+            var httpProto = location.protocol + '//';
+            var baseURL = httpProto + location.host + '/api/hls/';
+            var playlist = msg.value.replace(/hls\//g, baseURL);
+            video.src = 'data:application/vnd.apple.mpegurl;base64,' + btoa(playlist);
+            video.play().then(function() {
+              if (offline) offline.style.display = 'none';
+              console.log('[LiveFeed] HLS playing');
+            }).catch(function(e) {
+              console.warn('[LiveFeed] HLS play failed, trying MP4:', e);
+              if (!hlsFailed) { hlsFailed = true; cleanup(); connectMP4(video, offline); }
+            });
+          } else if (msg.type === 'error') {
+            console.warn('[LiveFeed] HLS error from server:', msg.value);
+            clearTimeout(hlsTimeout);
+            if (!hlsFailed) { hlsFailed = true; cleanup(); connectMP4(video, offline); }
+          }
+        } catch(e) {
+          console.warn('[LiveFeed] HLS parse error:', e);
+        }
+      };
+
+      ws.onclose = function() {
+        clearTimeout(hlsTimeout);
+        if (hlsFailed) return;
+        console.log('[LiveFeed] HLS WebSocket closed, reconnecting...');
+        if (offline) offline.style.display = '';
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = function() {
+        clearTimeout(hlsTimeout);
+        ws.close();
+      };
+    }
+
+    connect();
+  }
+
+  // ── MP4 progressive stream fallback (universal) ──
+  function connectMP4(video, offline) {
+    console.log('[LiveFeed] Falling back to MP4 stream...');
+    if (offline) offline.style.display = '';
+
+    video.src = '/api/stream.mp4?src=feeder-main';
+    video.play().then(function() {
+      if (offline) offline.style.display = 'none';
+      console.log('[LiveFeed] MP4 playing');
+    }).catch(function(e) {
+      console.warn('[LiveFeed] MP4 play failed:', e);
+      // Retry after delay
+      setTimeout(function() { connectMP4(video, offline); }, 5000);
+    });
+
+    video.onerror = function() {
+      console.warn('[LiveFeed] MP4 error, retrying...');
+      if (offline) offline.style.display = '';
+      setTimeout(function() { connectMP4(video, offline); }, 5000);
+    };
+  }
+
   // ── Lightbox ──
   let lightboxFile = '';
   let lightboxTab = 'photo';
+  let lightboxDetection = null; // full detection object for details panel
+  let lightboxDetectionList = []; // list of detections for prev/next navigation
+  let lightboxDetectionIndex = -1; // current index in lightboxDetectionList
+  let lightboxListSpecies = ''; // species name for the current list context
+  let lightboxListSciName = ''; // scientific name for the current list context
   let _lbReg = []; // registry for lightbox items (avoids inline escaping issues)
 
-  function regLB(file, name, sci, conf, ts) {
-    _lbReg.push({file: file, name: name, sci: sci, conf: conf, ts: ts});
+  function regLB(file, name, sci, conf, ts, detection) {
+    _lbReg.push({file: file, name: name, sci: sci, conf: conf, ts: ts, detection: detection || null});
     return _lbReg.length - 1;
   }
 
   window.openLB = function(idx) {
     var item = _lbReg[idx];
-    if (item) openLightbox(item.file, item.name, item.sci, item.conf, item.ts);
+    if (item) openLightbox(item.file, item.name, item.sci, item.conf, item.ts, item.detection);
   };
 
   let lightboxSpeciesName = '';
 
-  window.openLightbox = function(file, name, sci, conf, ts) {
+  window.openLightbox = function(file, name, sci, conf, ts, detection) {
     lightboxFile = file;
     lightboxTab = 'photo';
     lightboxSpeciesName = name || 'Unknown';
+    lightboxDetection = detection || null;
     var titleEl = document.getElementById('lightbox-title');
     titleEl.innerHTML = name ? spLink(name) : 'Unknown';
     document.getElementById('lightbox-sci').textContent = sci || '';
@@ -1772,9 +2106,34 @@
     if (ts) parts.push('<span>' + timeAgo(ts) + '</span>');
     parts.push('<span>' + escHtml(file) + '</span>');
     footer.innerHTML = parts.join('');
-    // Show review buttons
+    // Build details panel (predictions, cheat sheet, audio context, multi-bird)
+    var detailsEl = document.getElementById('lightbox-details');
+    if (detailsEl) {
+      var detailsHtml = '';
+      if (lightboxDetection) {
+        var det = lightboxDetection;
+        var top3 = det.top3 || [];
+        // 1. Predictions or cheat sheet
+        if (isLookalike(name)) {
+          var heardNames = getAudioContext(ts, 5).map(function(h) { return h.species; });
+          detailsHtml += buildLookalikeCheat(name, heardNames);
+        } else if (top3.length) {
+          detailsHtml += buildTop3Html(top3);
+        }
+        // 2. Audio context
+        detailsHtml += buildAlsoHeard(ts);
+        // 3. Multi-bird display
+        detailsHtml += buildOtherBirdsHtml(det.birds || [], name);
+      }
+      detailsEl.innerHTML = detailsHtml;
+    }
+    // Show review buttons, hide wrong dropdown
     var reviewDiv = document.getElementById('lightbox-review');
     if (reviewDiv) reviewDiv.style.display = 'flex';
+    var wrongDd = document.getElementById('lightbox-wrong-dropdown');
+    if (wrongDd) wrongDd.style.display = 'none';
+    // Update navigation arrows visibility and position
+    updateLightboxNav();
     document.getElementById('lightbox-overlay').classList.add('visible');
   };
 
@@ -1795,24 +2154,82 @@
     document.getElementById('lightbox-overlay').classList.remove('visible');
     var lbImg = document.getElementById('lightbox-img');
     if (lbImg) lbImg.src = '';
+    lightboxFile = '';
+    lightboxDetection = null;
   };
 
   window.lightboxReview = async function(verdict) {
     if (!lightboxFile) return;
-    var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
     if (verdict === 'wrong') {
-      var species = prompt('Enter the correct species name:');
-      if (!species) return;
-      url += '&correct_species=' + encodeURIComponent(species);
+      // Show inline dropdown instead of prompt
+      lightboxToggleWrongDropdown();
+      return;
+    }
+    var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
+    if (verdict === 'reclassify') {
+      url += '&missed_birds=true';
     }
     try {
       await fetch(url, { method: 'POST' });
-      showToast(verdict === 'correct' ? 'Confirmed: ' + lightboxSpeciesName : verdict === 'trash' ? 'Trashed' : verdict === 'wrong' ? 'Corrected' : 'Skipped', 'success');
-      // Hide the review buttons after submitting
-      var reviewDiv = document.getElementById('lightbox-review');
-      if (reviewDiv) reviewDiv.innerHTML = '<span style="color:var(--accent-green);font-size:0.85rem;">✓ Reviewed</span>';
+      var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
+      showToast(msgs[verdict] || 'Reviewed', 'success');
+      // Auto-advance to next detection after a brief delay
+      if (lightboxDetectionList.length > 1) {
+        setTimeout(function() { lightboxNav(1); }, 400);
+      } else {
+        closeLightbox();
+      }
     } catch (e) {
       showToast('Failed to submit review', 'error');
+    }
+  };
+
+  window.lightboxToggleWrongDropdown = async function() {
+    var dd = document.getElementById('lightbox-wrong-dropdown');
+    if (!dd) return;
+    var isVisible = dd.style.display !== 'none';
+    dd.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible) {
+      // Fetch regional species if not loaded yet
+      if (!regionalSpecies || regionalSpecies.length === 0) {
+        try { regionalSpecies = await apiFetch('/bird-api/regional-species'); } catch(e) { regionalSpecies = []; }
+      }
+      // Populate species options
+      var sel = document.getElementById('lb-wrong-species');
+      if (sel) {
+        sel.innerHTML = buildSpeciesOptions();
+      }
+      document.getElementById('lb-wrong-search').value = '';
+      document.getElementById('lb-wrong-search').focus();
+    }
+  };
+
+  window.filterLightboxSpecies = function() {
+    var query = document.getElementById('lb-wrong-search').value.toLowerCase();
+    var sel = document.getElementById('lb-wrong-species');
+    sel.innerHTML = regionalSpecies
+      .filter(function(s) { return s.toLowerCase().indexOf(query) !== -1; })
+      .map(function(s) { return '<option value="' + escAttr(s) + '">' + escHtml(s) + '</option>'; })
+      .join('');
+  };
+
+  window.submitLightboxWrong = async function() {
+    if (!lightboxFile) return;
+    var sel = document.getElementById('lb-wrong-species');
+    var species = sel.value;
+    if (!species) { showToast('Select a species first', 'error'); return; }
+    var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=wrong&correct_species=' + encodeURIComponent(species);
+    try {
+      await fetch(url, { method: 'POST' });
+      showToast('Corrected to: ' + species, 'success');
+      // Auto-advance to next detection
+      if (lightboxDetectionList.length > 1) {
+        setTimeout(function() { lightboxNav(1); }, 400);
+      } else {
+        closeLightbox();
+      }
+    } catch (e) {
+      showToast('Failed to submit correction', 'error');
     }
   };
 
@@ -1823,10 +2240,24 @@
     var sci = d.top_prediction ? d.top_prediction.scientific_name : '';
     var conf = d.best_detection ? d.best_detection.confidence : 0;
     var ts = d.source_timestamp || d.timestamp;
-    openLightbox(d.file, name, sci, conf, ts);
+    // Set up detection list for navigation (recent sightings context)
+    lightboxDetectionList = recentDetections.map(function(r) {
+      return {
+        file: r.file,
+        name: r.top_prediction ? r.top_prediction.common_name : 'Unknown',
+        sci: r.top_prediction ? r.top_prediction.scientific_name : '',
+        conf: r.best_detection ? r.best_detection.confidence : 0,
+        ts: r.source_timestamp || r.timestamp,
+        detection: r
+      };
+    });
+    lightboxDetectionIndex = idx;
+    lightboxListSpecies = '';
+    lightboxListSciName = '';
+    openLightbox(d.file, name, sci, conf, ts, d);
   };
 
-  // Close on Escape key
+  // Keyboard navigation
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       // Close topmost popup first
@@ -1835,6 +2266,13 @@
       } else {
         closeLightbox();
       }
+    } else if (e.key === 'ArrowLeft' && document.getElementById('lightbox-overlay').classList.contains('visible')) {
+      // Don't navigate if typing in search box
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      lightboxNav(-1);
+    } else if (e.key === 'ArrowRight' && document.getElementById('lightbox-overlay').classList.contains('visible')) {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      lightboxNav(1);
     }
   });
 
@@ -1910,10 +2348,10 @@
       consEl.style.display = 'none';
     }
 
-    // Photo
+    // Photo — use locally-cached image to avoid Wikimedia rate limits
     var photoWrap = document.getElementById('sp-photo-wrap');
     if (data.image_url) {
-      document.getElementById('sp-photo').src = data.image_url;
+      document.getElementById('sp-photo').src = '/bird-api/species-image/' + encodeURIComponent(name);
       document.getElementById('sp-photo-credit').textContent = data.image_credit || '';
       photoWrap.style.display = '';
     } else {
@@ -1992,34 +2430,37 @@
         '<span><b>' + (data.classified || 0) + '</b> birds classified</span>' +
         '<span>Updated: ' + updated + '</span>' +
         '<span class="yard-now" id="yard-now">🎙️ Loading…</span>';
-      renderCurrentlyInYard();
+      renderYardPanel();
     } catch (e) {
       document.getElementById('topbar-stats').innerHTML = '<span style="color:var(--accent-red)">Stats unavailable</span>';
     }
   }
 
   /**
-   * Render "Currently in Yard" in the topbar — species heard by BirdNET in the last 10 minutes.
+   * Get list of species currently in yard (last 10 min) from BirdNET + SSE data.
    */
-  function renderCurrentlyInYard() {
-    var el = document.getElementById('yard-now');
-    if (!el) return;
-    if (!birdnetSummaryCache || !birdnetSummaryCache.recent) {
-      el.innerHTML = '🎙️ …';
-      return;
-    }
+  function getYardSpecies() {
     var now = Date.now();
-    var windowMs = 10 * 60 * 1000; // 10 minutes
-    var recent = birdnetSummaryCache.recent || [];
+    var windowMs = 10 * 60 * 1000;
+    var recent = (birdnetSummaryCache && birdnetSummaryCache.recent) ? birdnetSummaryCache.recent : [];
+    var allRecent = recent.slice();
+    for (var si = 0; si < sseRealtimeDetections.length; si++) {
+      allRecent.push(sseRealtimeDetections[si]);
+    }
     var seen = {};
-    for (var i = 0; i < recent.length; i++) {
-      var r = recent[i];
+    for (var i = 0; i < allRecent.length; i++) {
+      var r = allRecent[i];
       var rMs = parseTimestamp(r.time);
       if (isNaN(rMs)) continue;
       var age = now - rMs;
       if (age > windowMs || age < 0) continue;
       if (!seen[r.species] || r.confidence > seen[r.species].confidence) {
-        seen[r.species] = { species: r.species, confidence: r.confidence, ageMs: age };
+        seen[r.species] = {
+          species: r.species,
+          confidence: r.confidence,
+          ageMs: age,
+          clip_name: r.clip_name || (seen[r.species] && seen[r.species].clip_name) || ''
+        };
       }
     }
     var list = [];
@@ -2027,25 +2468,79 @@
       if (seen.hasOwnProperty(key)) list.push(seen[key]);
     }
     list.sort(function(a, b) { return a.ageMs - b.ageMs; });
+    // Clean up old SSE detections
+    sseRealtimeDetections = sseRealtimeDetections.filter(function(d) {
+      var ms = parseTimestamp(d.time);
+      return !isNaN(ms) && (now - ms) < windowMs;
+    });
+    return list;
+  }
 
+  /**
+   * Compact topbar summary: "🎙️ 4 in yard" or "🎙️ Yard quiet"
+   */
+  function renderCurrentlyInYard() {
+    var el = document.getElementById('yard-now');
+    if (!el) return;
+    var list = getYardSpecies();
     if (list.length === 0) {
       el.innerHTML = '🎙️ <span style="color:var(--text-muted)">Yard quiet</span>';
+    } else {
+      el.innerHTML = '🎙️ <b style="color:var(--accent-amber)">' + list.length + '</b> in yard';
+    }
+  }
+
+  /**
+   * Render the "In the Yard" panel with species images, confidence, clips.
+   */
+  function renderYardPanel() {
+    var el = document.getElementById('yard-list');
+    if (!el) return;
+
+    // Update SSE status dot in panel header
+    var dot = document.getElementById('sse-dot');
+    if (dot) {
+      var connected = sseSource && sseSource.readyState === 1;
+      dot.className = 'sse-status ' + (connected ? 'connected' : 'disconnected');
+      dot.title = connected ? 'Live connected' : 'Reconnecting…';
+    }
+
+    var list = getYardSpecies();
+
+    if (list.length === 0) {
+      el.innerHTML = '<div class="yard-empty">🎙️ Yard is quiet…</div>';
       return;
     }
-    // Show up to 3 most recent species
-    var tags = list.slice(0, 3).map(function(s) {
+
+    el.innerHTML = list.map(function(s) {
       var mins = Math.round(s.ageMs / 60000);
       var ago = mins < 1 ? 'just now' : mins + 'm ago';
-      return '<span class="yard-species" onclick="openSpeciesPopup(\'' + s.species.replace(/'/g, "\\'") + '\')">' + escHtml(s.species) + '</span> <span style="color:var(--text-muted);font-size:0.72rem;">' + ago + '</span>';
-    }).join(', ');
-    var extra = list.length > 3 ? ' +' + (list.length - 3) + ' more' : '';
-    el.innerHTML = '🎙️ ' + tags + extra;
+      var isNew = sseNewSpecies[s.species] ? ' yard-item-new' : '';
+      var imgUrl = '/bird-api/species-image/' + encodeURIComponent(s.species);
+      var clipName = s.clip_name || (sseNewSpecies[s.species] && sseNewSpecies[s.species].clip_name) || '';
+      var clipBtn = clipName
+        ? '<button class="yard-play-btn" data-clip="' + escAttr(clipName) + '" onclick="event.stopPropagation();playClip(\'' + escAttr(clipName) + '\')" title="Play call">&#x1F50A;</button>'
+        : '';
+
+      return '<div class="yard-item' + isNew + '">' +
+        '<img class="yard-thumb" src="' + imgUrl + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">' +
+        '<div class="yard-info">' +
+          '<div class="yard-species-name">' + spLink(s.species) + '</div>' +
+          '<div class="yard-meta">' + ago + '</div>' +
+        '</div>' +
+        '<span class="confidence-badge ' + confClass(s.confidence) + '">' + confLabel(s.confidence) + '</span>' +
+        clipBtn +
+      '</div>';
+    }).join('');
+
+    // Also update compact topbar
+    renderCurrentlyInYard();
   }
 
   // ── Dashboard: Recent Sightings ──
   async function loadRecent() {
     try {
-      recentDetections = await apiFetch('/bird-api/recent?limit=10');
+      recentDetections = await apiFetch('/bird-api/recent?limit=50');
       renderRecent();
     } catch (e) {
       document.getElementById('recent-list').innerHTML = '<div class="error-msg">Could not load recent sightings</div>';
@@ -2129,7 +2624,7 @@
         birdnetSummaryCache = await apiFetch('/birdnet-data/summary.json');
         // Also use BirdNET tz_offset as fallback (same server timezone)
         if (typeof birdnetSummaryCache.tz_offset === 'number') serverTzOffsetMin = birdnetSummaryCache.tz_offset;
-        renderCurrentlyInYard(); // Update yard status once BirdNET data arrives
+        renderYardPanel(); // Update yard panel once BirdNET data arrives
       }
       if (selectedDate === 'all') {
         audioSpecies = birdnetSummaryCache.species || [];
@@ -2312,13 +2807,72 @@
   // ── Dashboard: Species Grid ──
   async function loadAllRecent() {
     try {
-      const all = await apiFetch('/bird-api/recent?limit=50');
+      const all = await apiFetch('/bird-api/recent?limit=100');
       recentDetections = all;
       return all;
     } catch (e) {
       return [];
     }
   }
+
+  window.expandSpeciesCard = async function(cardEl) {
+    const speciesName = cardEl.getAttribute('data-species');
+    if (!speciesName) return;
+
+    const modal = document.getElementById('species-review-modal');
+    const modalContent = document.getElementById('modal-review-content');
+    document.getElementById('modal-species-name').textContent = speciesName;
+
+    modal.style.display = 'flex';
+    modalContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Loading all detections for ' + escHtml(speciesName) + '...</div>';
+
+    try {
+      const data = await apiFetch('/bird-api/species/' + encodeURIComponent(speciesName));
+      const dets = data.detections || [];
+
+      if (dets.length === 0) {
+        modalContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No detections found</div>';
+        return;
+      }
+
+      // Set up navigation list for lightbox prev/next
+      lightboxDetectionList = dets.map(function(d) {
+        return {
+          file: d.file,
+          name: speciesName,
+          sci: data.scientific_name || '',
+          conf: d.confidence || 0,
+          ts: d.timestamp,
+          detection: d
+        };
+      });
+      lightboxListSpecies = speciesName;
+      lightboxListSciName = data.scientific_name || '';
+
+      // Build grid of all detections
+      const grid = dets.map((d, i) => {
+        const c = d.confidence || 0;
+        const ts = d.timestamp;
+        const ef = encodeURIComponent(d.file);
+        const lbi = regLB(d.file, speciesName, data.scientific_name || '', c, ts, d);
+        return '<div style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-card);" onclick="lightboxDetectionIndex=' + i + ';openLB(' + lbi + ')">' +
+          '<img src="/bird-api/image/' + ef + '" alt="" loading="lazy" style="width:100%;height:180px;object-fit:cover;" onerror="this.style.display=\'none\'">' +
+          '<div style="padding:8px;font-size:0.85rem;color:var(--text-secondary);">' +
+            '<div>' + timeAgo(ts) + '</div>' +
+            '<div class="confidence-badge ' + confClass(c) + '" style="display:inline-block;font-size:0.75rem;">' + confLabel(c) + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      modalContent.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;padding:0;">' + grid + '</div>';
+    } catch (e) {
+      modalContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--accent-red);">Error loading detections</div>';
+    }
+  };
+
+  window.closeSpeciesReviewModal = function() {
+    document.getElementById('species-review-modal').style.display = 'none';
+  };
 
   function renderSpeciesGrid() {
     const grid = document.getElementById('species-grid');
@@ -2350,23 +2904,11 @@
       const thumbUrl = thumbFile ? '/bird-api/image/' + encodeURIComponent(thumbFile) : '';
       const lastSeen = sp.last_seen ? timeAgo(sp.last_seen) : 'unknown';
 
-      const expandHtml = dets.slice(0, 5).map(d => {
-        const c = d.best_detection ? d.best_detection.confidence : 0;
-        const ts = d.source_timestamp || d.timestamp;
-        const ef = encodeURIComponent(d.file);
-        const lbi = regLB(d.file, sp.common_name, sp.scientific_name || '', c, ts);
-        return '<div class="expand-det" style="cursor:pointer" onclick="event.stopPropagation();openLB(' + lbi + ')">' +
-          '<img class="expand-det-thumb" src="/bird-api/image/' + ef + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
-          '<span>' + timeAgo(ts) + '</span>' +
-          '<span class="confidence-badge ' + confClass(c) + '">' + confLabel(c) + '</span>' +
-        '</div>';
-      }).join('');
-
       const thumbLbi = thumbFile ? regLB(thumbFile, sp.common_name, sp.scientific_name || '', 0, '') : -1;
 
-      return '<div class="species-card" onclick="this.classList.toggle(\'expanded\')">' +
+      return '<div class="species-card" data-species="' + escAttr(sp.common_name) + '" onclick="expandSpeciesCard(this)">' +
         (thumbUrl
-          ? '<img class="species-card-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'"' + (thumbLbi >= 0 ? ' onclick="event.stopPropagation();openLB(' + thumbLbi + ')" style="cursor:zoom-in"' : '') + '>'
+          ? '<img class="species-card-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'"' + (thumbLbi >= 0 ? ' style="cursor:pointer"' : '') + '>'
           : '<div class="species-card-thumb" style="background:var(--bg-primary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2rem;">&#x1F426;</div>'
         ) +
         '<div class="species-card-body">' +
@@ -2377,7 +2919,7 @@
             '<span>Last: ' + lastSeen + '</span>' +
           '</div>' +
         '</div>' +
-        (expandHtml ? '<div class="species-card-expand">' + expandHtml + '</div>' : '') +
+        '<div class="species-card-expand" style="display:none;"></div>' +
       '</div>';
     }).join('');
   }
@@ -2435,36 +2977,35 @@
   }
 
   // ── Look-alike cheat sheet (sparrows + House Finch) ──
-  const LOOKALIKE_SPECIES = [
+  const SPARROW_SPECIES = [
     'House Finch',
     'Song Sparrow', 'White-crowned Sparrow', 'Chipping Sparrow',
     'House Sparrow', 'White-throated Sparrow', 'Lincoln\'s Sparrow',
     'Fox Sparrow', 'American Tree Sparrow'
   ];
+
+  const WOODPECKER_SPECIES = [
+    'Downy Woodpecker',
+    'Hairy Woodpecker',
+    'Red-bellied Woodpecker',
+    'Pileated Woodpecker',
+    'Yellow-bellied Sapsucker'
+  ];
+
+  const LOOKALIKE_SPECIES = SPARROW_SPECIES.concat(WOODPECKER_SPECIES);
   const lookalikeImageCache = {};
 
   function isLookalike(name) {
     if (!name) return false;
     var lower = name.toLowerCase();
-    return lower.indexOf('sparrow') !== -1 || lower === 'house finch';
+    return lower.indexOf('sparrow') !== -1 || lower === 'house finch' || lower.indexOf('woodpecker') !== -1 || lower.indexOf('sapsucker') !== -1;
   }
 
-  async function loadLookalikeImages() {
-    // Fetch Wikipedia thumbnail for each look-alike species (parallel)
-    var fetches = LOOKALIKE_SPECIES.map(async function(sp) {
-      if (lookalikeImageCache[sp]) return;
-      try {
-        var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(sp.replace(/ /g, '_'));
-        var resp = await fetch(url);
-        if (!resp.ok) return;
-        var data = await resp.json();
-        if (data.thumbnail && data.thumbnail.source) {
-          // Request a wider image for better quality
-          lookalikeImageCache[sp] = data.thumbnail.source.replace(/\/\d+px-/, '/300px-');
-        }
-      } catch (e) {}
+  function loadLookalikeImages() {
+    // Use locally-cached images served through our API (avoids Wikimedia rate limits)
+    LOOKALIKE_SPECIES.forEach(function(sp) {
+      lookalikeImageCache[sp] = '/bird-api/species-image/' + encodeURIComponent(sp);
     });
-    await Promise.all(fetches);
   }
 
   // Pre-load look-alike images on page load
@@ -2474,8 +3015,13 @@
     if (!isLookalike(predictionName)) return '';
     heardSpeciesNames = heardSpeciesNames || [];
 
+    // Pick the relevant group based on what bird we're looking at
+    var lower = predictionName.toLowerCase();
+    var isWoodpecker = lower.indexOf('woodpecker') !== -1 || lower.indexOf('sapsucker') !== -1;
+    var pool = isWoodpecker ? WOODPECKER_SPECIES : SPARROW_SPECIES;
+
     // Reorder: prediction first, then heard-by-audio species, then rest
-    var ordered = LOOKALIKE_SPECIES.slice();
+    var ordered = pool.slice();
     ordered.sort(function(a, b) {
       var aPred = a === predictionName ? 0 : 1;
       var bPred = b === predictionName ? 0 : 1;
@@ -2505,6 +3051,23 @@
   }
 
   window.lookalikeCheatClick = async function(species) {
+    // If in lightbox context, submit via lightbox review path
+    if (lightboxFile) {
+      var pred = lightboxSpeciesName;
+      var verdict = (species === pred) ? 'correct' : 'wrong';
+      var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
+      if (verdict === 'wrong') url += '&correct_species=' + encodeURIComponent(species);
+      try {
+        await fetch(url, { method: 'POST' });
+        showToast(verdict === 'correct' ? 'Confirmed: ' + species : 'Corrected to: ' + species, 'success');
+        var reviewDiv = document.getElementById('lightbox-review');
+        if (reviewDiv) reviewDiv.innerHTML = '<span style="color:var(--accent-green);font-size:0.85rem;">✓ ' + (verdict === 'correct' ? 'Confirmed' : 'Corrected to ' + escHtml(species)) + '</span>';
+      } catch (e) {
+        showToast('Failed to submit', 'error');
+      }
+      return;
+    }
+    // Review tab context
     if (reviewIndex >= pendingReview.length) return;
     var item = pendingReview[reviewIndex];
     var pred = item.species || (item.top_prediction || {}).common_name || '';
@@ -2597,7 +3160,10 @@
 
     area.innerHTML = '<div class="review-card">' +
       '<div class="review-image-wrap">' +
-        (imgUrl ? '<img src="' + imgUrl + '" alt="Detection image" loading="lazy">' : '<div style="color:var(--text-muted)">No image available</div>') +
+        '<div style="position: relative; width: 100%;">' +
+        '<button class="btn-view-original" id="toggle-view-btn" onclick="toggleViewMode()" title="Toggle between annotated and original image" style="position: absolute; top: 8px; right: 8px; z-index: 10; padding: 6px 12px; background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer; font-size: 12px;">View Original</button>' +
+        (imgUrl ? '<img id="review-image" src="' + imgUrl + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + imgUrl.replace('/bird-api/image/', '/bird-api/image-raw/') + '" data-viewMode="annotated">' : '<div style="color:var(--text-muted)">No image available</div>') +
+        '</div>' +
       '</div>' +
       '<div class="review-body">' +
         '<div class="review-prediction">' + spLink(speciesName) + '</div>' +
@@ -2640,6 +3206,29 @@
       .filter(s => s.toLowerCase().includes(query))
       .map(s => '<option value="' + escAttr(s) + '">' + escHtml(s) + '</option>')
       .join('');
+  };
+
+  window.toggleViewMode = function() {
+    const img = document.getElementById('review-image');
+    const btn = document.getElementById('toggle-view-btn');
+    if (!img) return;
+
+    // Use a data attribute to track current view mode since img.src gets normalized to absolute URL
+    const isAnnotated = img.dataset.viewMode !== 'original';
+
+    if (isAnnotated) {
+      // Switch to original view
+      img.src = img.dataset.original;
+      img.dataset.viewMode = 'original';
+      btn.textContent = 'View Annotated';
+      btn.style.background = 'rgba(100, 150, 255, 0.8)';
+    } else {
+      // Switch back to annotated view
+      img.src = img.dataset.annotated;
+      img.dataset.viewMode = 'annotated';
+      btn.textContent = 'View Original';
+      btn.style.background = 'rgba(0, 0, 0, 0.7)';
+    }
   };
 
   window.toggleWrongDropdown = function() {
@@ -2838,15 +3427,175 @@
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // ── Real-time BirdNET SSE ──
+  var sseRealtimeDetections = []; // recent SSE detections (last 10 min)
+  var sseNewSpecies = {};         // species just heard — for pulse animation
+  var sseSource = null;
+  var sseLastSeenId = 0;          // dedup: ignore events with id <= this
+
+  function connectBirdnetSSE() {
+    if (sseSource) { try { sseSource.close(); } catch(e) {} }
+    sseSource = new EventSource('/birdnet-sse/events');
+
+    sseSource.onopen = function() {
+      console.log('[SSE] Connected');
+      var dot = document.getElementById('sse-dot');
+      if (dot) { dot.textContent = '●'; dot.className = 'sse-status connected'; dot.title = 'Live connected'; }
+    };
+
+    sseSource.onerror = function() {
+      console.log('[SSE] Connection error, will auto-reconnect');
+      var dot = document.getElementById('sse-dot');
+      if (dot) { dot.textContent = '●'; dot.className = 'sse-status disconnected'; dot.title = 'Reconnecting…'; }
+    };
+
+    sseSource.onmessage = function(event) {
+      try {
+        var det = JSON.parse(event.data);
+        // Deduplicate: skip events we've already processed
+        if (det.id && det.id <= sseLastSeenId) return;
+        if (det.id) sseLastSeenId = det.id;
+        console.log('[SSE] Detection:', det.common_name, Math.round(det.confidence * 100) + '%');
+        onRealtimeDetection(det);
+      } catch (e) {
+        console.warn('[SSE] Parse error:', e);
+      }
+    };
+  }
+
+  function onRealtimeDetection(det) {
+    // Build a timestamp string matching the BirdNET summary format
+    var ts = det.date + ' ' + det.time;
+
+    // Add to SSE buffer
+    sseRealtimeDetections.push({
+      species: det.common_name,
+      confidence: det.confidence,
+      time: ts,
+      clip_name: det.clip_name || ''
+    });
+
+    // Also inject into birdnetSummaryCache.recent so polled data stays consistent
+    if (birdnetSummaryCache && birdnetSummaryCache.recent) {
+      birdnetSummaryCache.recent.unshift({
+        species: det.common_name,
+        confidence: det.confidence,
+        time: ts,
+        clip_name: det.clip_name || ''
+      });
+      // Keep recent list manageable
+      if (birdnetSummaryCache.recent.length > 200) {
+        birdnetSummaryCache.recent = birdnetSummaryCache.recent.slice(0, 200);
+      }
+    }
+
+    // Mark species as "just detected" for highlight animation
+    sseNewSpecies[det.common_name] = {
+      clip_name: det.clip_name || '',
+      confidence: det.confidence,
+      time: Date.now()
+    };
+
+    // Clear the "new" flag after animation completes
+    setTimeout(function() {
+      delete sseNewSpecies[det.common_name];
+    }, 3000);
+
+    // Debounce yard re-renders — multiple SSE events within 500ms get batched
+    if (_yardRenderTimer) clearTimeout(_yardRenderTimer);
+    _yardRenderTimer = setTimeout(function() {
+      _yardRenderTimer = null;
+      renderYardPanel();
+    }, 500);
+  }
+
+  window.playClip = function(clipName) {
+    if (!clipName) return;
+    var audio = document.getElementById('yard-audio');
+    var url = '/birdnet-clips/' + clipName;
+
+    // Toggle: if same clip is playing, stop it
+    if (audio.src && audio.src.indexOf(clipName) !== -1 && !audio.paused) {
+      audio.pause();
+      audio.currentTime = 0;
+      // Remove playing state from buttons
+      document.querySelectorAll('.yard-play-btn.playing').forEach(function(b) { b.classList.remove('playing'); });
+      return;
+    }
+
+    audio.src = url;
+    audio.play().then(function() {
+      // Highlight the playing button
+      document.querySelectorAll('.yard-play-btn').forEach(function(b) {
+        b.classList.toggle('playing', b.dataset.clip === clipName);
+      });
+    }).catch(function(e) {
+      console.warn('[Clip] Playback failed:', e);
+    });
+
+    audio.onended = function() {
+      document.querySelectorAll('.yard-play-btn.playing').forEach(function(b) { b.classList.remove('playing'); });
+    };
+  };
+
+  // ── Page Visibility API — suspend heavy work when tab is hidden ──
+  var _refreshInterval = null;
+  var _needsRefreshOnVisible = false;
+
+  document.addEventListener('visibilitychange', function() {
+    _tabVisible = !document.hidden;
+    var video = document.getElementById('live-video');
+
+    if (document.hidden) {
+      // ── Tab went to background ──
+      console.log('[Perf] Tab hidden — pausing video & refresh');
+
+      // Pause video to stop decoder work
+      if (video && !video.paused) {
+        video.pause();
+      }
+
+      // Stop periodic refresh (SSE still runs for data, just debounced)
+      if (_refreshInterval) {
+        clearInterval(_refreshInterval);
+        _refreshInterval = null;
+      }
+      _needsRefreshOnVisible = true;
+
+    } else {
+      // ── Tab became visible ──
+      console.log('[Perf] Tab visible — resuming');
+
+      // Resume video
+      if (video && video.paused && video.src) {
+        video.play().catch(function() {});
+      }
+
+      // Immediate refresh if we missed cycles
+      if (_needsRefreshOnVisible) {
+        _needsRefreshOnVisible = false;
+        refresh();
+      }
+
+      // Restart periodic refresh
+      if (!_refreshInterval) {
+        _refreshInterval = setInterval(refresh, 60000);
+      }
+    }
+  });
+
   // ── Init & Refresh ──
   async function init() {
     initLiveFeed();
+    connectBirdnetSSE();
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
     renderRecent();
     await loadSpeciesData();
   }
 
   async function refresh() {
+    // Skip refresh if tab is hidden (shouldn't fire, but guard anyway)
+    if (document.hidden) { _needsRefreshOnVisible = true; return; }
     birdnetSummaryCache = null; // Invalidate so fresh BirdNET data is fetched
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
     renderRecent();
@@ -2857,7 +3606,7 @@
   }
 
   init();
-  setInterval(refresh, 60000);
+  _refreshInterval = setInterval(refresh, 60000);
 })();
 </script>
 </body>

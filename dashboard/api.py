@@ -32,6 +32,7 @@ BACKGROUND_DIR = BASE_DIR / "classified" / "background"
 REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
 REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/cape_cod_species.txt")
 SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
+SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
@@ -179,6 +180,7 @@ def species_detail(name: str):
                 "confidence": e.get("best_detection", {}).get("confidence", 0),
                 "raw_score": e["top_prediction"]["raw_score"],
                 "top3": e.get("top3", []),
+                "birds": e.get("birds", []),
             })
 
     if not detections:
@@ -258,16 +260,20 @@ def review_pending():
 
 
 @app.post("/api/review/{filename}")
-def submit_review(filename: str, verdict: str, correct_species: str = ""):
+def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false"):
     """Submit a review verdict for a classification."""
     safe_name = os.path.basename(filename)
-    if verdict not in ("correct", "wrong", "skip", "trash"):
-        raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', 'skip', or 'trash'")
+    if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
+        raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', 'skip', 'trash', or 'reclassify'")
+
+    # Convert string to boolean (FastAPI query params come as strings)
+    missed_birds_bool = missed_birds.lower() in ("true", "1", "yes")
 
     review = {
         "file": safe_name,
         "verdict": verdict,
         "correct_species": correct_species if verdict == "wrong" else "",
+        "missed_birds": missed_birds_bool,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -317,6 +323,104 @@ def species_info(name: str):
             return val
 
     raise HTTPException(status_code=404, detail=f"No info for species '{name}'")
+
+
+import re as _re
+import ssl as _ssl
+import urllib.request as _urlreq
+
+
+def _sanitize_species_filename(name: str) -> str:
+    """Convert species name to safe filename (matches download_species_images.py)."""
+    return _re.sub(r'[^a-zA-Z0-9_-]', '_', name.replace("'", "")).strip('_')
+
+
+def _find_cached_image(safe: str):
+    """Return (path, media_type) if a cached image exists, else None."""
+    for ext, media in ((".jpg", "image/jpeg"), (".png", "image/png")):
+        path = SPECIES_IMAGES_DIR / f"{safe}{ext}"
+        if path.exists() and path.stat().st_size > 500:
+            return path, media
+    return None
+
+
+def _download_and_cache(name: str, safe: str):
+    """Download species image via Wikipedia REST API and cache locally. Returns (path, media_type) or None."""
+    try:
+        # First: try Wikipedia REST API for a reliable thumbnail
+        wiki_title = name.replace(' ', '_')
+        # Check species_info.json for a better wiki_url
+        if SPECIES_INFO_PATH.exists():
+            with open(SPECIES_INFO_PATH) as f:
+                cache = json.load(f)
+            info = cache.get(name)
+            if not info:
+                for k, v in cache.items():
+                    if k.lower() == name.lower():
+                        info = v
+                        break
+            if info and info.get("wiki_url"):
+                wiki_title = info["wiki_url"].rstrip('/').split('/')[-1]
+
+        api_url = f'https://en.wikipedia.org/api/rest_v1/page/summary/{_urlreq.quote(wiki_title)}'
+        req = _urlreq.Request(api_url, headers={
+            'User-Agent': 'VivesBirdObservatory/1.0 (personal bird dashboard)'
+        })
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            api_data = json.loads(resp.read())
+
+        thumb = api_data.get('thumbnail', {}).get('source', '')
+        if thumb:
+            # Upgrade to 600px
+            thumb = _re.sub(r'/\d+px-', '/600px-', thumb)
+
+        img_url = thumb or api_data.get('originalimage', {}).get('source', '')
+        if not img_url:
+            return None
+
+        ext = ".png" if ".png" in img_url.lower() else ".jpg"
+        media = "image/png" if ext == ".png" else "image/jpeg"
+
+        req2 = _urlreq.Request(img_url, headers={
+            'User-Agent': 'VivesBirdObservatory/1.0 (personal bird dashboard)'
+        })
+        with _urlreq.urlopen(req2, timeout=15) as resp2:
+            data = resp2.read()
+        if len(data) < 1000:
+            return None
+
+        SPECIES_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        dest = SPECIES_IMAGES_DIR / f"{safe}{ext}"
+        dest.write_bytes(data)
+        return dest, media
+    except Exception:
+        return None
+
+
+@app.get("/api/species-image/{name}")
+def species_image(name: str):
+    """Serve a locally-cached species image. Downloads from Wikimedia on first access."""
+    safe = _sanitize_species_filename(name)
+
+    # Check local cache first
+    cached = _find_cached_image(safe)
+    if cached:
+        path, media = cached
+        return FileResponse(
+            str(path), media_type=media,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    # Not cached — try to download and cache on demand
+    result = _download_and_cache(name, safe)
+    if result:
+        path, media = result
+        return FileResponse(
+            str(path), media_type=media,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    raise HTTPException(status_code=404, detail=f"No image available for '{name}'")
 
 
 @app.get("/api/regional-species")

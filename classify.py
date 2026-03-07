@@ -30,6 +30,9 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image, ImageDraw, ImageFont
 
+# Range filtering for geographic validation
+from range_filter import RangeFilter
+
 # --- Configuration ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
 INCOMING_DIR = BASE_DIR / "incoming"
@@ -44,7 +47,7 @@ MODEL_DIR = Path("/Users/vives/bird-classifier/models")
 YOLO_MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
 SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
-REGIONAL_SPECIES_PATH = MODEL_DIR / "cape_cod_species.txt"
+REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 
 # Detection thresholds
 BIRD_CLASS_ID = 14                # COCO class index for "bird"
@@ -56,9 +59,9 @@ CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of b
 WATCH_INTERVAL = 10  # seconds
 NIGHT_CHECK_INTERVAL = 300  # seconds (5 min) — poll interval when nighttime
 
-# Location: Cape Cod, MA (for sunset/sunrise calculation)
-LATITUDE = 41.39
-LONGITUDE = -70.61
+# Location: Chilmark, Martha's Vineyard, MA (for sunset/sunrise calculation)
+LATITUDE = 41.35
+LONGITUDE = -70.74
 NIGHT_OFFSET_MINUTES = 30  # keep running this many minutes after sunset
 
 # YOLO input
@@ -454,21 +457,41 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
             label_h = label_bbox[3] - label_bbox[1]
             conf_bbox = draw.textbbox((0, 0), conf_label, font=font_small)
             conf_h = conf_bbox[3] - conf_bbox[1]
-            pad = 4
-            gap = 2
+            pad = 6
+            gap = 3
             total_h = pad + label_h + gap + conf_h + pad
 
             # Place label ABOVE the box if room, otherwise BELOW
-            if y1 - total_h >= 0:
-                block_top = y1 - total_h
+            # IMPORTANT: Always place OUTSIDE the bounding box to avoid obscuring bird
+            if y1 - total_h - 5 >= 0:  # Extra 5px margin above box
+                block_top = y1 - total_h - 5
+                label_position = "above"
             else:
-                block_top = y2
+                block_top = y2 + 5  # Extra 5px margin below box
+                label_position = "below"
+
             species_y = block_top + pad
             conf_y = species_y + label_h + gap
 
-            # Draw background behind both lines
-            bg_rect = [x1 - pad, block_top, x1 + label_w + pad, block_top + total_h]
-            draw.rectangle(bg_rect, fill=(0, 0, 0, 200))
+            # Draw dark background behind text (larger to ensure full coverage)
+            # Expand left/right to ensure text is fully covered
+            bg_left = max(0, x1 - pad)
+            bg_right = min(img.width, x1 + label_w + 2 * pad)
+            bg_top = max(0, block_top)
+            bg_bottom = min(img.height, block_top + total_h)
+
+            # Use semi-transparent black background for contrast
+            if img.mode == 'RGBA':
+                overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+                overlay_draw = ImageDraw.Draw(overlay)
+                overlay_draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], fill=(0, 0, 0, 180))
+                img.paste(Image.alpha_composite(img.convert('RGBA'), overlay).convert(img.mode))
+                draw = ImageDraw.Draw(img)
+            else:
+                # For RGB images, use solid dark background
+                draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], fill=(0, 0, 0))
+
+            # Draw text with contrasting color
             draw.text((x1, species_y), label, fill=color, font=font)
             draw.text((x1, conf_y), conf_label, fill=(200, 200, 200), font=font_small)
         else:
@@ -515,7 +538,7 @@ def sanitize_dirname(name):
     return name.replace(" ", "_").replace("'", "").replace("/", "-")
 
 
-def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path, regional_species=None):
+def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path, regional_species=None, range_filter=None):
     """Full pipeline: detect birds → classify species → move file."""
     fname = os.path.basename(image_path)
 
@@ -534,19 +557,22 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     detect_ms = (time.monotonic() - t0) * 1000
 
     if not detections:
-        # No bird found — skip
+        # No bird found — log it and DELETE the frame (no value for training/review)
         result = {
             "file": fname,
             "timestamp": datetime.now().isoformat(),
             "source_timestamp": extract_timestamp(fname),
-            "action": "skipped:no_bird",
+            "action": "no_bird",
             "detect_ms": round(detect_ms, 1),
             "detections": 0,
         }
         append_result(result)
-        SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(image_path), str(SKIPPED_DIR / fname))
-        logging.info("SKIP %s — no bird detected (%.0fms)", fname, detect_ms)
+        # Delete the empty frame to save storage
+        try:
+            image_path.unlink()
+            logging.info("DELETE %s — no bird detected (%.0fms)", fname, detect_ms)
+        except Exception as e:
+            logging.warning("Could not delete %s: %s", fname, e)
         return result
 
     # Stage 2: Classify ALL detected birds (sorted by confidence, best first)
@@ -595,6 +621,33 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         shutil.move(str(image_path), str(SKIPPED_DIR / fname))
         logging.info("SKIP %s — %s (raw top: %s, %dms)", fname, action, all_raw[0][0]["common_name"], total_ms)
         return result
+
+    # Apply range filter if available
+    range_filter_info = {}
+    if range_filter:
+        src_timestamp = extract_timestamp(fname)
+        filter_result = range_filter.filter_detection(
+            top["common_name"],
+            confidence=best_det["confidence"],
+            latitude=LATITUDE,
+            longitude=LONGITUDE,
+            date=src_timestamp
+        )
+        if not filter_result["valid"]:
+            top_original = top.copy()
+            top = {
+                "common_name": "unidentified",
+                "scientific_name": "unknown",
+                "raw_score": 0
+            }
+            range_filter_info = {
+                "range_filter_applied": True,
+                "original_species": filter_result["original_species"],
+                "filter_reason": filter_result["reason"],
+                "filter_flags": filter_result.get("flags", [])
+            }
+            logging.info("RANGE_FILTER: %s invalid for location — marked as unidentified (%s)",
+                        filter_result["original_species"], filter_result["reason"])
 
     # Success: bird(s) detected and classified
     species_dir = CLASSIFIED_DIR / sanitize_dirname(top["common_name"])
@@ -647,6 +700,9 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         # All birds in this frame
         "birds": birds,
     }
+    # Add range filter info if present
+    if range_filter_info:
+        result.update(range_filter_info)
     append_result(result)
 
     # Save annotated image with bounding box + labels for ALL birds
@@ -681,7 +737,7 @@ def get_pending_files():
     return [f for f in files if not f.name.endswith(".tmp")]
 
 
-def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
+def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
     """Process all pending files."""
     files = get_pending_files()
     if not files:
@@ -689,7 +745,7 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
 
     results = []
     for fpath in files:
-        r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath, regional_species)
+        r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath, regional_species, range_filter)
         if r:
             results.append(r)
 
@@ -713,7 +769,7 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
     return len(results)
 
 
-def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
+def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
     """Continuously watch for new files. Pauses during nighttime."""
     logging.info("Watch mode started (polling every %ds)", WATCH_INTERVAL)
     was_night = False
@@ -728,7 +784,7 @@ def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, lab
             if was_night:
                 logging.info("Daytime resumed — restarting classification")
                 was_night = False
-            n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+            n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
             if n > 0:
                 logging.info("Processed %d file(s), waiting for more...", n)
             time.sleep(WATCH_INTERVAL)
@@ -736,7 +792,7 @@ def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, lab
         logging.info("Watch mode stopped")
 
 
-def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None):
+def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
     """Move images from classified/ and skipped/ back to incoming/ and reprocess."""
     count = 0
     for src_dir in [CLASSIFIED_DIR, SKIPPED_DIR]:
@@ -752,7 +808,7 @@ def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labe
         return
 
     logging.info("Moved %d files back to incoming/, reprocessing...", count)
-    process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+    process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
 
 
 def print_summary():
@@ -820,13 +876,21 @@ def main():
     species_sess, species_input_name, labels = load_species_model(SPECIES_MODEL_PATH, LABELS_PATH)
     regional_species = load_regional_filter(REGIONAL_SPECIES_PATH)
 
+    # Initialize range filter for geographic validation
+    try:
+        range_filter = RangeFilter()
+        logging.info("Range filter loaded: geographic validation enabled")
+    except Exception as e:
+        logging.warning("Could not load range filter: %s — geographic filtering disabled", e)
+        range_filter = None
+
     if args.reprocess:
-        reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+        reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
     elif args.watch:
-        process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
-        watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+        process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+        watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
     else:
-        n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species)
+        n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
         if n == 0:
             logging.info("No pending files in %s", INCOMING_DIR)
         print_summary()
