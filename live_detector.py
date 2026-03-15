@@ -40,14 +40,16 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 
-# Coral Edge TPU — optional, falls back to ONNX+CoreML if unavailable
+# Coral Edge TPU — disabled by default to avoid stealing TPU from classify.py
+# Enable with LIVE_DETECT_CORAL=1 if running without the batch classifier
 _CORAL_OK = False
-try:
-    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
-    from pycoral.adapters import common as _coral_common
-    _CORAL_OK = bool(list_edge_tpus())
-except ImportError:
-    pass
+if os.environ.get("LIVE_DETECT_CORAL", "0") == "1":
+    try:
+        from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
+        from pycoral.adapters import common as _coral_common
+        _CORAL_OK = bool(list_edge_tpus())
+    except ImportError:
+        pass
 
 # --- Configuration ---
 MODEL_DIR = Path("/Users/vives/bird-classifier/models")
