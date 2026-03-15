@@ -1,0 +1,4836 @@
+{
+  "Downy Woodpecker": {
+    "cover": "Downy_Woodpecker.jpg",
+    "images": [
+      {
+        "file": "Downy_Woodpecker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Downy_Woodpecker_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Downy_Woodpecker_male_eastern.jpg",
+        "caption": "Male (Eastern)"
+      },
+      {
+        "file": "Downy_Woodpecker_male_pacific.jpg",
+        "caption": "Male (Pacific)"
+      }
+    ]
+  },
+  "Hairy Woodpecker": {
+    "cover": "Hairy_Woodpecker.jpg",
+    "images": [
+      {
+        "file": "Hairy_Woodpecker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Hairy_Woodpecker_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Hairy_Woodpecker_male_eastern.jpg",
+        "caption": "Male (Eastern)"
+      },
+      {
+        "file": "Hairy_Woodpecker_female_rocky_mts.jpg",
+        "caption": "Female (Rocky Mts.)"
+      }
+    ]
+  },
+  "Black-capped Chickadee": {
+    "cover": "Black-capped_Chickadee.jpg",
+    "images": [
+      {
+        "file": "Black-capped_Chickadee.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-capped_Chickadee_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black-capped_Chickadee_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black-capped_Chickadee_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "House Finch": {
+    "cover": "House_Finch.jpg",
+    "images": [
+      {
+        "file": "House_Finch.jpg",
+        "caption": ""
+      },
+      {
+        "file": "House_Finch_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "House_Finch_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "House_Finch_femaleimmature.jpg",
+        "caption": "Female/immature"
+      }
+    ]
+  },
+  "White-breasted Nuthatch": {
+    "cover": "White-breasted_Nuthatch.jpg",
+    "images": [
+      {
+        "file": "White-breasted_Nuthatch.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-breasted_Nuthatch_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-breasted_Nuthatch_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "White-breasted_Nuthatch_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Gray Catbird": {
+    "cover": "Gray_Catbird.jpg",
+    "images": [
+      {
+        "file": "Gray_Catbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Gray_Catbird_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Gray_Catbird_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Gray_Catbird_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Mourning Dove": {
+    "cover": "Mourning_Dove.jpg",
+    "images": [
+      {
+        "file": "Mourning_Dove.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Mourning_Dove_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Mourning_Dove_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Mourning_Dove_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Rock Pigeon": {
+    "cover": "Rock_Pigeon.jpg",
+    "images": [
+      {
+        "file": "Rock_Pigeon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Rock_Pigeon_rock_pigeon_photos_and_videos.jpg",
+        "caption": "Rock Pigeon Photos and Videos"
+      },
+      {
+        "file": "Rock_Pigeon_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Rock_Pigeon_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Blue Jay": {
+    "cover": "Blue_Jay.jpg",
+    "images": [
+      {
+        "file": "Blue_Jay.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Blue_Jay_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Blue_Jay_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Blue_Jay_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Brown-headed Cowbird": {
+    "cover": "Brown-headed_Cowbird.jpg",
+    "images": [
+      {
+        "file": "Brown-headed_Cowbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Brown-headed_Cowbird_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Brown-headed_Cowbird_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Brown-headed_Cowbird_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "American Goldfinch": {
+    "cover": "American_Goldfinch.jpg",
+    "images": [
+      {
+        "file": "American_Goldfinch.jpg",
+        "caption": "Adult male, breeding \u2014 brilliant yellow with jet-black cap, wings, and tail"
+      },
+      {
+        "file": "American_Goldfinch_nonbreeding.jpg",
+        "caption": "Adult male, non-breeding \u2014 olive-brown with hints of yellow and dark wings with white wingbars"
+      },
+      {
+        "file": "American_Goldfinch_female_breeding.jpg",
+        "caption": "Adult female, breeding \u2014 duller olive-yellow without the black cap"
+      },
+      {
+        "file": "American_Goldfinch_immature.jpg",
+        "caption": "Immature \u2014 pale brownish-olive with buffy wingbars, similar in both sexes"
+      },
+      {
+        "file": "American_Goldfinch_molting.jpg",
+        "caption": "Molting adult \u2014 patchy mix of breeding yellow and winter olive during seasonal transition"
+      }
+    ]
+  },
+  "Ruby-crowned Kinglet": {
+    "cover": "Ruby-crowned_Kinglet.jpg",
+    "images": [
+      {
+        "file": "Ruby-crowned_Kinglet.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ruby-crowned_Kinglet_not_flashing.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ruby-crowned_Kinglet_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Ruby-crowned_Kinglet_adult_male.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Red-bellied Woodpecker": {
+    "cover": "Red-bellied_Woodpecker.jpg",
+    "images": [
+      {
+        "file": "Red-bellied_Woodpecker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-bellied_Woodpecker_female.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-bellied_Woodpecker_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Red-bellied_Woodpecker_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Pine Siskin": {
+    "cover": "Pine_Siskin.jpg",
+    "images": [
+      {
+        "file": "Pine_Siskin.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Pine_Siskin_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Pine_Siskin_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Pine_Siskin_immature_northern.jpg",
+        "caption": "Immature (Northern)"
+      }
+    ]
+  },
+  "Northern Cardinal": {
+    "cover": "Northern_Cardinal.jpg",
+    "images": [
+      {
+        "file": "Northern_Cardinal.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Cardinal_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Northern_Cardinal_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Northern_Cardinal_adult_male.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Song Sparrow": {
+    "cover": "Song_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Song_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Song_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Song_Sparrow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Song_Sparrow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Tufted Titmouse": {
+    "cover": "Tufted_Titmouse.jpg",
+    "images": [
+      {
+        "file": "Tufted_Titmouse.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Tufted_Titmouse_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Tufted_Titmouse_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Tufted_Titmouse_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Barn Swallow": {
+    "cover": "American_Barn_Swallow.jpg",
+    "images": [
+      {
+        "file": "American_Barn_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Barn_Swallow_adult_american.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "American_Barn_Swallow_adult_american_1.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "American_Barn_Swallow_adult_whitebellied.jpg",
+        "caption": "Adult (White-bellied)"
+      }
+    ]
+  },
+  "American Bittern": {
+    "cover": "American_Bittern.jpg",
+    "images": [
+      {
+        "file": "American_Bittern.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Bittern_adultimmature.jpg",
+        "caption": "Adult/immature"
+      },
+      {
+        "file": "American_Bittern_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Bittern_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Black Duck": {
+    "cover": "American_Black_Duck.jpg",
+    "images": [
+      {
+        "file": "American_Black_Duck.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Black_Duck_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "American_Black_Duck_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "American_Black_Duck_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "American Coot": {
+    "cover": "American_Coot.jpg",
+    "images": [
+      {
+        "file": "American_Coot.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Coot_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Coot_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Coot_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "American Crow": {
+    "cover": "American_Crow.jpg",
+    "images": [
+      {
+        "file": "American_Crow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Crow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Crow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Crow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Green-winged Teal": {
+    "cover": "American_Green-winged_Teal.jpg",
+    "images": [
+      {
+        "file": "American_Green-winged_Teal.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Green-winged_Teal_male_american.jpg",
+        "caption": "Male (American)"
+      },
+      {
+        "file": "American_Green-winged_Teal_male_eurasian.jpg",
+        "caption": "Male (Eurasian)"
+      },
+      {
+        "file": "American_Green-winged_Teal_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      }
+    ]
+  },
+  "American Herring Gull": {
+    "cover": "American_Herring_Gull.jpg",
+    "images": [
+      {
+        "file": "American_Herring_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Herring_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "American_Herring_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "American_Herring_Gull_third_winter.jpg",
+        "caption": "Third winter"
+      }
+    ]
+  },
+  "American Kestrel": {
+    "cover": "American_Kestrel.jpg",
+    "images": [
+      {
+        "file": "American_Kestrel.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Kestrel_adult_male_northern.jpg",
+        "caption": "Adult male (Northern)"
+      },
+      {
+        "file": "American_Kestrel_female_northern.jpg",
+        "caption": "Female (Northern)"
+      },
+      {
+        "file": "American_Kestrel_adult_male_northern_1.jpg",
+        "caption": "Adult male (Northern)"
+      }
+    ]
+  },
+  "American Oystercatcher": {
+    "cover": "American_Oystercatcher.jpg",
+    "images": [
+      {
+        "file": "American_Oystercatcher.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Oystercatcher_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Oystercatcher_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "American_Oystercatcher_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Pipit": {
+    "cover": "American_Pipit.jpg",
+    "images": [
+      {
+        "file": "American_Pipit.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Pipit_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "American_Pipit_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "American_Pipit_nonbreeding_adultimmature_1.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "American Redstart": {
+    "cover": "American_Redstart.jpg",
+    "images": [
+      {
+        "file": "American_Redstart.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Redstart_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "American_Redstart_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "American_Redstart_immature_male.jpg",
+        "caption": "Immature male"
+      }
+    ]
+  },
+  "American Robin": {
+    "cover": "American_Robin.jpg",
+    "images": [
+      {
+        "file": "American_Robin.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Robin_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "American_Robin_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Robin_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Tree Sparrow": {
+    "cover": "American_Tree_Sparrow.jpg",
+    "images": [
+      {
+        "file": "American_Tree_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Tree_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Tree_Sparrow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Tree_Sparrow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "American Wigeon": {
+    "cover": "American_Wigeon.jpg",
+    "images": [
+      {
+        "file": "American_Wigeon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Wigeon_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "American_Wigeon_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "American_Wigeon_adult_male.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "American Woodcock": {
+    "cover": "American_Woodcock.jpg",
+    "images": [
+      {
+        "file": "American_Woodcock.jpg",
+        "caption": ""
+      },
+      {
+        "file": "American_Woodcock_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Woodcock_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "American_Woodcock_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Bald Eagle": {
+    "cover": "Bald_Eagle.jpg",
+    "images": [
+      {
+        "file": "Bald_Eagle.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Bald_Eagle_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Bald_Eagle_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Bald_Eagle_second_year.jpg",
+        "caption": "Second year"
+      }
+    ]
+  },
+  "Baltimore Oriole": {
+    "cover": "Baltimore_Oriole.jpg",
+    "images": [
+      {
+        "file": "Baltimore_Oriole.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Baltimore_Oriole_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Baltimore_Oriole_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Baltimore_Oriole_adult_female_1.jpg",
+        "caption": "Adult female"
+      }
+    ]
+  },
+  "Bank Swallow": {
+    "cover": "Bank_Swallow.jpg",
+    "images": [
+      {
+        "file": "Bank_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Bank_Swallow_bank_swallow_photos_and_videos.jpg",
+        "caption": "Bank Swallow Photos and Videos"
+      },
+      {
+        "file": "Bank_Swallow_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Bank_Swallow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Barn Swallow": {
+    "cover": "Barn_Swallow.jpg",
+    "images": [
+      {
+        "file": "Barn_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Barn_Swallow_adult_american.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "Barn_Swallow_adult_american_1.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "Barn_Swallow_adult_whitebellied.jpg",
+        "caption": "Adult (White-bellied)"
+      }
+    ]
+  },
+  "Barred Owl": {
+    "cover": "Barred_Owl.jpg",
+    "images": [
+      {
+        "file": "Barred_Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Barred_Owl_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Barred_Owl_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Barred_Owl_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Belted Kingfisher": {
+    "cover": "Belted_Kingfisher.jpg",
+    "images": [
+      {
+        "file": "Belted_Kingfisher.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Belted_Kingfisher_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Belted_Kingfisher_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Belted_Kingfisher_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Black Scoter": {
+    "cover": "Black_Scoter.jpg",
+    "images": [
+      {
+        "file": "Black_Scoter.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black_Scoter_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Black_Scoter_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Black_Scoter_adult_male_and_female.jpg",
+        "caption": "Adult male and female"
+      }
+    ]
+  },
+  "Black Vulture": {
+    "cover": "Black_Vulture.jpg",
+    "images": [
+      {
+        "file": "Black_Vulture.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black_Vulture_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black_Vulture_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black_Vulture_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Black-and-white Warbler": {
+    "cover": "Black-and-white_Warbler.jpg",
+    "images": [
+      {
+        "file": "Black-and-white_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-and-white_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Black-and-white_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Black-and-white_Warbler_female.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Black-bellied Plover": {
+    "cover": "Black-bellied_Plover.png",
+    "images": [
+      {
+        "file": "Black-bellied_Plover.png",
+        "caption": ""
+      },
+      {
+        "file": "Black-bellied_Plover_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Black-bellied_Plover_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Black-bellied_Plover_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Black-billed Cuckoo": {
+    "cover": "Black-billed_Cuckoo.jpg",
+    "images": [
+      {
+        "file": "Black-billed_Cuckoo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-billed_Cuckoo_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black-billed_Cuckoo_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Black-billed_Cuckoo_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Black-crowned Night-Heron": {
+    "cover": "Black-crowned_Night-Heron.jpg",
+    "images": [
+      {
+        "file": "Black-crowned_Night-Heron.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-crowned_Night-Heron_adult_american.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "Black-crowned_Night-Heron_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Black-crowned_Night-Heron_juvenile_1.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Black-throated Blue Warbler": {
+    "cover": "Black-throated_Blue_Warbler.jpg",
+    "images": [
+      {
+        "file": "Black-throated_Blue_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-throated_Blue_Warbler_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Black-throated_Blue_Warbler_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Black-throated_Blue_Warbler_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Black-throated Green Warbler": {
+    "cover": "Black-throated_Green_Warbler.jpg",
+    "images": [
+      {
+        "file": "Black-throated_Green_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Black-throated_Green_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Black-throated_Green_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Black-throated_Green_Warbler_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Blackpoll Warbler": {
+    "cover": "Blackpoll_Warbler.jpg",
+    "images": [
+      {
+        "file": "Blackpoll_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Blackpoll_Warbler_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Blackpoll_Warbler_breeding_female.jpg",
+        "caption": "Breeding female"
+      },
+      {
+        "file": "Blackpoll_Warbler_breeding_female_1.jpg",
+        "caption": "Breeding female"
+      }
+    ]
+  },
+  "Blue-headed Vireo": {
+    "cover": "Blue-headed_Vireo.jpg",
+    "images": [
+      {
+        "file": "Blue-headed_Vireo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Blue-headed_Vireo_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Blue-headed_Vireo_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Blue-headed_Vireo_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Blue-winged Teal": {
+    "cover": "Blue-winged_Teal.jpg",
+    "images": [
+      {
+        "file": "Blue-winged_Teal.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Blue-winged_Teal_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Blue-winged_Teal_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Blue-winged_Teal_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Blue-winged Warbler": {
+    "cover": "Blue-winged_Warbler.jpg",
+    "images": [
+      {
+        "file": "Blue-winged_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Blue-winged_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Blue-winged_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Blue-winged_Warbler_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Boat-tailed Grackle": {
+    "cover": "Boat-tailed_Grackle.jpg",
+    "images": [
+      {
+        "file": "Boat-tailed_Grackle.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Boat-tailed_Grackle_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Boat-tailed_Grackle_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Boat-tailed_Grackle_immature_male.jpg",
+        "caption": "Immature male"
+      }
+    ]
+  },
+  "Bobolink": {
+    "cover": "Bobolink.jpg",
+    "images": [
+      {
+        "file": "Bobolink.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Bobolink_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Bobolink_femalenonbreeding_male.jpg",
+        "caption": "Female/nonbreeding male"
+      },
+      {
+        "file": "Bobolink_breeding_male_1.jpg",
+        "caption": "Breeding male"
+      }
+    ]
+  },
+  "Brant": {
+    "cover": "Brant.jpg",
+    "images": [
+      {
+        "file": "Brant.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Brant_adult_atlantic.jpg",
+        "caption": "Adult (Atlantic)"
+      },
+      {
+        "file": "Brant_adult_black.jpg",
+        "caption": "Adult (Black)"
+      },
+      {
+        "file": "Brant_adult_darkbellied.jpg",
+        "caption": "Adult (Dark-bellied)"
+      }
+    ]
+  },
+  "Broad-winged Hawk": {
+    "cover": "Broad-winged_Hawk.jpg",
+    "images": [
+      {
+        "file": "Broad-winged_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Broad-winged_Hawk_adult_light_morph.jpg",
+        "caption": "Adult light morph"
+      },
+      {
+        "file": "Broad-winged_Hawk_adult_light_morph_1.jpg",
+        "caption": "Adult light morph"
+      },
+      {
+        "file": "Broad-winged_Hawk_adult_light_morph_2.jpg",
+        "caption": "Adult light morph"
+      }
+    ]
+  },
+  "Brown Creeper": {
+    "cover": "Brown_Creeper.png",
+    "images": [
+      {
+        "file": "Brown_Creeper.png",
+        "caption": ""
+      },
+      {
+        "file": "Brown_Creeper_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Brown_Creeper_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Brown_Creeper_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Brown Thrasher": {
+    "cover": "Brown_Thrasher.jpg",
+    "images": [
+      {
+        "file": "Brown_Thrasher.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Brown_Thrasher_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Brown_Thrasher_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Brown_Thrasher_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Bufflehead": {
+    "cover": "Bufflehead.png",
+    "images": [
+      {
+        "file": "Bufflehead.png",
+        "caption": ""
+      },
+      {
+        "file": "Bufflehead_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Bufflehead_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Bufflehead_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Canada Goose": {
+    "cover": "Canada_Goose.jpg",
+    "images": [
+      {
+        "file": "Canada_Goose.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Canada_Goose_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Canada_Goose_adult_occidentalisfulva.jpg",
+        "caption": "Adult (occidentalis/fulva)"
+      },
+      {
+        "file": "Canada_Goose_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Canada Warbler": {
+    "cover": "Canada_Warbler.jpg",
+    "images": [
+      {
+        "file": "Canada_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Canada_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Canada_Warbler_adult_femaleimmature.jpg",
+        "caption": "Adult female/immature"
+      },
+      {
+        "file": "Canada_Warbler_immature_female.jpg",
+        "caption": "Immature female"
+      }
+    ]
+  },
+  "Cape May Warbler": {
+    "cover": "Cape_May_Warbler.jpg",
+    "images": [
+      {
+        "file": "Cape_May_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Cape_May_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Cape_May_Warbler_adult_femaleimmature.jpg",
+        "caption": "Adult female/immature"
+      },
+      {
+        "file": "Cape_May_Warbler_female.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Carolina Chickadee": {
+    "cover": "Carolina_Chickadee.jpg",
+    "images": [
+      {
+        "file": "Carolina_Chickadee.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Carolina_Chickadee_carolina_chickadee_photos_and_videos.jpg",
+        "caption": "Carolina Chickadee Photos and Videos"
+      },
+      {
+        "file": "Carolina_Chickadee_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Carolina_Chickadee_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Carolina Wren": {
+    "cover": "Carolina_Wren.jpg",
+    "images": [
+      {
+        "file": "Carolina_Wren.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Carolina_Wren_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Carolina_Wren_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Carolina_Wren_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Cedar Waxwing": {
+    "cover": "Cedar_Waxwing.jpg",
+    "images": [
+      {
+        "file": "Cedar_Waxwing.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Cedar_Waxwing_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Cedar_Waxwing_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Cedar_Waxwing_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Chestnut-sided Warbler": {
+    "cover": "Chestnut-sided_Warbler.jpg",
+    "images": [
+      {
+        "file": "Chestnut-sided_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Chestnut-sided_Warbler_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Chestnut-sided_Warbler_breeding_female.jpg",
+        "caption": "Breeding female"
+      },
+      {
+        "file": "Chestnut-sided_Warbler_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      }
+    ]
+  },
+  "Chimney Swift": {
+    "cover": "Chimney_Swift.jpg",
+    "images": [
+      {
+        "file": "Chimney_Swift.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Chimney_Swift_chimney_swift_photos_and_videos.jpg",
+        "caption": "Chimney Swift Photos and Videos"
+      },
+      {
+        "file": "Chimney_Swift_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Chimney_Swift_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Chipping Sparrow": {
+    "cover": "Chipping_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Chipping_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Chipping_Sparrow_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Chipping_Sparrow_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "Chipping_Sparrow_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Clapper Rail": {
+    "cover": "Clapper_Rail.jpg",
+    "images": [
+      {
+        "file": "Clapper_Rail.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Clapper_Rail_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Clapper_Rail_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Clapper_Rail_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Cliff Swallow": {
+    "cover": "Cliff_Swallow.jpg",
+    "images": [
+      {
+        "file": "Cliff_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Cliff_Swallow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Cliff_Swallow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Cliff_Swallow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Common Eider": {
+    "cover": "Common_Eider.jpg",
+    "images": [
+      {
+        "file": "Common_Eider.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Eider_male_dressers.jpg",
+        "caption": "Male (Dresser's)"
+      },
+      {
+        "file": "Common_Eider_female_dressers.jpg",
+        "caption": "Female (Dresser's)"
+      },
+      {
+        "file": "Common_Eider_immature_male_dressers.jpg",
+        "caption": "Immature male (Dresser's)"
+      }
+    ]
+  },
+  "Common Goldeneye": {
+    "cover": "Common_Goldeneye.jpg",
+    "images": [
+      {
+        "file": "Common_Goldeneye.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Goldeneye_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Common_Goldeneye_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Common_Goldeneye_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Common Grackle": {
+    "cover": "Common_Grackle.jpg",
+    "images": [
+      {
+        "file": "Common_Grackle.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Grackle_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Common_Grackle_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Common_Grackle_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Common Loon": {
+    "cover": "Common_Loon.jpg",
+    "images": [
+      {
+        "file": "Common_Loon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Loon_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Common_Loon_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "Common_Loon_nonbreeding_adultimmature_1.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "Common Merganser": {
+    "cover": "Common_Merganser.jpg",
+    "images": [
+      {
+        "file": "Common_Merganser.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Merganser_male_north_american.jpg",
+        "caption": "Male (North American)"
+      },
+      {
+        "file": "Common_Merganser_female_north_american.jpg",
+        "caption": "Female (North American)"
+      },
+      {
+        "file": "Common_Merganser_male_and_female_north_american.jpg",
+        "caption": "Male and female (North American)"
+      }
+    ]
+  },
+  "Common Nighthawk": {
+    "cover": "Common_Nighthawk.jpg",
+    "images": [
+      {
+        "file": "Common_Nighthawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Nighthawk_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Common_Nighthawk_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Common_Nighthawk_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Common Raven": {
+    "cover": "Common_Raven.jpg",
+    "images": [
+      {
+        "file": "Common_Raven.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Raven_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Common_Raven_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Common_Raven_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Common Redpoll": {
+    "cover": "Common_Redpoll.jpg",
+    "images": [
+      {
+        "file": "Common_Redpoll.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Redpoll_adult_male_common.jpg",
+        "caption": "Adult male (Common)"
+      },
+      {
+        "file": "Common_Redpoll_femaleimmature_common.jpg",
+        "caption": "Female/immature (Common)"
+      },
+      {
+        "file": "Common_Redpoll_adult_male.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Common Tern": {
+    "cover": "Common_Tern.jpg",
+    "images": [
+      {
+        "file": "Common_Tern.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Tern_breeding_adult_hirundotibetana.jpg",
+        "caption": "Breeding adult (hirundo/tibetana)"
+      },
+      {
+        "file": "Common_Tern_breeding_adult_hirundotibetana_1.jpg",
+        "caption": "Breeding adult (hirundo/tibetana)"
+      },
+      {
+        "file": "Common_Tern_breeding_adult_longipennis.jpg",
+        "caption": "Breeding adult (longipennis)"
+      }
+    ]
+  },
+  "Common Yellowthroat": {
+    "cover": "Common_Yellowthroat.jpg",
+    "images": [
+      {
+        "file": "Common_Yellowthroat.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Common_Yellowthroat_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Common_Yellowthroat_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Common_Yellowthroat_immature_male.jpg",
+        "caption": "Immature male"
+      }
+    ]
+  },
+  "Dark-eyed Junco": {
+    "cover": "Dark-eyed_Junco.jpg",
+    "images": [
+      {
+        "file": "Dark-eyed_Junco.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Dark-eyed_Junco_adult_male_slatecolored.jpg",
+        "caption": "Adult male (Slate-colored)"
+      },
+      {
+        "file": "Dark-eyed_Junco_adult_male_oregon.jpg",
+        "caption": "Adult male (Oregon)"
+      },
+      {
+        "file": "Dark-eyed_Junco_adult_male_pinksided.jpg",
+        "caption": "Adult male (Pink-sided)"
+      }
+    ]
+  },
+  "Double-crested Cormorant": {
+    "cover": "Double-crested_Cormorant.jpg",
+    "images": [
+      {
+        "file": "Double-crested_Cormorant.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Double-crested_Cormorant_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Double-crested_Cormorant_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Double-crested_Cormorant_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      }
+    ]
+  },
+  "Dunlin": {
+    "cover": "Dunlin.png",
+    "images": [
+      {
+        "file": "Dunlin.png",
+        "caption": ""
+      },
+      {
+        "file": "Dunlin_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Dunlin_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Dunlin_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      }
+    ]
+  },
+  "Eastern Bluebird": {
+    "cover": "Eastern_Bluebird.jpg",
+    "images": [
+      {
+        "file": "Eastern_Bluebird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Bluebird_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Eastern_Bluebird_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Eastern_Bluebird_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Eastern Kingbird": {
+    "cover": "Eastern_Kingbird.jpg",
+    "images": [
+      {
+        "file": "Eastern_Kingbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Kingbird_eastern_kingbird_photos_and_videos.jpg",
+        "caption": "Eastern Kingbird Photos and Videos"
+      },
+      {
+        "file": "Eastern_Kingbird_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Kingbird_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Eastern Meadowlark": {
+    "cover": "Eastern_Meadowlark.jpg",
+    "images": [
+      {
+        "file": "Eastern_Meadowlark.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Meadowlark_breeding_adult_eastern.jpg",
+        "caption": "Breeding adult (Eastern)"
+      },
+      {
+        "file": "Eastern_Meadowlark_nonbreeding_adultimmature_eastern.jpg",
+        "caption": "Nonbreeding adult/immature (Eastern)"
+      },
+      {
+        "file": "Eastern_Meadowlark_adult_eastern.jpg",
+        "caption": "Adult (Eastern)"
+      }
+    ]
+  },
+  "Eastern Phoebe": {
+    "cover": "Eastern_Phoebe.jpg",
+    "images": [
+      {
+        "file": "Eastern_Phoebe.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Phoebe_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Eastern_Phoebe_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Eastern_Phoebe_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Eastern Screech-Owl": {
+    "cover": "Eastern_Screech-Owl.jpg",
+    "images": [
+      {
+        "file": "Eastern_Screech-Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Screech-Owl_adult_gray_morph_mccalls.jpg",
+        "caption": "Adult gray morph (McCall's)"
+      },
+      {
+        "file": "Eastern_Screech-Owl_adult_red_morph_northern.jpg",
+        "caption": "Adult red morph (Northern)"
+      },
+      {
+        "file": "Eastern_Screech-Owl_adult_brown_morph_northern.jpg",
+        "caption": "Adult brown morph (Northern)"
+      }
+    ]
+  },
+  "Eastern Towhee": {
+    "cover": "Eastern_Towhee.jpg",
+    "images": [
+      {
+        "file": "Eastern_Towhee.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Towhee_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Eastern_Towhee_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Eastern_Towhee_adult_male_whiteeyed.jpg",
+        "caption": "Adult male (White-eyed)"
+      }
+    ]
+  },
+  "Eastern Wood-Pewee": {
+    "cover": "Eastern_Wood-Pewee.jpg",
+    "images": [
+      {
+        "file": "Eastern_Wood-Pewee.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Wood-Pewee_eastern_woodpewee_photos_and_videos.jpg",
+        "caption": "Eastern Wood-Pewee Photos and Videos"
+      },
+      {
+        "file": "Eastern_Wood-Pewee_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Eastern_Wood-Pewee_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "European Starling": {
+    "cover": "European_Starling.jpg",
+    "images": [
+      {
+        "file": "European_Starling.jpg",
+        "caption": ""
+      },
+      {
+        "file": "European_Starling_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "European_Starling_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "European_Starling_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Feral Pigeon": {
+    "cover": "Feral_Pigeon.jpg",
+    "images": [
+      {
+        "file": "Feral_Pigeon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Feral_Pigeon_rock_pigeon_photos_and_videos.jpg",
+        "caption": "Rock Pigeon Photos and Videos"
+      },
+      {
+        "file": "Feral_Pigeon_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Feral_Pigeon_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Field Sparrow": {
+    "cover": "Field_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Field_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Field_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Field_Sparrow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Field_Sparrow_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Fish Crow": {
+    "cover": "Fish_Crow.jpg",
+    "images": [
+      {
+        "file": "Fish_Crow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Fish_Crow_fish_crow_photos_and_videos.jpg",
+        "caption": "Fish Crow Photos and Videos"
+      },
+      {
+        "file": "Fish_Crow_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Fish_Crow_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Fox Sparrow": {
+    "cover": "Fox_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Fox_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Fox_Sparrow_adult_red.jpg",
+        "caption": "Adult (Red)"
+      },
+      {
+        "file": "Fox_Sparrow_adult_sooty.jpg",
+        "caption": "Adult (Sooty)"
+      },
+      {
+        "file": "Fox_Sparrow_adult_thickbilled.jpg",
+        "caption": "Adult (Thick-billed)"
+      }
+    ]
+  },
+  "Gadwall": {
+    "cover": "Gadwall.jpg",
+    "images": [
+      {
+        "file": "Gadwall.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Gadwall_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Gadwall_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Gadwall_male_and_female.jpg",
+        "caption": "Male and female"
+      }
+    ]
+  },
+  "Glaucous Gull": {
+    "cover": "Glaucous_Gull.jpg",
+    "images": [
+      {
+        "file": "Glaucous_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Glaucous_Gull_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Glaucous_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Glaucous_Gull_first_winter.jpg",
+        "caption": "First winter"
+      }
+    ]
+  },
+  "Glossy Ibis": {
+    "cover": "Glossy_Ibis.png",
+    "images": [
+      {
+        "file": "Glossy_Ibis.png",
+        "caption": ""
+      },
+      {
+        "file": "Glossy_Ibis_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Glossy_Ibis_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Glossy_Ibis_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Golden-crowned Kinglet": {
+    "cover": "Golden-crowned_Kinglet.jpg",
+    "images": [
+      {
+        "file": "Golden-crowned_Kinglet.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Golden-crowned_Kinglet_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Golden-crowned_Kinglet_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Golden-crowned_Kinglet_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Great Black-backed Gull": {
+    "cover": "Great_Black-backed_Gull.jpg",
+    "images": [
+      {
+        "file": "Great_Black-backed_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Black-backed_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Great_Black-backed_Gull_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Great_Black-backed_Gull_first_winter.jpg",
+        "caption": "First winter"
+      }
+    ]
+  },
+  "Great Blue Heron": {
+    "cover": "Great_Blue_Heron.jpg",
+    "images": [
+      {
+        "file": "Great_Blue_Heron.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Blue_Heron_adult_great_blue.jpg",
+        "caption": "Adult (Great Blue)"
+      },
+      {
+        "file": "Great_Blue_Heron_immature_great_blue.jpg",
+        "caption": "Immature (Great Blue)"
+      },
+      {
+        "file": "Great_Blue_Heron_adult_great_blue_1.jpg",
+        "caption": "Adult (Great Blue)"
+      }
+    ]
+  },
+  "Great Cormorant": {
+    "cover": "Great_Cormorant.jpg",
+    "images": [
+      {
+        "file": "Great_Cormorant.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Cormorant_breeding_adult_north_atlantic.jpg",
+        "caption": "Breeding adult (North Atlantic)"
+      },
+      {
+        "file": "Great_Cormorant_breeding_adult_eurasian.jpg",
+        "caption": "Breeding adult (Eurasian)"
+      },
+      {
+        "file": "Great_Cormorant_adult_whitebreasted.jpg",
+        "caption": "Adult (White-breasted)"
+      }
+    ]
+  },
+  "Great Crested Flycatcher": {
+    "cover": "Great_Crested_Flycatcher.jpg",
+    "images": [
+      {
+        "file": "Great_Crested_Flycatcher.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Crested_Flycatcher_great_crested_flycatcher_photos_and_vide.jpg",
+        "caption": "Great Crested Flycatcher Photos and Videos"
+      },
+      {
+        "file": "Great_Crested_Flycatcher_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Crested_Flycatcher_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Great Egret": {
+    "cover": "Great_Egret.png",
+    "images": [
+      {
+        "file": "Great_Egret.png",
+        "caption": ""
+      },
+      {
+        "file": "Great_Egret_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Great_Egret_breeding_adult_american.jpg",
+        "caption": "Breeding adult (American)"
+      },
+      {
+        "file": "Great_Egret_breeding_adult_african.jpg",
+        "caption": "Breeding adult (African)"
+      }
+    ]
+  },
+  "Great Horned Owl": {
+    "cover": "Great_Horned_Owl.jpg",
+    "images": [
+      {
+        "file": "Great_Horned_Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Great_Horned_Owl_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Great_Horned_Owl_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Great_Horned_Owl_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Greater Scaup": {
+    "cover": "Greater_Scaup.jpg",
+    "images": [
+      {
+        "file": "Greater_Scaup.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Greater_Scaup_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Greater_Scaup_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Greater_Scaup_male_and_female.jpg",
+        "caption": "Male and female"
+      }
+    ]
+  },
+  "Greater Yellowlegs": {
+    "cover": "Greater_Yellowlegs.png",
+    "images": [
+      {
+        "file": "Greater_Yellowlegs.png",
+        "caption": ""
+      },
+      {
+        "file": "Greater_Yellowlegs_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Greater_Yellowlegs_nonbreedingimmature.jpg",
+        "caption": "Nonbreeding/immature"
+      },
+      {
+        "file": "Greater_Yellowlegs_nonbreedingimmature_1.jpg",
+        "caption": "Nonbreeding/immature"
+      }
+    ]
+  },
+  "Green Heron": {
+    "cover": "Green_Heron.jpg",
+    "images": [
+      {
+        "file": "Green_Heron.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Green_Heron_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Green_Heron_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Green_Heron_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Green-winged Teal": {
+    "cover": "Green-winged_Teal.jpg",
+    "images": [
+      {
+        "file": "Green-winged_Teal.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Green-winged_Teal_male_american.jpg",
+        "caption": "Male (American)"
+      },
+      {
+        "file": "Green-winged_Teal_male_eurasian.jpg",
+        "caption": "Male (Eurasian)"
+      },
+      {
+        "file": "Green-winged_Teal_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      }
+    ]
+  },
+  "Harlequin Duck": {
+    "cover": "Harlequin_Duck.jpg",
+    "images": [
+      {
+        "file": "Harlequin_Duck.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Harlequin_Duck_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Harlequin_Duck_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Harlequin_Duck_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Hermit Thrush": {
+    "cover": "Hermit_Thrush.jpg",
+    "images": [
+      {
+        "file": "Hermit_Thrush.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Hermit_Thrush_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Hermit_Thrush_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Hermit_Thrush_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Herring Gull": {
+    "cover": "Herring_Gull.jpg",
+    "images": [
+      {
+        "file": "Herring_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Herring_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Herring_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Herring_Gull_third_winter.jpg",
+        "caption": "Third winter"
+      }
+    ]
+  },
+  "Hooded Merganser": {
+    "cover": "Hooded_Merganser.jpg",
+    "images": [
+      {
+        "file": "Hooded_Merganser.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Hooded_Merganser_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Hooded_Merganser_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Hooded_Merganser_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Horned Grebe": {
+    "cover": "Horned_Grebe.jpg",
+    "images": [
+      {
+        "file": "Horned_Grebe.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Horned_Grebe_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Horned_Grebe_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Horned_Grebe_molting_adult.jpg",
+        "caption": "Molting adult"
+      }
+    ]
+  },
+  "Horned Lark": {
+    "cover": "Horned_Lark.jpg",
+    "images": [
+      {
+        "file": "Horned_Lark.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Horned_Lark_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Horned_Lark_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Horned_Lark_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "House Sparrow": {
+    "cover": "House_Sparrow.jpg",
+    "images": [
+      {
+        "file": "House_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "House_Sparrow_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "House_Sparrow_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "House_Sparrow_nonbreedingimmature.jpg",
+        "caption": "Nonbreeding/immature"
+      }
+    ]
+  },
+  "House Wren": {
+    "cover": "House_Wren.jpg",
+    "images": [
+      {
+        "file": "House_Wren.jpg",
+        "caption": ""
+      },
+      {
+        "file": "House_Wren_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "House_Wren_adult_brownthroated.jpg",
+        "caption": "Adult (Brown-throated)"
+      },
+      {
+        "file": "House_Wren_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      }
+    ]
+  },
+  "Iceland Gull": {
+    "cover": "Iceland_Gull.jpg",
+    "images": [
+      {
+        "file": "Iceland_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Iceland_Gull_adult_kumlieni.jpg",
+        "caption": "Adult (kumlieni)"
+      },
+      {
+        "file": "Iceland_Gull_nonbreeding_adult_thayers.jpg",
+        "caption": "Nonbreeding adult (Thayer's)"
+      },
+      {
+        "file": "Iceland_Gull_nonbreeding_adult_kumlieni.jpg",
+        "caption": "Nonbreeding adult (kumlieni)"
+      }
+    ]
+  },
+  "Indigo Bunting": {
+    "cover": "Indigo_Bunting.jpg",
+    "images": [
+      {
+        "file": "Indigo_Bunting.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Indigo_Bunting_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Indigo_Bunting_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      },
+      {
+        "file": "Indigo_Bunting_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Killdeer": {
+    "cover": "Killdeer.png",
+    "images": [
+      {
+        "file": "Killdeer.png",
+        "caption": ""
+      },
+      {
+        "file": "Killdeer_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Killdeer_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Killdeer_chick.jpg",
+        "caption": "Chick"
+      }
+    ]
+  },
+  "Lapland Longspur": {
+    "cover": "Lapland_Longspur.jpg",
+    "images": [
+      {
+        "file": "Lapland_Longspur.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lapland_Longspur_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Lapland_Longspur_nonbreedingimmature_male.jpg",
+        "caption": "Nonbreeding/immature male"
+      },
+      {
+        "file": "Lapland_Longspur_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "Laughing Gull": {
+    "cover": "Laughing_Gull.jpg",
+    "images": [
+      {
+        "file": "Laughing_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Laughing_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Laughing_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Laughing_Gull_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Least Sandpiper": {
+    "cover": "Least_Sandpiper.png",
+    "images": [
+      {
+        "file": "Least_Sandpiper.png",
+        "caption": ""
+      },
+      {
+        "file": "Least_Sandpiper_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Least_Sandpiper_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Least_Sandpiper_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Least Tern": {
+    "cover": "Least_Tern.jpg",
+    "images": [
+      {
+        "file": "Least_Tern.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Least_Tern_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Least_Tern_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Least_Tern_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      }
+    ]
+  },
+  "Lesser Black-backed Gull": {
+    "cover": "Lesser_Black-backed_Gull.jpg",
+    "images": [
+      {
+        "file": "Lesser_Black-backed_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lesser_Black-backed_Gull_breeding_adult_graellsii.jpg",
+        "caption": "Breeding adult (graellsii)"
+      },
+      {
+        "file": "Lesser_Black-backed_Gull_breeding_adult_intermedius.jpg",
+        "caption": "Breeding adult (intermedius)"
+      },
+      {
+        "file": "Lesser_Black-backed_Gull_breeding_adult_fuscus.jpg",
+        "caption": "Breeding adult (fuscus)"
+      }
+    ]
+  },
+  "Lesser Scaup": {
+    "cover": "Lesser_Scaup.jpg",
+    "images": [
+      {
+        "file": "Lesser_Scaup.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lesser_Scaup_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Lesser_Scaup_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Lesser_Scaup_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Lesser Yellowlegs": {
+    "cover": "Lesser_Yellowlegs.jpg",
+    "images": [
+      {
+        "file": "Lesser_Yellowlegs.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lesser_Yellowlegs_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Lesser_Yellowlegs_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Lesser_Yellowlegs_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Long-tailed Duck": {
+    "cover": "Long-tailed_Duck.jpg",
+    "images": [
+      {
+        "file": "Long-tailed_Duck.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Long-tailed_Duck_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      },
+      {
+        "file": "Long-tailed_Duck_nonbreeding_female.jpg",
+        "caption": "Nonbreeding female"
+      },
+      {
+        "file": "Long-tailed_Duck_breeding_male.jpg",
+        "caption": "Breeding male"
+      }
+    ]
+  },
+  "Louisiana Waterthrush": {
+    "cover": "Louisiana_Waterthrush.jpg",
+    "images": [
+      {
+        "file": "Louisiana_Waterthrush.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Louisiana_Waterthrush_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Louisiana_Waterthrush_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Louisiana_Waterthrush_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Magnolia Warbler": {
+    "cover": "Magnolia_Warbler.jpg",
+    "images": [
+      {
+        "file": "Magnolia_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Magnolia_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Magnolia_Warbler_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      },
+      {
+        "file": "Magnolia_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      }
+    ]
+  },
+  "Mallard": {
+    "cover": "Mallard.jpg",
+    "images": [
+      {
+        "file": "Mallard.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Mallard_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Mallard_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Mallard_breeding_male_1.jpg",
+        "caption": "Breeding male"
+      }
+    ]
+  },
+  "Marsh Wren": {
+    "cover": "Marsh_Wren.jpg",
+    "images": [
+      {
+        "file": "Marsh_Wren.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Marsh_Wren_marsh_wren_photos_and_videos.jpg",
+        "caption": "Marsh Wren Photos and Videos"
+      },
+      {
+        "file": "Marsh_Wren_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Marsh_Wren_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Merlin": {
+    "cover": "Merlin.jpg",
+    "images": [
+      {
+        "file": "Merlin.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Merlin_adult_male_taiga.jpg",
+        "caption": "Adult male (Taiga)"
+      },
+      {
+        "file": "Merlin_adult_male_prairie.jpg",
+        "caption": "Adult male (Prairie)"
+      },
+      {
+        "file": "Merlin_adult_black.jpg",
+        "caption": "Adult (Black)"
+      }
+    ]
+  },
+  "Mute Swan": {
+    "cover": "Mute_Swan.jpg",
+    "images": [
+      {
+        "file": "Mute_Swan.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Mute_Swan_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Mute_Swan_immature.jpg",
+        "caption": "Immature"
+      },
+      {
+        "file": "Mute_Swan_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Myrtle Warbler": {
+    "cover": "Myrtle_Warbler.jpg",
+    "images": [
+      {
+        "file": "Myrtle_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Myrtle_Warbler_adult_male_myrtle.jpg",
+        "caption": "Adult male (Myrtle)"
+      },
+      {
+        "file": "Myrtle_Warbler_adult_male_audubons.jpg",
+        "caption": "Adult male (Audubon's)"
+      },
+      {
+        "file": "Myrtle_Warbler_adult_male_goldmans.jpg",
+        "caption": "Adult male (Goldman's)"
+      }
+    ]
+  },
+  "Nashville Warbler": {
+    "cover": "Nashville_Warbler.jpg",
+    "images": [
+      {
+        "file": "Nashville_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Nashville_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Nashville_Warbler_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Nashville_Warbler_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Northern Bobwhite": {
+    "cover": "Northern_Bobwhite.jpg",
+    "images": [
+      {
+        "file": "Northern_Bobwhite.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Bobwhite_male_eastern.jpg",
+        "caption": "Male (Eastern)"
+      },
+      {
+        "file": "Northern_Bobwhite_female_eastern.jpg",
+        "caption": "Female (Eastern)"
+      },
+      {
+        "file": "Northern_Bobwhite_male.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Northern Flicker": {
+    "cover": "Northern_Flicker.jpg",
+    "images": [
+      {
+        "file": "Northern_Flicker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Flicker_male_yellowshafted.jpg",
+        "caption": "Male (Yellow-shafted)"
+      },
+      {
+        "file": "Northern_Flicker_male_redshafted.jpg",
+        "caption": "Male (Red-shafted)"
+      },
+      {
+        "file": "Northern_Flicker_adult_male_redshafted.jpg",
+        "caption": "Adult male (Red-shafted)"
+      }
+    ]
+  },
+  "Northern Gannet": {
+    "cover": "Northern_Gannet.jpg",
+    "images": [
+      {
+        "file": "Northern_Gannet.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Gannet_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Northern_Gannet_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Northern_Gannet_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Northern Harrier": {
+    "cover": "Northern_Harrier.jpg",
+    "images": [
+      {
+        "file": "Northern_Harrier.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Harrier__American.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Harrier_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Northern_Harrier_adult_female.jpg",
+        "caption": "Adult female"
+      }
+    ]
+  },
+  "Northern Mockingbird": {
+    "cover": "Northern_Mockingbird.jpg",
+    "images": [
+      {
+        "file": "Northern_Mockingbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Mockingbird_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Northern_Mockingbird_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Northern_Mockingbird_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Northern Parula": {
+    "cover": "Northern_Parula.jpg",
+    "images": [
+      {
+        "file": "Northern_Parula.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Parula_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Northern_Parula_immature_male.jpg",
+        "caption": "Immature male"
+      },
+      {
+        "file": "Northern_Parula_immature_female.jpg",
+        "caption": "Immature female"
+      }
+    ]
+  },
+  "Northern Pintail": {
+    "cover": "Northern_Pintail.jpg",
+    "images": [
+      {
+        "file": "Northern_Pintail.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Pintail_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Northern_Pintail_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Northern_Pintail_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Northern Rough-winged Swallow": {
+    "cover": "Northern_Rough-winged_Swallow.jpg",
+    "images": [
+      {
+        "file": "Northern_Rough-winged_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Rough-winged_Swallow_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Northern_Rough-winged_Swallow_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Northern_Rough-winged_Swallow_adult_northern_2.jpg",
+        "caption": "Adult (Northern)"
+      }
+    ]
+  },
+  "Northern Saw-whet Owl": {
+    "cover": "Northern_Saw-whet_Owl.jpg",
+    "images": [
+      {
+        "file": "Northern_Saw-whet_Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Saw-whet_Owl_adult_acadicus.jpg",
+        "caption": "Adult (acadicus)"
+      },
+      {
+        "file": "Northern_Saw-whet_Owl_juvenile_acadicus.jpg",
+        "caption": "Juvenile (acadicus)"
+      },
+      {
+        "file": "Northern_Saw-whet_Owl_adult_haida_gwaii.jpg",
+        "caption": "Adult (Haida Gwaii)"
+      }
+    ]
+  },
+  "Northern Shoveler": {
+    "cover": "Northern_Shoveler.jpg",
+    "images": [
+      {
+        "file": "Northern_Shoveler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Shoveler_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Northern_Shoveler_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Northern_Shoveler_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Northern Shrike": {
+    "cover": "Northern_Shrike.jpg",
+    "images": [
+      {
+        "file": "Northern_Shrike.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Shrike_immature.jpg",
+        "caption": "Immature"
+      },
+      {
+        "file": "Northern_Shrike_immature_1.jpg",
+        "caption": "Immature"
+      },
+      {
+        "file": "Northern_Shrike_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Northern Waterthrush": {
+    "cover": "Northern_Waterthrush.jpg",
+    "images": [
+      {
+        "file": "Northern_Waterthrush.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Waterthrush_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Northern_Waterthrush_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Northern_Waterthrush_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Orchard Oriole": {
+    "cover": "Orchard_Oriole.jpg",
+    "images": [
+      {
+        "file": "Orchard_Oriole.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Orchard_Oriole_adult_male_orchard.jpg",
+        "caption": "Adult male (Orchard)"
+      },
+      {
+        "file": "Orchard_Oriole_female_orchard.jpg",
+        "caption": "Female (Orchard)"
+      },
+      {
+        "file": "Orchard_Oriole_immature_male_orchard.jpg",
+        "caption": "Immature male (Orchard)"
+      }
+    ]
+  },
+  "Osprey": {
+    "cover": "Osprey.jpg",
+    "images": [
+      {
+        "file": "Osprey.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Osprey_adult_american.jpg",
+        "caption": "Adult (American)"
+      },
+      {
+        "file": "Osprey_adult_eurasian.jpg",
+        "caption": "Adult (Eurasian)"
+      },
+      {
+        "file": "Osprey_adult_australasian.jpg",
+        "caption": "Adult (Australasian)"
+      }
+    ]
+  },
+  "Ovenbird": {
+    "cover": "Ovenbird.jpg",
+    "images": [
+      {
+        "file": "Ovenbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ovenbird_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Ovenbird_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Ovenbird_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Palm Warbler": {
+    "cover": "Palm_Warbler.jpg",
+    "images": [
+      {
+        "file": "Palm_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Palm_Warbler_breeding_adult_yellow.jpg",
+        "caption": "Breeding adult (Yellow)"
+      },
+      {
+        "file": "Palm_Warbler_breeding_adult_western.jpg",
+        "caption": "Breeding adult (Western)"
+      },
+      {
+        "file": "Palm_Warbler_nonbreeding_adultimmature_yellow.jpg",
+        "caption": "Nonbreeding adult/immature (Yellow)"
+      }
+    ]
+  },
+  "Peregrine Falcon": {
+    "cover": "Peregrine_Falcon.jpg",
+    "images": [
+      {
+        "file": "Peregrine_Falcon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Peregrine_Falcon_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Peregrine_Falcon_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "Peregrine_Falcon_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Pied-billed Grebe": {
+    "cover": "Pied-billed_Grebe.jpg",
+    "images": [
+      {
+        "file": "Pied-billed_Grebe.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Pied-billed_Grebe_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Pied-billed_Grebe_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "Pied-billed_Grebe_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Pileated Woodpecker": {
+    "cover": "Pileated_Woodpecker.jpg",
+    "images": [
+      {
+        "file": "Pileated_Woodpecker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Pileated_Woodpecker_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Pileated_Woodpecker_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Pileated_Woodpecker_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Pine Warbler": {
+    "cover": "Pine_Warbler.jpg",
+    "images": [
+      {
+        "file": "Pine_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Pine_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Pine_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Pine_Warbler_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Piping Plover": {
+    "cover": "Piping_Plover.jpg",
+    "images": [
+      {
+        "file": "Piping_Plover.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Piping_Plover_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Piping_Plover_nonbreedingimmature.jpg",
+        "caption": "Nonbreeding/immature"
+      },
+      {
+        "file": "Piping_Plover_nonbreedingimmature_1.jpg",
+        "caption": "Nonbreeding/immature"
+      }
+    ]
+  },
+  "Prairie Warbler": {
+    "cover": "Prairie_Warbler.jpg",
+    "images": [
+      {
+        "file": "Prairie_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Prairie_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Prairie_Warbler_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Prairie_Warbler_femaleimmature_1.jpg",
+        "caption": "Female/immature"
+      }
+    ]
+  },
+  "Purple Finch": {
+    "cover": "Purple_Finch.jpg",
+    "images": [
+      {
+        "file": "Purple_Finch.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Purple_Finch_adult_male_eastern.jpg",
+        "caption": "Adult male (Eastern)"
+      },
+      {
+        "file": "Purple_Finch_femaleimmature_eastern.jpg",
+        "caption": "Female/immature (Eastern)"
+      },
+      {
+        "file": "Purple_Finch_adult_male_western.jpg",
+        "caption": "Adult male (Western)"
+      }
+    ]
+  },
+  "Purple Martin": {
+    "cover": "Purple_Martin.jpg",
+    "images": [
+      {
+        "file": "Purple_Martin.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Purple_Martin_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Purple_Martin_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      },
+      {
+        "file": "Purple_Martin_male_and_female.jpg",
+        "caption": "Male and female"
+      }
+    ]
+  },
+  "Purple Sandpiper": {
+    "cover": "Purple_Sandpiper.jpg",
+    "images": [
+      {
+        "file": "Purple_Sandpiper.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Purple_Sandpiper_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Purple_Sandpiper_nonbreeding_adult_1.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Purple_Sandpiper_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      }
+    ]
+  },
+  "Razorbill": {
+    "cover": "Razorbill.jpg",
+    "images": [
+      {
+        "file": "Razorbill.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Razorbill_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Razorbill_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Razorbill_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "Red Crossbill": {
+    "cover": "Red_Crossbill.jpg",
+    "images": [
+      {
+        "file": "Red_Crossbill.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red_Crossbill_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Red_Crossbill_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Red_Crossbill_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Red Knot": {
+    "cover": "Red_Knot.jpg",
+    "images": [
+      {
+        "file": "Red_Knot.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red_Knot_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Red_Knot_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Red_Knot_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "Red-breasted Merganser": {
+    "cover": "Red-breasted_Merganser.jpg",
+    "images": [
+      {
+        "file": "Red-breasted_Merganser.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-breasted_Merganser_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Red-breasted_Merganser_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      },
+      {
+        "file": "Red-breasted_Merganser_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Red-breasted Nuthatch": {
+    "cover": "Red-breasted_Nuthatch.jpg",
+    "images": [
+      {
+        "file": "Red-breasted_Nuthatch.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-breasted_Nuthatch_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Red-breasted_Nuthatch_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Red-breasted_Nuthatch_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Red-eyed Vireo": {
+    "cover": "Red-eyed_Vireo.jpg",
+    "images": [
+      {
+        "file": "Red-eyed_Vireo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-eyed_Vireo_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Red-eyed_Vireo_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Red-eyed_Vireo_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Red-necked Grebe": {
+    "cover": "Red-necked_Grebe.jpg",
+    "images": [
+      {
+        "file": "Red-necked_Grebe.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-necked_Grebe_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Red-necked_Grebe_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "Red-necked_Grebe_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Red-shouldered Hawk": {
+    "cover": "Red-shouldered_Hawk.jpg",
+    "images": [
+      {
+        "file": "Red-shouldered_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-shouldered_Hawk_adult_lineatus_group.jpg",
+        "caption": "Adult (lineatus group)"
+      },
+      {
+        "file": "Red-shouldered_Hawk_adult_lineatus_group_1.jpg",
+        "caption": "Adult (lineatus group)"
+      },
+      {
+        "file": "Red-shouldered_Hawk_adult_lineatus_group_2.jpg",
+        "caption": "Adult (lineatus group)"
+      }
+    ]
+  },
+  "Red-tailed Hawk": {
+    "cover": "Red-tailed_Hawk.jpg",
+    "images": [
+      {
+        "file": "Red-tailed_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-tailed_Hawk_adult_borealis.jpg",
+        "caption": "Adult (borealis)"
+      },
+      {
+        "file": "Red-tailed_Hawk_adult_borealis_1.jpg",
+        "caption": "Adult (borealis)"
+      },
+      {
+        "file": "Red-tailed_Hawk_adult_light_morph_calurusalascensis.jpg",
+        "caption": "Adult light morph (calurus/alascensis)"
+      }
+    ]
+  },
+  "Red-throated Loon": {
+    "cover": "Red-throated_Loon.jpg",
+    "images": [
+      {
+        "file": "Red-throated_Loon.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Red-throated_Loon_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Red-throated_Loon_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Red-throated_Loon_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Red-winged Blackbird": {
+    "cover": "Red-winged_Blackbird.png",
+    "images": [
+      {
+        "file": "Red-winged_Blackbird.png",
+        "caption": ""
+      },
+      {
+        "file": "Red-winged_Blackbird_breeding_male_redwinged.jpg",
+        "caption": "Breeding male (Red-winged)"
+      },
+      {
+        "file": "Red-winged_Blackbird_female_redwinged.jpg",
+        "caption": "Female (Red-winged)"
+      },
+      {
+        "file": "Red-winged_Blackbird_breeding_male_redwinged_1.jpg",
+        "caption": "Breeding male (Red-winged)"
+      }
+    ]
+  },
+  "Ring-billed Gull": {
+    "cover": "Ring-billed_Gull.jpg",
+    "images": [
+      {
+        "file": "Ring-billed_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ring-billed_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Ring-billed_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Ring-billed_Gull_second_winter.jpg",
+        "caption": "Second winter"
+      }
+    ]
+  },
+  "Ring-necked Duck": {
+    "cover": "Ring-necked_Duck.jpg",
+    "images": [
+      {
+        "file": "Ring-necked_Duck.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ring-necked_Duck_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Ring-necked_Duck_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Ring-necked_Duck_breeding_male_and_female.jpg",
+        "caption": "Breeding male and female"
+      }
+    ]
+  },
+  "Ring-necked Pheasant": {
+    "cover": "Ring-necked_Pheasant.jpg",
+    "images": [
+      {
+        "file": "Ring-necked_Pheasant.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ring-necked_Pheasant_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Ring-necked_Pheasant_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Ring-necked_Pheasant_male_1.jpg",
+        "caption": "Male"
+      }
+    ]
+  },
+  "Rose-breasted Grosbeak": {
+    "cover": "Rose-breasted_Grosbeak.jpg",
+    "images": [
+      {
+        "file": "Rose-breasted_Grosbeak.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Rose-breasted_Grosbeak_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Rose-breasted_Grosbeak_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Rose-breasted_Grosbeak_immature_male.jpg",
+        "caption": "Immature male"
+      }
+    ]
+  },
+  "Rough-legged Hawk": {
+    "cover": "Rough-legged_Hawk.jpg",
+    "images": [
+      {
+        "file": "Rough-legged_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Rough-legged_Hawk_adult_male_light_morph.jpg",
+        "caption": "Adult male light morph"
+      },
+      {
+        "file": "Rough-legged_Hawk_immature_light_morph.jpg",
+        "caption": "Immature light morph"
+      },
+      {
+        "file": "Rough-legged_Hawk_juvenile_light_morph.jpg",
+        "caption": "Juvenile light morph"
+      }
+    ]
+  },
+  "Ruby-throated Hummingbird": {
+    "cover": "Ruby-throated_Hummingbird.jpg",
+    "images": [
+      {
+        "file": "Ruby-throated_Hummingbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ruby-throated_Hummingbird_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Ruby-throated_Hummingbird_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Ruby-throated_Hummingbird_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Ruddy Duck": {
+    "cover": "Ruddy_Duck.jpg",
+    "images": [
+      {
+        "file": "Ruddy_Duck.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ruddy_Duck_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Ruddy_Duck_femaleimmature_male.jpg",
+        "caption": "Female/immature male"
+      },
+      {
+        "file": "Ruddy_Duck_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Ruddy Turnstone": {
+    "cover": "Ruddy_Turnstone.jpg",
+    "images": [
+      {
+        "file": "Ruddy_Turnstone.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Ruddy_Turnstone_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Ruddy_Turnstone_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Ruddy_Turnstone_nonbreedingimmature.jpg",
+        "caption": "Nonbreeding/immature"
+      }
+    ]
+  },
+  "Rusty Blackbird": {
+    "cover": "Rusty_Blackbird.jpg",
+    "images": [
+      {
+        "file": "Rusty_Blackbird.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Rusty_Blackbird_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Rusty_Blackbird_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Rusty_Blackbird_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Sanderling": {
+    "cover": "Sanderling.jpg",
+    "images": [
+      {
+        "file": "Sanderling.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Sanderling_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Sanderling_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Sanderling_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Savannah Sparrow": {
+    "cover": "Savannah_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Savannah_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Savannah_Sparrow_adult_savannah.jpg",
+        "caption": "Adult (Savannah)"
+      },
+      {
+        "file": "Savannah_Sparrow_adult_ipswich.jpg",
+        "caption": "Adult (Ipswich)"
+      },
+      {
+        "file": "Savannah_Sparrow_adult_largebilled.jpg",
+        "caption": "Adult (Large-billed)"
+      }
+    ]
+  },
+  "Scarlet Tanager": {
+    "cover": "Scarlet_Tanager.jpg",
+    "images": [
+      {
+        "file": "Scarlet_Tanager.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Scarlet_Tanager_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Scarlet_Tanager_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Scarlet_Tanager_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Seaside Sparrow": {
+    "cover": "Seaside_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Seaside_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Seaside_Sparrow_adult_atlantic.jpg",
+        "caption": "Adult (Atlantic)"
+      },
+      {
+        "file": "Seaside_Sparrow_adult_atlantic_1.jpg",
+        "caption": "Adult (Atlantic)"
+      },
+      {
+        "file": "Seaside_Sparrow_adult_atlantic_2.jpg",
+        "caption": "Adult (Atlantic)"
+      }
+    ]
+  },
+  "Semipalmated Plover": {
+    "cover": "Semipalmated_Plover.jpg",
+    "images": [
+      {
+        "file": "Semipalmated_Plover.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Semipalmated_Plover_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Semipalmated_Plover_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Semipalmated_Plover_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      }
+    ]
+  },
+  "Semipalmated Sandpiper": {
+    "cover": "Semipalmated_Sandpiper.png",
+    "images": [
+      {
+        "file": "Semipalmated_Sandpiper.png",
+        "caption": ""
+      },
+      {
+        "file": "Semipalmated_Sandpiper_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Semipalmated_Sandpiper_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Semipalmated_Sandpiper_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Sharp-shinned Hawk": {
+    "cover": "Sharp-shinned_Hawk.jpg",
+    "images": [
+      {
+        "file": "Sharp-shinned_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Sharp-shinned_Hawk_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Sharp-shinned_Hawk_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Sharp-shinned_Hawk_immature_northern.jpg",
+        "caption": "Immature (Northern)"
+      }
+    ]
+  },
+  "Short-billed Dowitcher": {
+    "cover": "Short-billed_Dowitcher.jpg",
+    "images": [
+      {
+        "file": "Short-billed_Dowitcher.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Short-billed_Dowitcher_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Short-billed_Dowitcher_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Short-billed_Dowitcher_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Short-eared Owl": {
+    "cover": "Short-eared_Owl.jpg",
+    "images": [
+      {
+        "file": "Short-eared_Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Short-eared_Owl_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Short-eared_Owl_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Short-eared_Owl_immature_northern.jpg",
+        "caption": "Immature (Northern)"
+      }
+    ]
+  },
+  "Slate-colored Junco": {
+    "cover": "Slate-colored_Junco.jpg",
+    "images": [
+      {
+        "file": "Slate-colored_Junco.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Slate-colored_Junco_adult_male_slatecolored.jpg",
+        "caption": "Adult male (Slate-colored)"
+      },
+      {
+        "file": "Slate-colored_Junco_adult_male_oregon.jpg",
+        "caption": "Adult male (Oregon)"
+      },
+      {
+        "file": "Slate-colored_Junco_adult_male_pinksided.jpg",
+        "caption": "Adult male (Pink-sided)"
+      }
+    ]
+  },
+  "Snow Bunting": {
+    "cover": "Snow_Bunting.jpg",
+    "images": [
+      {
+        "file": "Snow_Bunting.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Snow_Bunting_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Snow_Bunting_breeding_female.jpg",
+        "caption": "Breeding female"
+      },
+      {
+        "file": "Snow_Bunting_nonbreeding_male.jpg",
+        "caption": "Nonbreeding male"
+      }
+    ]
+  },
+  "Snow Goose": {
+    "cover": "Snow_Goose.jpg",
+    "images": [
+      {
+        "file": "Snow_Goose.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Snow_Goose_adult_white_morph.jpg",
+        "caption": "Adult white morph"
+      },
+      {
+        "file": "Snow_Goose_adult_blue_morph.jpg",
+        "caption": "Adult blue morph"
+      },
+      {
+        "file": "Snow_Goose_adult_intermediate_morph.jpg",
+        "caption": "Adult intermediate morph"
+      }
+    ]
+  },
+  "Snowy Egret": {
+    "cover": "Snowy_Egret.jpg",
+    "images": [
+      {
+        "file": "Snowy_Egret.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Snowy_Egret_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Snowy_Egret_immature.jpg",
+        "caption": "Immature"
+      },
+      {
+        "file": "Snowy_Egret_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Snowy Owl": {
+    "cover": "Snowy_Owl.jpg",
+    "images": [
+      {
+        "file": "Snowy_Owl.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Snowy_Owl_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Snowy_Owl_adult_femaleimmature.jpg",
+        "caption": "Adult female/immature"
+      },
+      {
+        "file": "Snowy_Owl_immature_female.jpg",
+        "caption": "Immature female"
+      }
+    ]
+  },
+  "Sora": {
+    "cover": "Sora.jpg",
+    "images": [
+      {
+        "file": "Sora.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Sora_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Sora_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Sora_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Spotted Sandpiper": {
+    "cover": "Spotted_Sandpiper.jpg",
+    "images": [
+      {
+        "file": "Spotted_Sandpiper.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Spotted_Sandpiper_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Spotted_Sandpiper_nonbreedingimmature.jpg",
+        "caption": "Nonbreeding/immature"
+      },
+      {
+        "file": "Spotted_Sandpiper_nonbreedingimmature_1.jpg",
+        "caption": "Nonbreeding/immature"
+      }
+    ]
+  },
+  "Surf Scoter": {
+    "cover": "Surf_Scoter.png",
+    "images": [
+      {
+        "file": "Surf_Scoter.png",
+        "caption": ""
+      },
+      {
+        "file": "Surf_Scoter_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Surf_Scoter_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Surf_Scoter_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Swamp Sparrow": {
+    "cover": "Swamp_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Swamp_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Swamp_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Swamp_Sparrow_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      },
+      {
+        "file": "Swamp_Sparrow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Tennessee Warbler": {
+    "cover": "Tennessee_Warbler.jpg",
+    "images": [
+      {
+        "file": "Tennessee_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Tennessee_Warbler_breeding_male.jpg",
+        "caption": "Breeding male"
+      },
+      {
+        "file": "Tennessee_Warbler_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Tennessee_Warbler_nonbreeding_adultimmature.jpg",
+        "caption": "Nonbreeding adult/immature"
+      }
+    ]
+  },
+  "Tree Swallow": {
+    "cover": "Tree_Swallow.jpg",
+    "images": [
+      {
+        "file": "Tree_Swallow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Tree_Swallow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Tree_Swallow_immature_female.jpg",
+        "caption": "Immature female"
+      },
+      {
+        "file": "Tree_Swallow_male_and_female.jpg",
+        "caption": "Male and female"
+      }
+    ]
+  },
+  "Tundra Swan": {
+    "cover": "Tundra_Swan.jpg",
+    "images": [
+      {
+        "file": "Tundra_Swan.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Tundra_Swan_adult_whistling.jpg",
+        "caption": "Adult (Whistling)"
+      },
+      {
+        "file": "Tundra_Swan_adult_bewicks.jpg",
+        "caption": "Adult (Bewick's)"
+      },
+      {
+        "file": "Tundra_Swan_juvenile_whistling.jpg",
+        "caption": "Juvenile (Whistling)"
+      }
+    ]
+  },
+  "Turkey Vulture": {
+    "cover": "Turkey_Vulture.jpg",
+    "images": [
+      {
+        "file": "Turkey_Vulture.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Turkey_Vulture_adult_northern.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Turkey_Vulture_adult_northern_1.jpg",
+        "caption": "Adult (Northern)"
+      },
+      {
+        "file": "Turkey_Vulture_juvenile_northern.jpg",
+        "caption": "Juvenile (Northern)"
+      }
+    ]
+  },
+  "Veery": {
+    "cover": "Veery.jpg",
+    "images": [
+      {
+        "file": "Veery.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Veery_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Veery_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Veery_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Virginia Rail": {
+    "cover": "Virginia_Rail.jpg",
+    "images": [
+      {
+        "file": "Virginia_Rail.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Virginia_Rail_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Virginia_Rail_adult_and_chick.jpg",
+        "caption": "Adult and chick"
+      },
+      {
+        "file": "Virginia_Rail_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Warbling Vireo": {
+    "cover": "Warbling_Vireo.jpg",
+    "images": [
+      {
+        "file": "Warbling_Vireo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Warbling_Vireo_eastern_warbling_vireo_photos_and_videos.jpg",
+        "caption": "Eastern Warbling Vireo Photos and Videos"
+      },
+      {
+        "file": "Warbling_Vireo_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Warbling_Vireo_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Whimbrel": {
+    "cover": "Whimbrel.jpg",
+    "images": [
+      {
+        "file": "Whimbrel.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Whimbrel_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Whimbrel_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Whimbrel_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "White-crowned Sparrow": {
+    "cover": "White-crowned_Sparrow.jpg",
+    "images": [
+      {
+        "file": "White-crowned_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-crowned_Sparrow_adult_darklored.jpg",
+        "caption": "Adult (Dark-lored)"
+      },
+      {
+        "file": "White-crowned_Sparrow_immature_darklored.jpg",
+        "caption": "Immature (Dark-lored)"
+      },
+      {
+        "file": "White-crowned_Sparrow_adult_gambels.jpg",
+        "caption": "Adult (Gambel's)"
+      }
+    ]
+  },
+  "White-eyed Vireo": {
+    "cover": "White-eyed_Vireo.jpg",
+    "images": [
+      {
+        "file": "White-eyed_Vireo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-eyed_Vireo_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "White-eyed_Vireo_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "White-eyed_Vireo_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "White-rumped Sandpiper": {
+    "cover": "White-rumped_Sandpiper.jpg",
+    "images": [
+      {
+        "file": "White-rumped_Sandpiper.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-rumped_Sandpiper_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "White-rumped_Sandpiper_juvenile.jpg",
+        "caption": "Juvenile"
+      },
+      {
+        "file": "White-rumped_Sandpiper_juvenile_1.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "White-throated Sparrow": {
+    "cover": "White-throated_Sparrow.jpg",
+    "images": [
+      {
+        "file": "White-throated_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-throated_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "White-throated_Sparrow_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "White-throated_Sparrow_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "White-winged Crossbill": {
+    "cover": "White-winged_Crossbill.jpg",
+    "images": [
+      {
+        "file": "White-winged_Crossbill.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-winged_Crossbill_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "White-winged_Crossbill_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "White-winged_Crossbill_immature_male.jpg",
+        "caption": "Immature male"
+      }
+    ]
+  },
+  "White-winged Scoter": {
+    "cover": "White-winged_Scoter.jpg",
+    "images": [
+      {
+        "file": "White-winged_Scoter.jpg",
+        "caption": ""
+      },
+      {
+        "file": "White-winged_Scoter_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "White-winged_Scoter_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "White-winged_Scoter_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  },
+  "Wild Turkey": {
+    "cover": "Wild_Turkey.jpg",
+    "images": [
+      {
+        "file": "Wild_Turkey.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Wild_Turkey_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Wild_Turkey_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Wild_Turkey_female_1.jpg",
+        "caption": "Female"
+      }
+    ]
+  },
+  "Willet": {
+    "cover": "Willet.jpg",
+    "images": [
+      {
+        "file": "Willet.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Willet_breeding_adult_eastern.jpg",
+        "caption": "Breeding adult (Eastern)"
+      },
+      {
+        "file": "Willet_breeding_adult_western.jpg",
+        "caption": "Breeding adult (Western)"
+      },
+      {
+        "file": "Willet_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      }
+    ]
+  },
+  "Winter Wren": {
+    "cover": "Winter_Wren.jpg",
+    "images": [
+      {
+        "file": "Winter_Wren.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Winter_Wren_winter_wren_photos_and_videos.jpg",
+        "caption": "Winter Wren Photos and Videos"
+      },
+      {
+        "file": "Winter_Wren_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Winter_Wren_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Wood Duck": {
+    "cover": "Wood_Duck.png",
+    "images": [
+      {
+        "file": "Wood_Duck.png",
+        "caption": ""
+      },
+      {
+        "file": "Wood_Duck_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Wood_Duck_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Wood_Duck_eclipse_male.jpg",
+        "caption": "Eclipse male"
+      }
+    ]
+  },
+  "Wood Thrush": {
+    "cover": "Wood_Thrush.jpg",
+    "images": [
+      {
+        "file": "Wood_Thrush.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Wood_Thrush_wood_thrush_photos_and_videos.jpg",
+        "caption": "Wood Thrush Photos and Videos"
+      },
+      {
+        "file": "Wood_Thrush_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Wood_Thrush_4.jpg",
+        "caption": ""
+      }
+    ]
+  },
+  "Yellow Warbler": {
+    "cover": "Yellow_Warbler.jpg",
+    "images": [
+      {
+        "file": "Yellow_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Yellow_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Yellow_Warbler_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Yellow_Warbler_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Yellow-bellied Sapsucker": {
+    "cover": "Yellow-bellied_Sapsucker.jpg",
+    "images": [
+      {
+        "file": "Yellow-bellied_Sapsucker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Yellow-bellied_Sapsucker_male.jpg",
+        "caption": "Male"
+      },
+      {
+        "file": "Yellow-bellied_Sapsucker_female.jpg",
+        "caption": "Female"
+      },
+      {
+        "file": "Yellow-bellied_Sapsucker_juvenile.jpg",
+        "caption": "Juvenile"
+      }
+    ]
+  },
+  "Yellow-billed Cuckoo": {
+    "cover": "Yellow-billed_Cuckoo.jpg",
+    "images": [
+      {
+        "file": "Yellow-billed_Cuckoo.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Yellow-billed_Cuckoo_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Yellow-billed_Cuckoo_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Yellow-billed_Cuckoo_adultimmature.jpg",
+        "caption": "Adult/immature"
+      }
+    ]
+  },
+  "Yellow-rumped Warbler": {
+    "cover": "Yellow-rumped_Warbler.jpg",
+    "images": [
+      {
+        "file": "Yellow-rumped_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Yellow-rumped_Warbler_adult_male_myrtle.jpg",
+        "caption": "Adult male (Myrtle)"
+      },
+      {
+        "file": "Yellow-rumped_Warbler_adult_male_audubons.jpg",
+        "caption": "Adult male (Audubon's)"
+      },
+      {
+        "file": "Yellow-rumped_Warbler_adult_male_goldmans.jpg",
+        "caption": "Adult male (Goldman's)"
+      }
+    ]
+  },
+  "Yellow-shafted Flicker": {
+    "cover": "Yellow-shafted_Flicker.jpg",
+    "images": [
+      {
+        "file": "Yellow-shafted_Flicker.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Yellow-shafted_Flicker_male_yellowshafted.jpg",
+        "caption": "Male (Yellow-shafted)"
+      },
+      {
+        "file": "Yellow-shafted_Flicker_male_redshafted.jpg",
+        "caption": "Male (Red-shafted)"
+      },
+      {
+        "file": "Yellow-shafted_Flicker_adult_male_redshafted.jpg",
+        "caption": "Adult male (Red-shafted)"
+      }
+    ]
+  },
+  "Bonaparte's Gull": {
+    "cover": "Bonapartes_Gull.jpg",
+    "images": [
+      {
+        "file": "Bonapartes_Gull.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Bonapartes_Gull_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Bonapartes_Gull_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      },
+      {
+        "file": "Bonapartes_Gull_first_winter.jpg",
+        "caption": "First winter"
+      }
+    ]
+  },
+  "Cooper's Hawk": {
+    "cover": "Coopers_Hawk.jpg",
+    "images": [
+      {
+        "file": "Coopers_Hawk.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Coopers_Hawk_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Coopers_Hawk_3.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Coopers_Hawk_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Forster's Tern": {
+    "cover": "Forsters_Tern.jpg",
+    "images": [
+      {
+        "file": "Forsters_Tern.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Forsters_Tern_breeding_adult.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Forsters_Tern_breeding_adult_1.jpg",
+        "caption": "Breeding adult"
+      },
+      {
+        "file": "Forsters_Tern_nonbreeding_adult.jpg",
+        "caption": "Nonbreeding adult"
+      }
+    ]
+  },
+  "Lincoln's Sparrow": {
+    "cover": "Lincolns_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Lincolns_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lincolns_Sparrow_lincolns_sparrow_photos_and_videos.jpg",
+        "caption": "Lincoln's Sparrow Photos and Videos"
+      },
+      {
+        "file": "Lincolns_Sparrow_3.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Lincolns_Sparrow_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Nelson's Sparrow": {
+    "cover": "Nelsons_Sparrow.jpg",
+    "images": [
+      {
+        "file": "Nelsons_Sparrow.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Nelsons_Sparrow_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Nelsons_Sparrow_adult_interior.jpg",
+        "caption": "Adult (Interior)"
+      },
+      {
+        "file": "Nelsons_Sparrow_adult_interior_1.jpg",
+        "caption": "Adult (Interior)"
+      }
+    ]
+  },
+  "Northern Harrier (American)": {
+    "cover": "Northern_Harrier__American.jpg",
+    "images": [
+      {
+        "file": "Northern_Harrier__American.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Northern_Harrier__American_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Northern_Harrier__American_adult_female.jpg",
+        "caption": "Adult female"
+      },
+      {
+        "file": "Northern_Harrier__American_immature.jpg",
+        "caption": "Immature"
+      }
+    ]
+  },
+  "Swainson's Thrush": {
+    "cover": "Swainsons_Thrush.jpg",
+    "images": [
+      {
+        "file": "Swainsons_Thrush.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Swainsons_Thrush_adult_olivebacked.jpg",
+        "caption": "Adult (Olive-backed)"
+      },
+      {
+        "file": "Swainsons_Thrush_adult_russetbacked.jpg",
+        "caption": "Adult (Russet-backed)"
+      },
+      {
+        "file": "Swainsons_Thrush_adult_olivebacked_1.jpg",
+        "caption": "Adult (Olive-backed)"
+      }
+    ]
+  },
+  "Wilson's Snipe": {
+    "cover": "Wilsons_Snipe.jpg",
+    "images": [
+      {
+        "file": "Wilsons_Snipe.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Wilsons_Snipe_2.jpg",
+        "caption": "Adult"
+      },
+      {
+        "file": "Wilsons_Snipe_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Wilsons_Snipe_4.jpg",
+        "caption": "Adult"
+      }
+    ]
+  },
+  "Wilson's Warbler": {
+    "cover": "Wilsons_Warbler.jpg",
+    "images": [
+      {
+        "file": "Wilsons_Warbler.jpg",
+        "caption": ""
+      },
+      {
+        "file": "Wilsons_Warbler_adult_male.jpg",
+        "caption": "Adult male"
+      },
+      {
+        "file": "Wilsons_Warbler_femaleimmature.jpg",
+        "caption": "Female/immature"
+      },
+      {
+        "file": "Wilsons_Warbler_adult_male_1.jpg",
+        "caption": "Adult male"
+      }
+    ]
+  }
+}

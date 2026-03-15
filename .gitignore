@@ -1,4 +1,6 @@
 venv/
+venv-coral/
+dashboard/species_images_backup/
 models/
 !models/*.txt
 __pycache__/

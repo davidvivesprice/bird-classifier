@@ -30,9 +30,20 @@ SKIPPED_DIR = BASE_DIR / "skipped"
 TRASH_DIR = BASE_DIR / "trash"
 BACKGROUND_DIR = BASE_DIR / "classified" / "background"
 REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
-REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/cape_cod_species.txt")
+REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/chilmark_feeder_species.txt")
 SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
 SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
+SPECIES_GALLERY_PATH = Path("/Users/vives/bird-classifier/dashboard/species_gallery.json")
+
+# Subspecies / regional forms → canonical parent species
+SPECIES_ALIASES = {
+    "Slate-colored Junco": "Dark-eyed Junco",
+    "Myrtle Warbler": "Yellow-rumped Warbler",
+    "Feral Pigeon": "Rock Pigeon",
+}
+
+def normalize_species(name: str) -> str:
+    return SPECIES_ALIASES.get(name, name)
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
@@ -53,7 +64,17 @@ def load_classifications():
         for line in f:
             line = line.strip()
             if line:
-                entries.append(json.loads(line))
+                e = json.loads(line)
+                # Normalize subspecies/forms to canonical parent species
+                if "top_prediction" in e and "common_name" in e["top_prediction"]:
+                    e["top_prediction"]["common_name"] = normalize_species(e["top_prediction"]["common_name"])
+                for b in e.get("birds", []):
+                    if "common_name" in b:
+                        b["common_name"] = normalize_species(b["common_name"])
+                    for t in b.get("top3", []):
+                        if "common_name" in t:
+                            t["common_name"] = normalize_species(t["common_name"])
+                entries.append(e)
     return entries
 
 
@@ -86,16 +107,45 @@ def filter_by_date(entries, date_str):
     return [e for e in entries if (e.get("source_timestamp") or "")[:10] == date_str]
 
 
+def filter_by_camera(entries, camera_str):
+    """Filter entries by camera name. 'all' or None returns everything."""
+    if not camera_str or camera_str == "all":
+        return entries
+    return [e for e in entries if e.get("camera", "feeder") == camera_str]
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
+@app.get("/api/cameras")
+def cameras_list():
+    """List cameras with detection counts and last seen times."""
+    entries = load_classifications()
+    classified = [e for e in entries if e["action"] == "classified"]
+
+    cam_data = defaultdict(lambda: {"count": 0, "last_seen": ""})
+    for e in classified:
+        cam = e.get("camera", "feeder")
+        cam_data[cam]["count"] += 1
+        ts = e.get("source_timestamp") or e.get("timestamp", "")
+        if ts > cam_data[cam]["last_seen"]:
+            cam_data[cam]["last_seen"] = ts
+
+    return [
+        {"name": name, "count": d["count"], "last_seen": d["last_seen"]}
+        for name, d in sorted(cam_data.items())
+    ]
+
+
 @app.get("/api/stats")
-def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'")):
-    """Overall classification statistics, optionally filtered by date."""
+def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
+          camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
+    """Overall classification statistics, optionally filtered by date and camera."""
     entries = load_classifications()
     filtered = filter_by_date(entries, date)
+    filtered = filter_by_camera(filtered, camera)
     classified = [e for e in filtered if e["action"] == "classified"]
     skipped = [e for e in filtered if e["action"].startswith("skipped")]
     species = set()
@@ -119,10 +169,12 @@ def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-
 
 
 @app.get("/api/species")
-def species_list(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'")):
-    """List all detected species with counts and metadata, optionally filtered by date."""
+def species_list(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
+                 camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
+    """List all detected species with counts and metadata, optionally filtered by date and camera."""
     entries = load_classifications()
     filtered = filter_by_date(entries, date)
+    filtered = filter_by_camera(filtered, camera)
     classified = [e for e in filtered if e["action"] == "classified"]
 
     species_data = defaultdict(lambda: {
@@ -195,9 +247,10 @@ def species_detail(name: str):
 
 
 @app.get("/api/recent")
-def recent(limit: int = 50):
-    """Most recent classified detections."""
+def recent(limit: int = 50, camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
+    """Most recent classified detections, optionally filtered by camera."""
     entries = load_classifications()
+    entries = filter_by_camera(entries, camera)
     classified = [e for e in entries if e["action"] == "classified"]
     # Most recent first
     classified.sort(key=lambda e: e.get("source_timestamp") or e["timestamp"], reverse=True)
@@ -228,19 +281,24 @@ def get_image_raw(filename: str):
 
 
 @app.get("/api/review/pending")
-def review_pending():
+def review_pending(species: str = ""):
     """Get unreviewed classifications for the annotation GUI."""
     entries = load_classifications()
     classified = [e for e in entries if e["action"] == "classified"]
     reviews = load_reviews()
 
     pending = []
+    species_set = set()
     for e in classified:
         if e["file"] not in reviews:
+            sp = e["top_prediction"]["common_name"] if "top_prediction" in e else "unknown"
+            species_set.add(sp)
+            if species and sp != species:
+                continue
             pending.append({
                 "file": e["file"],
                 "timestamp": e.get("source_timestamp") or e["timestamp"],
-                "species": e["top_prediction"]["common_name"] if "top_prediction" in e else "unknown",
+                "species": sp,
                 "confidence": e.get("best_detection", {}).get("confidence", 0),
                 "raw_score": e.get("top_prediction", {}).get("raw_score", 0),
                 "top3": e.get("top3", []),
@@ -256,6 +314,7 @@ def review_pending():
         "total_classified": total_classified,
         "total_reviewed": total_reviewed,
         "remaining": len(pending),
+        "species_list": sorted(species_set),
     }
 
 
@@ -265,6 +324,8 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     safe_name = os.path.basename(filename)
     if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
         raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', 'skip', 'trash', or 'reclassify'")
+
+    correct_species = normalize_species(correct_species) if correct_species else ""
 
     # Convert string to boolean (FastAPI query params come as strings)
     missed_birds_bool = missed_birds.lower() in ("true", "1", "yes")
@@ -286,6 +347,67 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
         src = ANNOTATED_DIR / safe_name
         if src.exists():
             shutil.move(str(src), str(TRASH_DIR / safe_name))
+
+    return {"status": "ok", "review": review}
+
+
+@app.get("/api/review/classified")
+def review_classified(species: str = "", verdict: str = "", limit: int = 50, offset: int = 0):
+    """Get reviewed classifications (correct, wrong, reclassify verdicts)."""
+    reviews = load_reviews()
+    classifications = {e["file"]: e for e in load_classifications() if e["action"] == "classified"}
+
+    items = []
+    species_set = set()
+    for fname, r in reviews.items():
+        if r["verdict"] not in ("correct", "wrong", "reclassify"):
+            continue
+        cls = classifications.get(fname, {})
+        sp = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
+        species_set.add(sp)
+        if species and sp != species:
+            continue
+        if verdict and r["verdict"] != verdict:
+            continue
+        items.append({
+            "file": fname,
+            "species": sp,
+            "confidence": cls.get("best_detection", {}).get("confidence", 0) if cls else 0,
+            "verdict": r["verdict"],
+            "correct_species": r.get("correct_species", ""),
+            "missed_birds": r.get("missed_birds", False),
+            "review_timestamp": r.get("timestamp", ""),
+            "source_timestamp": cls.get("source_timestamp", "") if cls else "",
+        })
+
+    items.sort(key=lambda x: x["review_timestamp"], reverse=True)
+    total = len(items)
+    page = items[offset:offset + limit]
+    species_list = sorted(species_set)
+
+    return {"items": page, "total": total, "species_list": species_list}
+
+
+@app.post("/api/review/{filename}/update")
+def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false"):
+    """Update an existing review verdict (appends new entry, load_reviews picks latest)."""
+    safe_name = os.path.basename(filename)
+    if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
+        raise HTTPException(status_code=400, detail="Invalid verdict")
+
+    correct_species = normalize_species(correct_species) if correct_species else ""
+    missed_birds_bool = missed_birds.lower() in ("true", "1", "yes")
+
+    review = {
+        "file": safe_name,
+        "verdict": verdict,
+        "correct_species": correct_species if verdict == "wrong" else "",
+        "missed_birds": missed_birds_bool,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    with open(REVIEWS_PATH, "a") as f:
+        f.write(json.dumps(review) + "\n")
 
     return {"status": "ok", "review": review}
 
@@ -344,55 +466,73 @@ def _find_cached_image(safe: str):
     return None
 
 
+_AAB_NAME_MAP = {
+    "American Barn Swallow": "Barn_Swallow",
+    "American Green-winged Teal": "Green-winged_Teal",
+    "American Herring Gull": "Herring_Gull",
+    "Slate-colored Junco": "Dark-eyed_Junco",
+    "Myrtle Warbler": "Yellow-rumped_Warbler",
+    "Feral Pigeon": "Rock_Pigeon",
+    "Yellow-shafted Flicker": "Northern_Flicker",
+    "Bonaparte's Gull": "Bonapartes_Gull",
+    "Cooper's Hawk": "Coopers_Hawk",
+    "Forster's Tern": "Forsters_Tern",
+    "Lincoln's Sparrow": "Lincolns_Sparrow",
+    "Nelson's Sparrow": "Nelsons_Sparrow",
+    "Northern Harrier (American)": "Northern_Harrier",
+    "Swainson's Thrush": "Swainsons_Thrush",
+    "Wilson's Snipe": "Wilsons_Snipe",
+    "Wilson's Warbler": "Wilsons_Warbler",
+}
+
+_AAB_CDN = "https://cdn.download.ams.birds.cornell.edu/api/v2/asset/{}/1200"
+_AAB_UA = "VivesBirdObservatory/1.0 (personal bird dashboard)"
+
+
 def _download_and_cache(name: str, safe: str):
-    """Download species image via Wikipedia REST API and cache locally. Returns (path, media_type) or None."""
+    """Download species image from All About Birds (Cornell Lab). Returns (path, media_type) or None."""
     try:
-        # First: try Wikipedia REST API for a reliable thumbnail
-        wiki_title = name.replace(' ', '_')
-        # Check species_info.json for a better wiki_url
-        if SPECIES_INFO_PATH.exists():
-            with open(SPECIES_INFO_PATH) as f:
-                cache = json.load(f)
-            info = cache.get(name)
-            if not info:
-                for k, v in cache.items():
-                    if k.lower() == name.lower():
-                        info = v
-                        break
-            if info and info.get("wiki_url"):
-                wiki_title = info["wiki_url"].rstrip('/').split('/')[-1]
+        # Build All About Birds URL
+        slug = _AAB_NAME_MAP.get(name, name.replace(' ', '_'))
+        url = f"https://www.allaboutbirds.org/guide/{_urlreq.quote(slug)}/id"
+        req = _urlreq.Request(url, headers={'User-Agent': _AAB_UA})
+        try:
+            with _urlreq.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode('utf-8', errors='replace')
+        except Exception:
+            # Try without "American " prefix
+            if name.startswith("American "):
+                slug2 = name.replace("American ", "").replace(' ', '_')
+                url2 = f"https://www.allaboutbirds.org/guide/{_urlreq.quote(slug2)}/id"
+                req2 = _urlreq.Request(url2, headers={'User-Agent': _AAB_UA})
+                with _urlreq.urlopen(req2, timeout=15) as resp2:
+                    html = resp2.read().decode('utf-8', errors='replace')
+            else:
+                return None
 
-        api_url = f'https://en.wikipedia.org/api/rest_v1/page/summary/{_urlreq.quote(wiki_title)}'
-        req = _urlreq.Request(api_url, headers={
-            'User-Agent': 'VivesBirdObservatory/1.0 (personal bird dashboard)'
-        })
-        with _urlreq.urlopen(req, timeout=10) as resp:
-            api_data = json.loads(resp.read())
-
-        thumb = api_data.get('thumbnail', {}).get('source', '')
-        if thumb:
-            # Upgrade to 600px
-            thumb = _re.sub(r'/\d+px-', '/600px-', thumb)
-
-        img_url = thumb or api_data.get('originalimage', {}).get('source', '')
-        if not img_url:
+        # Find first photo asset ID (skip videos)
+        video_ids = set(_re.findall(r'macaulaylibrary\.org/video/(\d+)', html))
+        photo_ids = _re.findall(r'/photo-gallery/(\d+)', html)
+        asset_id = None
+        for pid in photo_ids:
+            if pid not in video_ids:
+                asset_id = pid
+                break
+        if not asset_id:
             return None
 
-        ext = ".png" if ".png" in img_url.lower() else ".jpg"
-        media = "image/png" if ext == ".png" else "image/jpeg"
-
-        req2 = _urlreq.Request(img_url, headers={
-            'User-Agent': 'VivesBirdObservatory/1.0 (personal bird dashboard)'
-        })
-        with _urlreq.urlopen(req2, timeout=15) as resp2:
-            data = resp2.read()
-        if len(data) < 1000:
+        # Download from Macaulay Library CDN
+        cdn_url = _AAB_CDN.format(asset_id)
+        req3 = _urlreq.Request(cdn_url, headers={'User-Agent': _AAB_UA})
+        with _urlreq.urlopen(req3, timeout=20) as resp3:
+            data = resp3.read()
+        if len(data) < 2000:
             return None
 
         SPECIES_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-        dest = SPECIES_IMAGES_DIR / f"{safe}{ext}"
+        dest = SPECIES_IMAGES_DIR / f"{safe}.jpg"
         dest.write_bytes(data)
-        return dest, media
+        return dest, "image/jpeg"
     except Exception:
         return None
 
@@ -408,7 +548,7 @@ def species_image(name: str):
         path, media = cached
         return FileResponse(
             str(path), media_type=media,
-            headers={"Cache-Control": "public, max-age=86400"},
+            headers={"Cache-Control": "public, max-age=3600"},
         )
 
     # Not cached — try to download and cache on demand
@@ -417,10 +557,34 @@ def species_image(name: str):
         path, media = result
         return FileResponse(
             str(path), media_type=media,
-            headers={"Cache-Control": "public, max-age=86400"},
+            headers={"Cache-Control": "public, max-age=3600"},
         )
 
     raise HTTPException(status_code=404, detail=f"No image available for '{name}'")
+
+
+@app.get("/api/species-gallery/{name}")
+def species_gallery(name: str):
+    """Return gallery metadata for a species (images + captions)."""
+    name = normalize_species(name)
+    if not SPECIES_GALLERY_PATH.exists():
+        return {"images": []}
+    with open(SPECIES_GALLERY_PATH) as f:
+        gallery = json.load(f)
+    entry = gallery.get(name)
+    if not entry:
+        return {"images": []}
+    # Return images with full API URLs
+    images = []
+    for img in entry.get("images", []):
+        fname = img["file"]
+        safe = _sanitize_species_filename(fname.replace(".jpg", "").replace(".png", ""))
+        if _find_cached_image(safe):
+            images.append({
+                "url": f"/api/species-image/{fname.replace('.jpg', '').replace('.png', '')}",
+                "caption": img.get("caption", ""),
+            })
+    return {"images": images}
 
 
 @app.get("/api/regional-species")
@@ -435,89 +599,55 @@ def regional_species():
 
 @app.get("/api/skipped")
 def skipped_list(limit: int = 200, offset: int = 0):
-    """List skipped images, most recent first."""
-    if not SKIPPED_DIR.exists():
-        return {"files": [], "total": 0}
-
-    files = sorted(SKIPPED_DIR.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
-    total = len(files)
-
-    # Load reviews to filter out already-reviewed skipped frames
+    """List user-skipped images (verdict='skip' in reviews), most recent first."""
     reviews = load_reviews()
-    skipped_reviews = {r["file"]: r for r in reviews.values() if r.get("source") == "skipped"}
+    classifications = {e["file"]: e for e in load_classifications() if e["action"] == "classified"}
 
-    page = files[offset:offset + limit]
-    result = []
-    for f in page:
-        fname = f.name
-        reviewed = fname in skipped_reviews
-        result.append({
+    # Get all user-skipped items, sorted newest first
+    skipped = []
+    for fname, r in reviews.items():
+        if r.get("verdict") != "skip":
+            continue
+        cls = classifications.get(fname, {})
+        species = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
+        skipped.append({
             "file": fname,
-            "timestamp": extract_timestamp_from_filename(fname),
-            "reviewed": reviewed,
-            "verdict": skipped_reviews[fname]["verdict"] if reviewed else None,
+            "species": species,
+            "timestamp": r.get("timestamp", ""),
+            "source_timestamp": cls.get("source_timestamp", "") if cls else "",
         })
 
-    return {"files": result, "total": total}
+    skipped.sort(key=lambda x: x["timestamp"], reverse=True)
+    total = len(skipped)
+    page = skipped[offset:offset + limit]
+
+    return {"files": page, "total": total}
 
 
-@app.get("/api/skipped/image/{filename}")
-def get_skipped_image(filename: str):
-    """Serve a skipped image."""
-    safe_name = os.path.basename(filename)
-    path = SKIPPED_DIR / safe_name
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Skipped image not found")
-    return FileResponse(str(path), media_type="image/jpeg")
-
-
-@app.post("/api/skipped/{filename}/requeue")
-def requeue_skipped(filename: str):
-    """Move a skipped image back to incoming/ for re-classification."""
-    safe_name = os.path.basename(filename)
-    src = SKIPPED_DIR / safe_name
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="Skipped image not found")
-
-    incoming = BASE_DIR / "incoming"
-    incoming.mkdir(parents=True, exist_ok=True)
-    dest = incoming / safe_name
-    shutil.move(str(src), str(dest))
-    return {"status": "ok", "action": "requeued", "file": safe_name}
-
-
-@app.post("/api/skipped/{filename}/trash")
-def trash_skipped(filename: str):
-    """Move a skipped image to trash."""
-    safe_name = os.path.basename(filename)
-    src = SKIPPED_DIR / safe_name
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="Skipped image not found")
-
-    TRASH_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(src), str(TRASH_DIR / safe_name))
-    return {"status": "ok", "action": "trashed", "file": safe_name}
-
-
-@app.post("/api/skipped/{filename}/confirm-empty")
-def confirm_empty(filename: str):
-    """Save a skipped image as a confirmed background/empty training sample."""
-    safe_name = os.path.basename(filename)
-    src = SKIPPED_DIR / safe_name
-    if not src.exists():
-        raise HTTPException(status_code=404, detail="Skipped image not found")
-
-    BACKGROUND_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(src), str(BACKGROUND_DIR / safe_name))
-    # Remove from skipped after confirming
-    src.unlink()
-    return {"status": "ok", "action": "confirmed_empty", "file": safe_name}
+def _find_classified_image(filename: str):
+    """Find a classified image in any species subdirectory."""
+    for species_dir in CLASSIFIED_DIR.iterdir():
+        if not species_dir.is_dir():
+            continue
+        path = species_dir / filename
+        if path.exists():
+            return path
+    return None
 
 
 def extract_timestamp_from_filename(filename):
-    """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'."""
+    """Extract timestamp from filename, handling camera-prefixed names.
+
+    '2026-03-02_11-10-42.jpg'          → '2026-03-02 11:10:42'
+    'feeder_2026-03-14_16-11-09.jpg'   → '2026-03-14 16:11:09'
+    'ground_2026-03-14_16-11-09.jpg'   → '2026-03-14 16:11:09'
+    """
     try:
         stem = filename.rsplit(".", 1)[0]
+        # Strip camera prefix if present (non-date first segment)
+        first = stem.split("_", 1)[0]
+        if first and not first[:4].isdigit():
+            stem = stem.split("_", 1)[1] if "_" in stem else stem
         parts = stem.split("_", 1)
         if len(parts) == 2:
             return parts[0] + " " + parts[1].replace("-", ":")

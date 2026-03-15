@@ -43,6 +43,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("birdnet_sse")
 
+# ── Recent detections cache ──
+_recent_cache = None
+_recent_cache_time = 0
+RECENT_CACHE_TTL = 60  # seconds
+
 # ── SSE Client Registry ──
 # Each client is a Queue; the per-client thread reads from it and writes to wfile.
 client_queues = []
@@ -133,6 +138,8 @@ class SSEHandler(BaseHTTPRequestHandler):
             self.handle_clip()
         elif self.path == "/health":
             self.handle_health()
+        elif self.path == "/recent":
+            self.handle_recent()
         else:
             self.send_error(404)
 
@@ -210,6 +217,40 @@ class SSEHandler(BaseHTTPRequestHandler):
         except Exception as e:
             log.error("Error serving clip %s: %s", rel_path, e)
             self.send_error(500)
+
+    def handle_recent(self):
+        """Return recent BirdNET detections (last 7 days), cached 60s."""
+        global _recent_cache, _recent_cache_time
+        now = time.time()
+        if _recent_cache is None or (now - _recent_cache_time) > RECENT_CACHE_TTL:
+            try:
+                conn = sqlite3.connect(str(DB_PATH), timeout=5)
+                conn.execute("PRAGMA journal_mode=WAL")
+                cur = conn.execute(
+                    "SELECT common_name, ROUND(confidence, 3), date || ' ' || time "
+                    "FROM notes WHERE date >= date('now', '-7 days') ORDER BY id DESC"
+                )
+                rows = cur.fetchall()
+                conn.close()
+                _recent_cache = json.dumps([
+                    {"species": r[0], "confidence": r[1], "time": r[2]}
+                    for r in rows
+                ])
+                _recent_cache_time = now
+                log.info("Recent cache refreshed: %d detections", len(rows))
+            except Exception as e:
+                log.error("Recent query error: %s", e)
+                if _recent_cache is None:
+                    _recent_cache = "[]"
+
+        body = _recent_cache.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=60")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_health(self):
         """Health check endpoint."""

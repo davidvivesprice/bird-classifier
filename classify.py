@@ -146,12 +146,24 @@ def setup_logging():
 # Stage 1: YOLOv8n Bird Detection
 # ──────────────────────────────────────────────────
 
+def _get_providers():
+    """Return ONNX Runtime execution providers, preferring CoreML on macOS."""
+    available = ort.get_available_providers()
+    providers = []
+    if "CoreMLExecutionProvider" in available:
+        providers.append("CoreMLExecutionProvider")
+    providers.append("CPUExecutionProvider")
+    return providers
+
+
 def load_yolo(path):
-    """Load YOLOv8n ONNX model."""
+    """Load YOLOv8n ONNX model with CoreML acceleration if available."""
     logging.info("Loading YOLO detector: %s", path)
-    sess = ort.InferenceSession(str(path))
+    providers = _get_providers()
+    sess = ort.InferenceSession(str(path), providers=providers)
     input_name = sess.get_inputs()[0].name
-    logging.info("YOLO loaded: input=%s shape=%s", input_name, sess.get_inputs()[0].shape)
+    active = sess.get_providers()
+    logging.info("YOLO loaded: input=%s shape=%s providers=%s", input_name, sess.get_inputs()[0].shape, active)
     return sess, input_name
 
 
@@ -289,14 +301,16 @@ def detect_birds(yolo_sess, yolo_input_name, image):
 # ──────────────────────────────────────────────────
 
 def load_species_model(path, labels_path):
-    """Load AIY Birds V1 ONNX model and labels."""
+    """Load AIY Birds V1 ONNX model and labels with CoreML acceleration if available."""
     logging.info("Loading species classifier: %s", path)
-    sess = ort.InferenceSession(str(path))
+    providers = _get_providers()
+    sess = ort.InferenceSession(str(path), providers=providers)
     input_name = sess.get_inputs()[0].name
 
     with open(labels_path) as f:
         labels = [line.strip() for line in f]
-    logging.info("Species model loaded: %d labels", len(labels))
+    active = sess.get_providers()
+    logging.info("Species model loaded: %d labels, providers=%s", len(labels), active)
     return sess, input_name, labels
 
 
@@ -513,15 +527,49 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
 # Pipeline: Detect → Crop → Classify → Organize
 # ──────────────────────────────────────────────────
 
+def extract_camera(filename):
+    """Extract camera name from filename prefix.
+
+    'feeder_2026-03-14_16-11-09.jpg' → 'feeder'
+    'ground_2026-03-14_16-11-09.jpg' → 'ground'
+    '2026-03-14_16-11-09.jpg'        → 'feeder' (default, old format)
+    """
+    stem = filename.rsplit(".", 1)[0]
+    # Check if the first part is a camera name (not a date)
+    first = stem.split("_", 1)[0]
+    # Dates start with 4 digits (YYYY); camera names don't
+    if first and not first[:4].isdigit():
+        return first
+    return "feeder"
+
+
+def _strip_camera_prefix(filename):
+    """Strip camera prefix from filename, returning just the timestamp portion.
+
+    'feeder_2026-03-14_16-11-09.jpg' → '2026-03-14_16-11-09'
+    '2026-03-14_16-11-09.jpg'        → '2026-03-14_16-11-09'
+    """
+    stem = filename.rsplit(".", 1)[0]
+    first = stem.split("_", 1)[0]
+    if first and not first[:4].isdigit():
+        # Has camera prefix — strip it
+        return stem.split("_", 1)[1] if "_" in stem else stem
+    return stem
+
+
 def extract_timestamp(filename):
-    """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'."""
+    """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'.
+
+    Also handles camera-prefixed filenames:
+    'feeder_2026-03-14_16-11-09.jpg' → '2026-03-14 16:11:09'
+    """
     try:
-        stem = filename.rsplit(".", 1)[0]
-        parts = stem.split("_", 1)
+        ts_part = _strip_camera_prefix(filename)
+        parts = ts_part.split("_", 1)
         if len(parts) == 2:
             date_part, time_part = parts
             return date_part + " " + time_part.replace("-", ":")
-        return stem
+        return ts_part
     except Exception:
         return None
 
@@ -562,6 +610,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
             "file": fname,
             "timestamp": datetime.now().isoformat(),
             "source_timestamp": extract_timestamp(fname),
+            "camera": extract_camera(fname),
             "action": "no_bird",
             "detect_ms": round(detect_ms, 1),
             "detections": 0,
@@ -605,6 +654,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
             "file": fname,
             "timestamp": datetime.now().isoformat(),
             "source_timestamp": extract_timestamp(fname),
+            "camera": extract_camera(fname),
             "action": action,
             "detect_ms": round(detect_ms, 1),
             "classify_ms": round(classify_ms, 1),
@@ -673,6 +723,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         "file": fname,
         "timestamp": datetime.now().isoformat(),
         "source_timestamp": extract_timestamp(fname),
+        "camera": extract_camera(fname),
         "action": "classified",
         "detect_ms": round(detect_ms, 1),
         "classify_ms": round(classify_ms, 1),

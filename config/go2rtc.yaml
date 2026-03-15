@@ -1,0 +1,16 @@
+streams:
+  feeder-main:
+    - rtsp://192.168.4.9:7447/w16HR2F8w8CYBRAy#tcp
+  ground-main:
+    - rtsp://192.168.4.9:7447/Gy44j9Ci4Sqo9IV3#tcp
+
+webrtc:
+  candidates:
+    - 192.168.5.92:8555
+    - stun:8555
+
+api:
+  listen: ":1984"
+
+log:
+  level: info
