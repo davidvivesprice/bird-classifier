@@ -33,6 +33,15 @@ from PIL import Image, ImageDraw, ImageFont
 # Range filtering for geographic validation
 from range_filter import RangeFilter
 
+# Coral Edge TPU — optional, falls back to ONNX+CoreML if unavailable
+_CORAL_OK = False
+try:
+    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
+    from pycoral.adapters import common as _coral_common
+    _CORAL_OK = bool(list_edge_tpus())
+except ImportError:
+    pass
+
 # --- Configuration ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
 INCOMING_DIR = BASE_DIR / "incoming"
@@ -46,6 +55,7 @@ MODEL_DIR = Path("/Users/vives/bird-classifier/models")
 # Models
 YOLO_MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
 SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
+SPECIES_TPU_PATH = MODEL_DIR / "aiy_birds_v1_edgetpu.tflite"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
 REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 
@@ -300,17 +310,35 @@ def detect_birds(yolo_sess, yolo_input_name, image):
 # Stage 2: Species Classification (AIY Birds V1)
 # ──────────────────────────────────────────────────
 
+_species_backend = "onnx"  # set by load_species_model()
+
+
 def load_species_model(path, labels_path):
-    """Load AIY Birds V1 ONNX model and labels with CoreML acceleration if available."""
-    logging.info("Loading species classifier: %s", path)
-    providers = _get_providers()
-    sess = ort.InferenceSession(str(path), providers=providers)
-    input_name = sess.get_inputs()[0].name
+    """Load AIY Birds V1 — Coral TPU if available, else ONNX+CoreML."""
+    global _species_backend
 
     with open(labels_path) as f:
         labels = [line.strip() for line in f]
-    active = sess.get_providers()
-    logging.info("Species model loaded: %d labels, providers=%s", len(labels), active)
+
+    # Try Coral TPU first
+    if _CORAL_OK and SPECIES_TPU_PATH.exists():
+        try:
+            interp = make_interpreter(str(SPECIES_TPU_PATH))
+            interp.allocate_tensors()
+            _species_backend = "coral"
+            logging.info("Species model loaded on CORAL TPU: %s (%d labels)",
+                         SPECIES_TPU_PATH.name, len(labels))
+            return interp, None, labels
+        except Exception as e:
+            logging.warning("Coral TPU failed (%s), falling back to ONNX", e)
+
+    # Fallback: ONNX + CoreML
+    logging.info("Loading species classifier (ONNX): %s", path)
+    providers = _get_providers()
+    sess = ort.InferenceSession(str(path), providers=providers)
+    input_name = sess.get_inputs()[0].name
+    _species_backend = "onnx"
+    logging.info("Species model loaded: %d labels, providers=%s", len(labels), sess.get_providers())
     return sess, input_name, labels
 
 
@@ -359,7 +387,14 @@ def classify_species(species_sess, species_input_name, labels, bird_crop, region
     resized = bird_crop.resize(SPECIES_INPUT_SIZE)
     arr = np.array(resized, dtype=np.uint8)[np.newaxis]
 
-    scores = species_sess.run(None, {species_input_name: arr})[0][0]
+    if _species_backend == "coral":
+        _coral_common.set_input(species_sess, arr[0])
+        species_sess.invoke()
+        scores = np.array(_coral_common.output_tensor(species_sess, 0), dtype=np.float32)
+        if scores.ndim == 2:
+            scores = scores[0]
+    else:
+        scores = species_sess.run(None, {species_input_name: arr})[0][0]
 
     # Raw top 3
     top3_idx = np.argsort(scores)[-3:][::-1]
