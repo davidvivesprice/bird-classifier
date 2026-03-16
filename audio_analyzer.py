@@ -27,6 +27,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
+from scipy.signal import butter, sosfilt
 
 # ── Configuration ──────────────────────────────────────────────────────────
 RTSP_URL = os.environ.get(
@@ -35,7 +36,7 @@ RTSP_URL = os.environ.get(
 )
 LAT = float(os.environ.get("BIRDNET_LAT", "41.35"))
 LON = float(os.environ.get("BIRDNET_LON", "-70.73"))
-MIN_CONFIDENCE = float(os.environ.get("BIRDNET_MIN_CONF", "0.65"))
+MIN_CONFIDENCE = float(os.environ.get("BIRDNET_MIN_CONF", "0.50"))
 
 SAMPLE_RATE = 48000
 CHANNELS = 1
@@ -56,7 +57,7 @@ ADVANCE_BYTES = SAMPLE_RATE * 2 * CHANNELS * ADVANCE_SECONDS
 # When a species is detected at high confidence, lower the threshold for it
 DYNAMIC_THRESHOLD_ENABLED = True
 DYNAMIC_THRESHOLD_TRIGGER = 0.80   # confidence that triggers threshold lowering
-DYNAMIC_THRESHOLD_MIN = 0.45       # lowest a dynamic threshold can go
+DYNAMIC_THRESHOLD_MIN = 0.25       # lowest a dynamic threshold can go (BirdNET-Go uses 0.20)
 DYNAMIC_THRESHOLD_HOURS = 24       # how long lowered thresholds last
 
 # ── Deep Detection (from BirdNET-Go) ─────────────────────────────────────
@@ -64,7 +65,7 @@ DYNAMIC_THRESHOLD_HOURS = 24       # how long lowered thresholds last
 DEEP_DETECTION_ENABLED = True
 DEEP_DETECTION_WINDOW = 15.0    # seconds to accumulate detections
 DEEP_DETECTION_MIN_HITS = 2     # minimum detections required to confirm
-DEEP_DETECTION_INSTANT = 0.90   # single detection above this = instant accept
+DEEP_DETECTION_INSTANT = 0.65   # single detection above this = instant accept (was 0.90)
 DEEP_DETECTION_COOLDOWN = 10.0  # seconds after accept before re-accepting same species
 
 DB_PATH = Path(
@@ -81,6 +82,48 @@ CLIPS_DIR = Path(
 )
 RECONNECT_DELAY = 5  # seconds before retrying on RTSP failure
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
+
+# ── Audio Preprocessing ───────────────────────────────────────────────────
+# Bandpass filter (300Hz–15kHz) — matches BirdNET-Go's equalizer config.
+# Removes wind/traffic rumble (<300Hz) and ultrasonic noise (>15kHz).
+BANDPASS_LOW = 300
+BANDPASS_HIGH = 15000
+BANDPASS_ORDER = 4
+_bandpass_sos = butter(BANDPASS_ORDER, [BANDPASS_LOW, BANDPASS_HIGH],
+                       btype='band', fs=SAMPLE_RATE, output='sos')
+
+# Noise reduction: spectral gating via noisereduce (stationary mode).
+# Suppresses broadband noise within the passband while preserving tonal bird calls.
+NOISE_REDUCE_ENABLED = True
+try:
+    import noisereduce as nr
+except ImportError:
+    nr = None
+    NOISE_REDUCE_ENABLED = False
+
+
+def preprocess_audio(audio_float32):
+    """Apply bandpass filter + spectral noise reduction to a float32 audio buffer.
+
+    Args:
+        audio_float32: numpy float32 array, values in [-1, 1]
+
+    Returns:
+        Cleaned float32 audio array, same shape.
+    """
+    # Stage 1: Bandpass filter (sub-millisecond)
+    cleaned = sosfilt(_bandpass_sos, audio_float32).astype(np.float32)
+
+    # Stage 2: Spectral noise reduction (~250ms for 6s@48kHz)
+    if NOISE_REDUCE_ENABLED and nr is not None:
+        cleaned = nr.reduce_noise(
+            y=cleaned, sr=SAMPLE_RATE,
+            stationary=True,
+            n_fft=1024,
+            prop_decrease=0.85,     # how much to reduce noise (0=none, 1=full)
+        ).astype(np.float32)
+
+    return cleaned
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -429,6 +472,9 @@ def run(test_mode=False):
                     # Convert to float32 normalized [-1, 1]
                     audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
+                    # Preprocess: bandpass filter + spectral noise reduction
+                    audio = preprocess_audio(audio)
+
                     # Run BirdNET inference with overlapping 3s windows
                     try:
                         recording = RecordingBuffer(
@@ -573,6 +619,9 @@ def main():
     log.info("  RTSP: %s", RTSP_URL)
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
+    log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)
+    log.info("  Deep detection instant: %.0f%%", DEEP_DETECTION_INSTANT * 100)
+    log.info("  Noise reduction: %s", "ON (bandpass + noisereduce)" if NOISE_REDUCE_ENABLED else "bandpass only")
     log.info("  DB: %s", DB_PATH)
     log.info("  Clips: %s", CLIPS_DIR)
 

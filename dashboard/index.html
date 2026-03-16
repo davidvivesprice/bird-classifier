@@ -263,8 +263,34 @@
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
   }
-  .live-mute-btn:hover, .live-fs-btn:hover { background: rgba(0,0,0,0.8); }
+  .live-mute-btn:hover, .live-fs-btn:hover, .live-enhance-btn:hover { background: rgba(0,0,0,0.8); }
   .live-mute-btn .mute-label { font-size: 0.72rem; letter-spacing: 0.03em; }
+
+  .live-enhance-btn {
+    position: absolute;
+    bottom: 10px;
+    left: 130px;
+    z-index: 5;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: background 0.2s;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    letter-spacing: 0.03em;
+  }
+  .live-enhance-btn.active {
+    background: rgba(251,191,36,0.35);
+    border-color: var(--accent-amber);
+    color: var(--accent-amber);
+  }
 
   .live-fs-btn {
     position: absolute;
@@ -1749,6 +1775,9 @@
           <button class="live-mute-btn" id="live-mute-btn" onclick="toggleLiveMute()" title="Toggle audio">
             <span id="mute-icon">&#x1F507;</span><span class="mute-label" id="mute-label">Unmute</span>
           </button>
+          <button class="live-enhance-btn" id="live-enhance-btn" onclick="toggleAudioEnhance()" title="Toggle audio enhancement (bandpass filter for bird calls)">
+            Raw
+          </button>
           <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
             <span id="fs-icon">&#x26F6;</span>
           </button>
@@ -2329,7 +2358,27 @@
     // Video elements are always kept muted to avoid autoplay policy issues
     // and because the ground camera mic is consistently better quality.
     var ga = _ensureGroundAudio();
-    ga.muted = _liveMuted;
+
+    if (_audioCtx) {
+      // Web Audio API is active — control volume via gain nodes, keep element unmuted
+      // so audio flows through the filter chain
+      ga.muted = false;
+      if (_liveMuted) {
+        if (_rawGain) _rawGain.gain.value = 0.0;
+        if (_filteredGain) _filteredGain.gain.value = 0.0;
+      } else {
+        if (_audioEnhanced) {
+          if (_rawGain) _rawGain.gain.value = 0.0;
+          if (_filteredGain) _filteredGain.gain.value = 1.0;
+        } else {
+          if (_rawGain) _rawGain.gain.value = 1.0;
+          if (_filteredGain) _filteredGain.gain.value = 0.0;
+        }
+      }
+    } else {
+      // No Web Audio API — use simple mute on element
+      ga.muted = _liveMuted;
+    }
 
     // Keep all video elements muted always
     var mainVid = document.getElementById('live-video');
@@ -2343,6 +2392,80 @@
   window.toggleLiveMute = function() {
     _liveMuted = !_liveMuted;
     _applyMuteState();
+  }
+
+  // ── Live Audio Enhancement (Web Audio API bandpass filter) ──
+  // Applies a 300Hz–15kHz bandpass filter to isolate bird calls.
+  // Zero latency — runs in the browser's native audio pipeline.
+  var _audioCtx = null;
+  var _audioSource = null;
+  var _highpassFilter = null;
+  var _lowpassFilter = null;
+  var _rawGain = null;      // gain node for raw (unfiltered) audio
+  var _filteredGain = null;  // gain node for filtered audio
+  var _audioEnhanced = false;
+
+  function _initAudioFilter() {
+    if (_audioCtx) return; // already initialized
+    var ga = _ensureGroundAudio();
+    if (!ga) return;
+
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    _audioSource = _audioCtx.createMediaElementSource(ga);
+
+    // Highpass at 300Hz (removes wind/traffic rumble)
+    _highpassFilter = _audioCtx.createBiquadFilter();
+    _highpassFilter.type = 'highpass';
+    _highpassFilter.frequency.value = 300;
+    _highpassFilter.Q.value = 0.7;
+
+    // Lowpass at 15kHz (removes high-frequency hiss)
+    _lowpassFilter = _audioCtx.createBiquadFilter();
+    _lowpassFilter.type = 'lowpass';
+    _lowpassFilter.frequency.value = 15000;
+    _lowpassFilter.Q.value = 0.7;
+
+    // Raw path: source → rawGain → destination
+    _rawGain = _audioCtx.createGain();
+    _rawGain.gain.value = 1.0;
+    _audioSource.connect(_rawGain);
+    _rawGain.connect(_audioCtx.destination);
+
+    // Filtered path: source → highpass → lowpass → filteredGain → destination
+    _filteredGain = _audioCtx.createGain();
+    _filteredGain.gain.value = 0.0; // start with raw
+    _audioSource.connect(_highpassFilter);
+    _highpassFilter.connect(_lowpassFilter);
+    _lowpassFilter.connect(_filteredGain);
+    _filteredGain.connect(_audioCtx.destination);
+  }
+
+  window.toggleAudioEnhance = function() {
+    _audioEnhanced = !_audioEnhanced;
+
+    // Initialize audio filter chain on first use (requires user gesture)
+    if (!_audioCtx) {
+      _initAudioFilter();
+    }
+
+    var btn = document.getElementById('live-enhance-btn');
+    if (_audioEnhanced) {
+      // Switch to filtered: mute raw, unmute filtered
+      if (_rawGain) _rawGain.gain.value = 0.0;
+      if (_filteredGain) _filteredGain.gain.value = 1.0;
+      if (btn) { btn.textContent = 'Enhanced'; btn.classList.add('active'); }
+    } else {
+      // Switch to raw: unmute raw, mute filtered
+      if (_rawGain) _rawGain.gain.value = 1.0;
+      if (_filteredGain) _filteredGain.gain.value = 0.0;
+      if (btn) { btn.textContent = 'Raw'; btn.classList.remove('active'); }
+    }
+
+    // Auto-unmute if muted
+    if (_liveMuted) {
+      _liveMuted = false;
+      _applyMuteState();
+    }
   }
 
   // ── Live Feed: fullscreen toggle ──
