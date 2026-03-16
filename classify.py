@@ -671,10 +671,16 @@ def extract_timestamp(filename):
 
 
 def append_result(result):
-    """Append result to JSONL log."""
+    """Append result to JSONL log with exclusive file locking."""
+    import fcntl
     log_file = LOG_DIR / "classifications.jsonl"
+    line = json.dumps(result) + "\n"
     with open(log_file, "a") as f:
-        f.write(json.dumps(result) + "\n")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def sanitize_dirname(name):

@@ -7,8 +7,11 @@ Also provides an annotation/review endpoint for building training data.
 Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 """
 
+import fcntl
 import json
+import logging
 import os
+import re
 import shutil
 import time as _time
 from collections import defaultdict
@@ -68,8 +71,31 @@ app.add_middleware(
 )
 
 
+# ── Atomic JSONL writer ──
+
+def _append_jsonl(path: Path, entry: dict):
+    """Append a JSON entry to a JSONL file with exclusive locking."""
+    line = json.dumps(entry) + "\n"
+    with open(path, "a") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+# ── Classification cache + indexes ──
+
 _classifications_cache: list = []
-_classifications_size: int = 0  # byte offset — only read new bytes on append
+_classifications_size: int = 0
+
+# Pre-computed indexes — updated incrementally
+_idx_classified: list = []                          # action=classified only
+_idx_by_species: dict[str, list] = defaultdict(list)  # species → [entries]
+_idx_by_date: dict[str, list] = defaultdict(list)     # date → [entries]
+_idx_by_file: dict[str, dict] = {}                    # filename → entry (deduped)
+_idx_species_set: set = set()                         # all species names
+_idx_cameras: dict[str, dict] = {}                    # camera → {count, last_seen}
 
 
 def _normalize_entry(e: dict) -> dict:
@@ -85,14 +111,43 @@ def _normalize_entry(e: dict) -> dict:
     return e
 
 
+def _index_entry(e: dict):
+    """Add a single entry to all indexes."""
+    fname = e.get("file", "")
+    _idx_by_file[fname] = e
+
+    if e.get("action") == "classified":
+        _idx_classified.append(e)
+        if "top_prediction" in e:
+            sp = e["top_prediction"]["common_name"]
+            _idx_by_species[sp].append(e)
+            _idx_species_set.add(sp)
+
+    date_str = (e.get("source_timestamp") or "")[:10]
+    if date_str:
+        _idx_by_date[date_str].append(e)
+
+    if e.get("action") == "classified":
+        cam = e.get("camera", "feeder")
+        if cam not in _idx_cameras:
+            _idx_cameras[cam] = {"count": 0, "last_seen": ""}
+        _idx_cameras[cam]["count"] += 1
+        ts = e.get("source_timestamp") or e.get("timestamp", "")
+        if ts > _idx_cameras[cam]["last_seen"]:
+            _idx_cameras[cam]["last_seen"] = ts
+
+
 def load_classifications():
     """Load classification entries from JSONL with incremental append caching.
 
-    Only reads bytes added since the last load.  If the file shrinks (truncated
-    or replaced), does a full reload.  This keeps the common case — classifier
-    appending new entries — down to microseconds instead of 7+ seconds.
+    Only reads bytes added since the last load.  Indexes are updated
+    incrementally — endpoints use indexes for O(1) lookups instead of
+    iterating the full list.
     """
     global _classifications_cache, _classifications_size
+    global _idx_classified, _idx_by_species, _idx_by_date, _idx_by_file
+    global _idx_species_set, _idx_cameras
+
     if not JSONL_PATH.exists():
         _classifications_cache = []
         _classifications_size = 0
@@ -104,13 +159,20 @@ def load_classifications():
     if current_size == _classifications_size:
         return _classifications_cache
 
-    # File shrunk or replaced — full reload
+    # File shrunk or replaced — full reload + rebuild indexes
     if current_size < _classifications_size:
         _classifications_cache = []
         _classifications_size = 0
+        _idx_classified = []
+        _idx_by_species = defaultdict(list)
+        _idx_by_date = defaultdict(list)
+        _idx_by_file = {}
+        _idx_species_set = set()
+        _idx_cameras = {}
 
-    # Read only new bytes from the last known position
-    new_entries = []
+    # Read only new bytes
+    new_count = 0
+    corrupt = 0
     with open(JSONL_PATH, "rb") as f:
         f.seek(_classifications_size)
         for line in f:
@@ -118,14 +180,20 @@ def load_classifications():
             if line:
                 try:
                     e = json.loads(line)
-                    new_entries.append(_normalize_entry(e))
+                    e = _normalize_entry(e)
+                    _classifications_cache.append(e)
+                    _index_entry(e)
+                    new_count += 1
                 except json.JSONDecodeError:
-                    pass  # skip partial/corrupt lines
+                    corrupt += 1
 
-    _classifications_cache.extend(new_entries)
+    if corrupt:
+        logging.warning("Skipped %d corrupt JSONL lines", corrupt)
     _classifications_size = current_size
     return _classifications_cache
 
+
+# ── Reviews cache ──
 
 _reviews_cache: dict = {}
 _reviews_size: int = 0
@@ -161,6 +229,61 @@ def load_reviews():
 
     _reviews_size = current_size
     return _reviews_cache
+
+
+# ── Result cache with TTL ──
+
+_result_cache: dict[str, tuple[float, object]] = {}
+
+
+def cached_result(key: str, ttl: float, fn):
+    """Return cached result if fresh, otherwise compute and cache."""
+    now = _time.time()
+    if key in _result_cache and _result_cache[key][0] > now:
+        return _result_cache[key][1]
+    result = fn()
+    _result_cache[key] = (now + ttl, result)
+    return result
+
+
+def invalidate_cache(*prefixes):
+    """Invalidate result cache entries matching any prefix."""
+    keys_to_drop = [k for k in _result_cache if any(k.startswith(p) for p in prefixes)]
+    for k in keys_to_drop:
+        del _result_cache[k]
+
+
+# ── Shared helpers ──
+
+VALID_VERDICTS = frozenset(("correct", "wrong", "skip", "trash", "reclassify"))
+
+
+def _create_review_entry(filename: str, verdict: str, correct_species: str = "",
+                         missed_birds: str = "false", bird_index: str = "0") -> dict:
+    """Build and validate a review entry dict."""
+    safe_name = os.path.basename(filename)
+    if verdict not in VALID_VERDICTS:
+        raise HTTPException(status_code=400, detail=f"verdict must be one of {', '.join(sorted(VALID_VERDICTS))}")
+    correct_species = normalize_species(correct_species) if correct_species else ""
+    return {
+        "file": safe_name,
+        "verdict": verdict,
+        "correct_species": correct_species if verdict == "wrong" else "",
+        "missed_birds": missed_birds.lower() in ("true", "1", "yes"),
+        "bird_index": int(bird_index),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+def _find_classified_file(filename: str) -> Path | None:
+    """Find a classified file across species subdirectories."""
+    safe = os.path.basename(filename)
+    for d in CLASSIFIED_DIR.iterdir():
+        if d.is_dir():
+            p = d / safe
+            if p.exists():
+                return p
+    return None
 
 
 _regional_cache: list = []
@@ -203,20 +326,10 @@ def health():
 @app.get("/api/cameras")
 def cameras_list():
     """List cameras with detection counts and last seen times."""
-    entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
-
-    cam_data = defaultdict(lambda: {"count": 0, "last_seen": ""})
-    for e in classified:
-        cam = e.get("camera", "feeder")
-        cam_data[cam]["count"] += 1
-        ts = e.get("source_timestamp") or e.get("timestamp", "")
-        if ts > cam_data[cam]["last_seen"]:
-            cam_data[cam]["last_seen"] = ts
-
+    load_classifications()  # ensure indexes are current
     return [
         {"name": name, "count": d["count"], "last_seen": d["last_seen"]}
-        for name, d in sorted(cam_data.items())
+        for name, d in sorted(_idx_cameras.items())
     ]
 
 
@@ -224,104 +337,94 @@ def cameras_list():
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
     """Overall classification statistics, optionally filtered by date and camera."""
-    entries = load_classifications()
-    filtered = filter_by_date(entries, date)
-    filtered = filter_by_camera(filtered, camera)
-    classified = [e for e in filtered if e["action"] == "classified"]
-    skipped = [e for e in filtered if e["action"].startswith("skipped")]
-    species = set()
-    for e in classified:
-        if "top_prediction" in e:
-            species.add(e["top_prediction"]["common_name"])
-
-    # Server timezone offset in minutes west of UTC (matches JS getTimezoneOffset convention)
-    # e.g. EST=300, EDT=240
-    _lt = _time.localtime()
-    tz_offset_min = (_time.altzone if _time.daylight and _lt.tm_isdst else _time.timezone) // 60
-
-    return {
-        "total": len(filtered),
-        "classified": len(classified),
-        "skipped": len(skipped),
-        "species_count": len(species),
-        "last_updated": entries[-1]["timestamp"] if entries else None,
-        "server_tz_offset": tz_offset_min,
-    }
+    def _compute():
+        entries = load_classifications()
+        filtered = filter_by_date(entries, date)
+        filtered = filter_by_camera(filtered, camera)
+        classified = [e for e in filtered if e["action"] == "classified"]
+        skipped = [e for e in filtered if e["action"].startswith("skipped")]
+        species = set()
+        for e in classified:
+            if "top_prediction" in e:
+                species.add(e["top_prediction"]["common_name"])
+        _lt = _time.localtime()
+        tz_offset_min = (_time.altzone if _time.daylight and _lt.tm_isdst else _time.timezone) // 60
+        return {
+            "total": len(filtered),
+            "classified": len(classified),
+            "skipped": len(skipped),
+            "species_count": len(species),
+            "last_updated": entries[-1]["timestamp"] if entries else None,
+            "server_tz_offset": tz_offset_min,
+        }
+    return cached_result(f"stats:{date}:{camera}", 30, _compute)
 
 
 @app.get("/api/species")
 def species_list(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
                  camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
     """List all detected species with counts and metadata, optionally filtered by date and camera."""
-    entries = load_classifications()
-    filtered = filter_by_date(entries, date)
-    filtered = filter_by_camera(filtered, camera)
-    classified = [e for e in filtered if e["action"] == "classified"]
+    def _compute():
+        load_classifications()  # ensure indexes current
+        # Use date index for fast filtering
+        if date and date != "all":
+            source = [e for e in _idx_by_date.get(date, []) if e.get("action") == "classified"]
+        else:
+            source = _idx_classified
+        source = filter_by_camera(source, camera)
 
-    species_data = defaultdict(lambda: {
-        "count": 0,
-        "scientific_name": "",
-        "last_seen": "",
-        "total_confidence": 0,
-        "total_score": 0,
-        "files": [],
-    })
+        species_data: dict[str, dict] = {}
+        for e in source:
+            if "top_prediction" not in e:
+                continue
+            name = e["top_prediction"]["common_name"]
+            if name not in species_data:
+                species_data[name] = {"count": 0, "scientific_name": "", "last_seen": "",
+                                      "total_confidence": 0, "total_score": 0}
+            d = species_data[name]
+            d["count"] += 1
+            d["scientific_name"] = e["top_prediction"]["scientific_name"]
+            d["total_score"] += e["top_prediction"]["raw_score"]
+            if e.get("best_detection"):
+                d["total_confidence"] += e["best_detection"].get("confidence", 0)
+            ts = e.get("source_timestamp") or e["timestamp"]
+            if ts > d["last_seen"]:
+                d["last_seen"] = ts
 
-    for e in classified:
-        if "top_prediction" not in e:
-            continue
-        name = e["top_prediction"]["common_name"]
-        d = species_data[name]
-        d["count"] += 1
-        d["scientific_name"] = e["top_prediction"]["scientific_name"]
-        d["total_score"] += e["top_prediction"]["raw_score"]
-        if e.get("best_detection"):
-            d["total_confidence"] += e["best_detection"].get("confidence", 0)
-        ts = e.get("source_timestamp") or e["timestamp"]
-        if ts > d["last_seen"]:
-            d["last_seen"] = ts
-        d["files"].append(e["file"])
-
-    result = []
-    for name, d in sorted(species_data.items(), key=lambda x: -x[1]["count"]):
-        result.append({
-            "common_name": name,
-            "scientific_name": d["scientific_name"],
-            "count": d["count"],
-            "last_seen": d["last_seen"],
-            "avg_confidence": round(d["total_confidence"] / d["count"], 3) if d["count"] else 0,
-            "avg_score": round(d["total_score"] / d["count"], 1) if d["count"] else 0,
-        })
-
-    return result
+        return sorted([
+            {
+                "common_name": name,
+                "scientific_name": d["scientific_name"],
+                "count": d["count"],
+                "last_seen": d["last_seen"],
+                "avg_confidence": round(d["total_confidence"] / d["count"], 3) if d["count"] else 0,
+                "avg_score": round(d["total_score"] / d["count"], 1) if d["count"] else 0,
+            }
+            for name, d in species_data.items()
+        ], key=lambda x: -x["count"])
+    return cached_result(f"species:{date}:{camera}", 30, _compute)
 
 
 @app.get("/api/species/{name}")
 def species_detail(name: str):
     """Detailed data for a single species."""
-    entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
-
-    detections = []
-    for e in classified:
-        if "top_prediction" not in e:
-            continue
-        if e["top_prediction"]["common_name"] == name:
-            detections.append({
-                "file": e["file"],
-                "timestamp": e.get("source_timestamp") or e["timestamp"],
-                "confidence": e.get("best_detection", {}).get("confidence", 0),
-                "raw_score": e["top_prediction"]["raw_score"],
-                "top3": e.get("top3", []),
-                "birds": e.get("birds", []),
-            })
-
-    if not detections:
+    load_classifications()  # ensure indexes current
+    species_entries = _idx_by_species.get(name, [])
+    if not species_entries:
         raise HTTPException(status_code=404, detail=f"Species '{name}' not found")
+
+    detections = [{
+        "file": e["file"],
+        "timestamp": e.get("source_timestamp") or e["timestamp"],
+        "confidence": e.get("best_detection", {}).get("confidence", 0),
+        "raw_score": e["top_prediction"]["raw_score"],
+        "top3": e.get("top3", []),
+        "birds": e.get("birds", []),
+    } for e in species_entries if "top_prediction" in e]
 
     return {
         "common_name": name,
-        "scientific_name": detections[0].get("top3", [{}])[0].get("scientific_name", ""),
+        "scientific_name": detections[0].get("top3", [{}])[0].get("scientific_name", "") if detections else "",
         "count": len(detections),
         "detections": detections,
     }
@@ -330,12 +433,12 @@ def species_detail(name: str):
 @app.get("/api/recent")
 def recent(limit: int = 50, camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
     """Most recent classified detections, optionally filtered by camera."""
-    entries = load_classifications()
-    entries = filter_by_camera(entries, camera)
-    classified = [e for e in entries if e["action"] == "classified"]
-    # Most recent first
-    classified.sort(key=lambda e: e.get("source_timestamp") or e["timestamp"], reverse=True)
-    return classified[:limit]
+    load_classifications()  # ensure indexes current
+    source = filter_by_camera(_idx_classified, camera)
+    # _idx_classified is in append order; take from end for most recent
+    recent_items = source[-limit:] if len(source) > limit else source[:]
+    recent_items.reverse()
+    return recent_items
 
 
 @app.get("/api/image/{filename}")
@@ -351,14 +454,10 @@ def get_image(filename: str):
 @app.get("/api/image-raw/{filename}")
 def get_image_raw(filename: str):
     """Serve the original image (no bounding boxes) from classified/ subdirectories."""
-    safe_name = os.path.basename(filename)
-    # Search through all species subdirectories
-    for species_dir in CLASSIFIED_DIR.iterdir():
-        if species_dir.is_dir():
-            path = species_dir / safe_name
-            if path.exists():
-                return FileResponse(str(path), media_type="image/jpeg")
-    raise HTTPException(status_code=404, detail="Raw image not found")
+    path = _find_classified_file(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Raw image not found")
+    return FileResponse(str(path), media_type="image/jpeg")
 
 
 @app.get("/api/review/pending")
@@ -369,13 +468,12 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     species list are always included so the UI can show progress and
     the species filter without needing all items up-front.
     """
-    entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
+    load_classifications()  # ensure indexes current
     reviews = load_reviews()
 
     pending = []
     species_set = set()
-    for e in classified:
+    for e in _idx_classified:
         if e["file"] not in reviews or reviews[e["file"]]["verdict"] == "requeued":
             sp = e["top_prediction"]["common_name"] if "top_prediction" in e else "unknown"
             species_set.add(sp)
@@ -394,7 +492,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
                 "birds": e.get("birds", []),
             })
 
-    total_classified = len(classified)
+    total_classified = len(_idx_classified)
     total_reviewed = len(reviews)
     total_pending = len(pending)
 
@@ -441,19 +539,10 @@ def rerun_missed():
     not_found = 0
 
     for fname in flagged:
-        # Find in classified subdirectories
-        src = None
-        for species_dir in CLASSIFIED_DIR.iterdir():
-            if species_dir.is_dir():
-                candidate = species_dir / fname
-                if candidate.exists():
-                    src = candidate
-                    break
-
+        src = _find_classified_file(fname)
         if src:
             dst = INCOMING_DIR / fname
             shutil.move(str(src), str(dst))
-            # Remove annotated version
             ann = ANNOTATED_DIR / fname
             if ann.exists():
                 ann.unlink()
@@ -461,7 +550,6 @@ def rerun_missed():
         else:
             not_found += 1
 
-        # Write requeued verdict so pending filter picks it up after reclassification
         requeue_entry = {
             "file": fname,
             "verdict": "requeued",
@@ -470,8 +558,7 @@ def rerun_missed():
             "bird_index": 0,
             "timestamp": datetime.now().isoformat(),
         }
-        with open(REVIEWS_PATH, "a") as f:
-            f.write(json.dumps(requeue_entry) + "\n")
+        _append_jsonl(REVIEWS_PATH, requeue_entry)
 
     return {
         "moved": moved,
@@ -490,28 +577,18 @@ def review_goals(threshold: int = 20):
     """
     reviews = load_reviews()
     regional = set(load_regional_species())
+    load_classifications()  # ensure indexes current
 
     confirmed: dict[str, int] = defaultdict(int)
     for r in reviews.values():
         if r["verdict"] == "correct":
-            # Need to look up the classified species for this file
-            pass  # handled below
+            cls = _idx_by_file.get(r["file"], {})
+            sp = cls.get("top_prediction", {}).get("common_name", "")
+            if sp:
+                confirmed[sp] += 1
         elif r["verdict"] == "wrong" and r.get("correct_species"):
             sp = normalize_species(r["correct_species"])
             confirmed[sp] += 1
-
-    # For correct verdicts, look up species from classifications
-    entries = load_classifications()
-    file_species: dict[str, str] = {}
-    for e in entries:
-        if e.get("action") == "classified" and "top_prediction" in e:
-            file_species[e["file"]] = e["top_prediction"]["common_name"]
-
-    for r in reviews.values():
-        if r["verdict"] == "correct":
-            sp = file_species.get(r["file"], "")
-            if sp:
-                confirmed[sp] += 1
 
     goals = []
     for sp in regional:
@@ -545,33 +622,16 @@ def review_goals(threshold: int = 20):
 @app.post("/api/review/{filename}")
 def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
     """Submit a review verdict for a classification."""
-    safe_name = os.path.basename(filename)
-    if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
-        raise HTTPException(status_code=400, detail="verdict must be 'correct', 'wrong', 'skip', 'trash', or 'reclassify'")
-
-    correct_species = normalize_species(correct_species) if correct_species else ""
-
-    # Convert string to boolean (FastAPI query params come as strings)
-    missed_birds_bool = missed_birds.lower() in ("true", "1", "yes")
-
-    review = {
-        "file": safe_name,
-        "verdict": verdict,
-        "correct_species": correct_species if verdict == "wrong" else "",
-        "missed_birds": missed_birds_bool,
-        "bird_index": int(bird_index),
-        "timestamp": datetime.now().isoformat(),
-    }
-
-    with open(REVIEWS_PATH, "a") as f:
-        f.write(json.dumps(review) + "\n")
+    review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
+    _append_jsonl(REVIEWS_PATH, review)
+    invalidate_cache("stats:", "species:", "goals:")
 
     # Move trashed images out of annotated dir
     if verdict == "trash":
         TRASH_DIR.mkdir(parents=True, exist_ok=True)
-        src = ANNOTATED_DIR / safe_name
+        src = ANNOTATED_DIR / review["file"]
         if src.exists():
-            shutil.move(str(src), str(TRASH_DIR / safe_name))
+            shutil.move(str(src), str(TRASH_DIR / review["file"]))
 
     return {"status": "ok", "review": review}
 
@@ -580,14 +640,14 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
 def review_classified(species: str = "", verdict: str = "", limit: int = 50, offset: int = 0):
     """Get reviewed classifications (correct, wrong, reclassify verdicts)."""
     reviews = load_reviews()
-    classifications = {e["file"]: e for e in load_classifications() if e["action"] == "classified"}
+    load_classifications()  # ensure indexes current
 
     items = []
     species_set = set()
     for fname, r in reviews.items():
         if r["verdict"] not in ("correct", "wrong", "reclassify"):
             continue
-        cls = classifications.get(fname, {})
+        cls = _idx_by_file.get(fname, {})
         sp = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
         species_set.add(sp)
         if species and sp != species:
@@ -616,39 +676,19 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
 @app.post("/api/review/{filename}/update")
 def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
     """Update an existing review verdict (appends new entry, load_reviews picks latest)."""
-    safe_name = os.path.basename(filename)
-    if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
-        raise HTTPException(status_code=400, detail="Invalid verdict")
-
-    correct_species = normalize_species(correct_species) if correct_species else ""
-    missed_birds_bool = missed_birds.lower() in ("true", "1", "yes")
-
-    review = {
-        "file": safe_name,
-        "verdict": verdict,
-        "correct_species": correct_species if verdict == "wrong" else "",
-        "missed_birds": missed_birds_bool,
-        "bird_index": int(bird_index),
-        "timestamp": datetime.now().isoformat(),
-    }
-
-    with open(REVIEWS_PATH, "a") as f:
-        f.write(json.dumps(review) + "\n")
-
+    review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
+    _append_jsonl(REVIEWS_PATH, review)
+    invalidate_cache("stats:", "species:", "goals:")
     return {"status": "ok", "review": review}
 
 
 @app.get("/api/dates")
 def available_dates():
     """Return list of dates that have classified detections, newest first."""
-    entries = load_classifications()
-    classified = [e for e in entries if e["action"] == "classified"]
-    dates = set()
-    for e in classified:
-        ts = e.get("source_timestamp") or ""
-        if len(ts) >= 10:
-            dates.add(ts[:10])
-    return sorted(dates, reverse=True)
+    def _compute():
+        load_classifications()  # ensure indexes current
+        return sorted(_idx_by_date.keys(), reverse=True)
+    return cached_result("dates:all", 60, _compute)
 
 
 @app.get("/api/species-info/{name}")
@@ -827,14 +867,14 @@ def regional_species():
 def skipped_list(limit: int = 200, offset: int = 0):
     """List user-skipped images (verdict='skip' in reviews), most recent first."""
     reviews = load_reviews()
-    classifications = {e["file"]: e for e in load_classifications() if e["action"] == "classified"}
+    load_classifications()  # ensure indexes current
 
     # Get all user-skipped items, sorted newest first
     skipped = []
     for fname, r in reviews.items():
         if r.get("verdict") != "skip":
             continue
-        cls = classifications.get(fname, {})
+        cls = _idx_by_file.get(fname, {})
         species = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
         skipped.append({
             "file": fname,
@@ -1194,19 +1234,14 @@ def update_cull_config(
 def cull_inventory():
     """Per-species file counts on disk + confirmed review counts."""
     reviews = load_reviews()
-    entries = load_classifications()
+    load_classifications()  # ensure indexes current
 
-    # Build file→species map from classifications
-    file_species: dict[str, str] = {}
-    for e in entries:
-        if e.get("action") == "classified" and "top_prediction" in e:
-            file_species[e["file"]] = e["top_prediction"]["common_name"]
-
-    # Count confirmed reviews per species
+    # Count confirmed reviews per species using file index
     confirmed: dict[str, int] = defaultdict(int)
     for r in reviews.values():
         if r["verdict"] == "correct":
-            sp = file_species.get(r["file"], "")
+            cls = _idx_by_file.get(r["file"], {})
+            sp = cls.get("top_prediction", {}).get("common_name", "")
             if sp:
                 confirmed[sp] += 1
         elif r["verdict"] == "wrong" and r.get("correct_species"):
@@ -1251,16 +1286,14 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
         raise HTTPException(status_code=400, detail="keep must be >= 0")
 
     if sort_by == "confidence":
-        # Build filename→score map from JSONL
-        entries = load_classifications()
-        file_scores: dict[str, int] = {}
-        for e in entries:
-            if e.get("action") == "classified" and "top_prediction" in e:
-                file_scores[e["file"]] = e["top_prediction"].get("raw_score", 0)
-        # Sort by score (highest first), ties broken by mtime (newest first)
+        # Use file index for score lookup
+        load_classifications()  # ensure indexes current
         files = sorted(
             src_dir.glob("*.jpg"),
-            key=lambda f: (file_scores.get(f.name, 0), f.stat().st_mtime),
+            key=lambda f: (
+                _idx_by_file.get(f.name, {}).get("top_prediction", {}).get("raw_score", 0),
+                f.stat().st_mtime,
+            ),
             reverse=True,
         )
         sort_label = "highest confidence"
