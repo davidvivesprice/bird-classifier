@@ -773,6 +773,35 @@
     content: ' 🎙️';
   }
   /* Confirm bar below cheatsheet */
+  .cheat-guide-link {
+    display: block;
+    text-align: center;
+    margin: 10px 0 4px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--accent-amber);
+    border-radius: var(--radius-sm);
+    color: var(--accent-amber);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .cheat-guide-link:hover { background: rgba(255,193,7,0.1); }
+
+  .woodpecker-compare {
+    margin: 10px 0;
+    padding: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .wc-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; text-align: center; }
+  .wc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .wc-col { font-size: 0.8rem; }
+  .wc-head { font-weight: 600; margin-bottom: 4px; color: var(--accent-amber); }
+  .wc-col ul { margin: 0; padding-left: 16px; }
+  .wc-col li { margin-bottom: 3px; line-height: 1.4; }
+
   .cheat-confirm-bar {
     display: none;
     align-items: center;
@@ -3554,9 +3583,46 @@
     });
     var items = itemsList.join('');
 
+    var guideLink = '';
+    if (!isWoodpecker) {
+      guideLink = '<a href="https://www.allaboutbirds.org/news/identification-guide-winter-sparrows-bird-feeder/" target="_blank" rel="noopener" class="cheat-guide-link">📖 All About Birds: Winter Sparrow Guide →</a>';
+    }
+
+    var woodpeckerCompare = '';
+    if (isWoodpecker) {
+      woodpeckerCompare = '<div class="woodpecker-compare">' +
+        '<div class="wc-title">🔍 Downy vs Hairy — Key Differences</div>' +
+        '<div class="wc-grid">' +
+          '<div class="wc-col">' +
+            '<div class="wc-head">Downy Woodpecker</div>' +
+            '<ul>' +
+              '<li>More common at feeders</li>' +
+              '<li>Short bill — shorter than head width</li>' +
+              '<li>Eye sits midway between back of skull and tip of beak</li>' +
+              '<li>Black spotting on white outer tail feathers</li>' +
+              '<li>Smaller overall (6.5″)</li>' +
+              '<li>Male: red patch on back of head</li>' +
+            '</ul>' +
+          '</div>' +
+          '<div class="wc-col">' +
+            '<div class="wc-head">Hairy Woodpecker</div>' +
+            '<ul>' +
+              '<li>Less common at feeders</li>' +
+              '<li>Bill as long as its skull</li>' +
+              '<li>White outer tail feathers — no spotting</li>' +
+              '<li>Larger overall (9″)</li>' +
+              '<li>Male: red patch on back of head</li>' +
+            '</ul>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
     return '<div class="sparrow-cheat">' +
       '<div class="sparrow-cheat-title">🐦 Look-alike ID Cheat Sheet' + (heardSpeciesNames.length > 0 ? ' <span style="color:var(--accent-amber);font-size:0.72rem;">(🎙️ = heard by BirdNET)</span>' : '') + '</div>' +
       '<div class="sparrow-cheat-grid">' + items + '</div>' +
+      guideLink +
+      woodpeckerCompare +
       '<div class="cheat-confirm-bar" id="cheat-confirm-bar">' +
         'Classify as <span class="confirm-species" id="cheat-confirm-name"></span>?' +
         ' <button class="btn-cheat-confirm" onclick="cheatConfirm()">Confirm ✓</button>' +

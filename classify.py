@@ -49,6 +49,7 @@ CLASSIFIED_DIR = BASE_DIR / "classified"
 SKIPPED_DIR = BASE_DIR / "skipped"
 FAILED_DIR = BASE_DIR / "failed"
 ANNOTATED_DIR = BASE_DIR / "annotated"
+TRASH_DIR = BASE_DIR / "trash"
 LOG_DIR = BASE_DIR / "logs"
 MODEL_DIR = Path("/Users/vives/bird-classifier/models")
 
@@ -61,9 +62,13 @@ REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 
 # Detection thresholds
 BIRD_CLASS_ID = 0                 # Custom model: single class "bird"
-DETECTION_CONFIDENCE = 0.3        # Min confidence to consider a YOLO detection
+DETECTION_CONFIDENCE = float(os.environ.get('DETECTION_CONFIDENCE', '0.3'))
 NMS_IOU_THRESHOLD = 0.45          # Non-max suppression overlap threshold
 CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of box size)
+
+# IR frame detection (auto-trash grayscale/infrared frames during twilight)
+IR_SATURATION_THRESHOLD = float(os.environ.get('IR_SATURATION_THRESHOLD', '0.08'))
+IR_WINDOW_MINUTES = int(os.environ.get('IR_WINDOW_MINUTES', '90'))
 
 # Watch mode
 WATCH_INTERVAL = 10  # seconds
@@ -135,6 +140,38 @@ def is_nighttime():
     current_hours = now.hour + now.minute / 60.0
     sunset_cutoff = sunset_local + NIGHT_OFFSET_MINUTES / 60.0
     return current_hours >= sunset_cutoff or current_hours < sunrise_local
+
+
+def is_twilight_window():
+    """Check if current time is within IR_WINDOW_MINUTES of sunrise or sunset."""
+    now = datetime.now()
+    today = now.date()
+    offset = _utc_offset_for_date(today)
+    sunrise_utc, sunset_utc = _solar_times(LATITUDE, LONGITUDE, today)
+    sunrise_local = sunrise_utc + offset
+    sunset_local = sunset_utc + offset
+    current_hours = now.hour + now.minute / 60.0
+    window_hours = IR_WINDOW_MINUTES / 60.0
+    return (abs(current_hours - sunrise_local) < window_hours or
+            abs(current_hours - sunset_local) < window_hours)
+
+
+def is_infrared_frame(img):
+    """Detect infrared/grayscale frames by checking mean color saturation.
+
+    Cameras switch to IR mode in low light, producing desaturated B&W frames
+    that are not useful for species classification or training.
+
+    Returns (is_ir, mean_saturation) tuple for logging.
+    """
+    arr = np.array(img, dtype=np.float32)
+    max_c = arr.max(axis=2)
+    min_c = arr.min(axis=2)
+    # Saturation = (max - min) / max, avoiding division by zero
+    denom = np.where(max_c > 0, max_c, 1.0)
+    saturation = (max_c - min_c) / denom
+    mean_sat = float(saturation.mean())
+    return mean_sat < IR_SATURATION_THRESHOLD, mean_sat
 
 
 def setup_logging():
@@ -632,6 +669,24 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
         FAILED_DIR.mkdir(parents=True, exist_ok=True)
         shutil.move(str(image_path), str(FAILED_DIR / fname))
         return None
+
+    # Auto-trash infrared/grayscale frames during twilight
+    if is_twilight_window():
+        is_ir, mean_sat = is_infrared_frame(img)
+        if is_ir:
+            result = {
+                "file": fname,
+                "timestamp": datetime.now().isoformat(),
+                "source_timestamp": extract_timestamp(fname),
+                "camera": extract_camera(fname),
+                "action": "trashed:infrared",
+                "mean_saturation": round(mean_sat, 4),
+            }
+            append_result(result)
+            TRASH_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(image_path), str(TRASH_DIR / fname))
+            logging.info("TRASH-IR %s — infrared frame (saturation=%.4f, threshold=%.4f)", fname, mean_sat, IR_SATURATION_THRESHOLD)
+            return result
 
     t0 = time.monotonic()
 
