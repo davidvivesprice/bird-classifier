@@ -53,7 +53,7 @@ if os.environ.get("LIVE_DETECT_CORAL", "0") == "1":
 
 # --- Configuration ---
 MODEL_DIR = Path("/Users/vives/bird-classifier/models")
-YOLO_MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
+YOLO_MODEL_PATH = MODEL_DIR / "yolov8n_bird.onnx"
 SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
 SPECIES_TPU_PATH = MODEL_DIR / "aiy_birds_v1_edgetpu.tflite"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
@@ -73,7 +73,7 @@ CAMERA_STREAMS = {
 }
 
 # Detection thresholds
-BIRD_CLASS_ID = 14
+BIRD_CLASS_ID = 0
 DETECTION_CONFIDENCE = 0.3
 NMS_IOU_THRESHOLD = 0.45
 CROP_PAD_RATIO = 0.15

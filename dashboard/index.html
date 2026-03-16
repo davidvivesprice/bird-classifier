@@ -219,6 +219,10 @@
     width: 100%;
     padding-bottom: 56.25%;
     background: #000;
+    transition: padding-bottom 0.3s ease;
+  }
+  .live-wrapper.both-active {
+    padding-bottom: 113%;
   }
 
   .live-wrapper video {
@@ -618,6 +622,8 @@
   .btn-trash:hover { background: #6b7280; color: #fff; }
   .btn-missed { background: var(--accent-amber); color: #000; }
   .btn-missed:hover { background: #f59e0b; }
+  .btn-notbird { background: #7c3aed; color: #fff; }
+  .btn-notbird:hover { background: #8b5cf6; }
   .btn-nav { background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); padding: 12px 16px; }
   .btn-nav:hover { background: var(--border); color: var(--text-primary); }
 
@@ -1539,6 +1545,48 @@
   .stream-btn:hover { background: rgba(0,0,0,0.75); color: #fff; }
   .stream-btn.active { background: rgba(96,165,250,0.6); border-color: var(--accent-blue); color: #fff; }
 
+  /* Both-cam split view — vertical stack */
+  .live-split {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    gap: 3px;
+    background: #000;
+  }
+  .live-split .split-cell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+  .live-split .split-cell video {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  .live-split .split-label {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    background: rgba(0,0,0,0.6);
+    color: rgba(255,255,255,0.8);
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .live-split .split-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
   /* ── Detection Overlay ── */
   .detection-overlay {
     position: absolute;
@@ -1550,7 +1598,7 @@
   .overlay-toggle {
     position: absolute;
     top: 10px;
-    right: 50px;
+    right: 10px;
     z-index: 5;
     padding: 5px 10px;
     background: rgba(0,0,0,0.55);
@@ -1617,6 +1665,7 @@
           <div class="stream-switcher" id="stream-switcher">
             <button class="stream-btn active" id="stream-btn-feeder" onclick="switchStream('feeder-main')">Feeder</button>
             <button class="stream-btn" id="stream-btn-ground" onclick="switchStream('ground-main')">Ground</button>
+            <button class="stream-btn" id="stream-btn-both" onclick="switchStream('both')">Both</button>
           </div>
           <button class="overlay-toggle" id="overlay-toggle" onclick="toggleDetectionOverlay()" title="Toggle detection labels">&#x1F3F7;&#xFE0F; Labels</button>
           <button class="live-mute-btn" id="live-mute-btn" onclick="toggleLiveMute()" title="Toggle audio">
@@ -1773,6 +1822,7 @@
     <div class="lightbox-review" id="lightbox-review" style="padding:10px 16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;border-top:1px solid var(--border);">
         <button class="review-btn btn-correct" onclick="lightboxReview('correct')">&#x2713; Correct</button>
         <button class="review-btn btn-wrong" onclick="lightboxToggleWrongDropdown()">&#x2717; Wrong</button>
+        <button class="review-btn btn-notbird" onclick="lightboxReview('wrong','not_a_bird')">&#x1F343; Not a Bird</button>
         <button class="review-btn btn-trash" onclick="lightboxReview('trash')">&#x1F5D1; Trash</button>
         <button class="review-btn btn-skip" onclick="lightboxReview('skip')">&#x2192; Skip</button>
         <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>
@@ -2054,6 +2104,11 @@
   // ── Helpers ──
   function parseTimestamp(ts) {
     if (!ts) return NaN;
+    // ISO with explicit timezone offset (e.g. "2026-03-15T10:09:00-04:00")
+    // — parse directly, no correction needed since offset is explicit
+    if (/T.*[+-]\d{2}:\d{2}$/.test(ts)) {
+      return new Date(ts).getTime();
+    }
     // Fix dashed time: "2026-03-02 11-10-42" → "2026-03-02T11:10:42"
     var m = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2})-(\d{2})-(\d{2})$/);
     var raw;
@@ -2112,19 +2167,51 @@
   }
 
   // ── Live Feed: mute toggle ──
-  window.toggleLiveMute = function() {
-    var video = document.getElementById('live-video');
-    if (!video) return;
-    video.muted = !video.muted;
+  // Ground cam mic is better quality — use it for audio in ALL views.
+  var _groundAudioEl = null; // hidden audio element for ground stream
+  var _liveMuted = true;     // master mute state
+
+  function _ensureGroundAudio() {
+    if (_groundAudioEl) return _groundAudioEl;
+    _groundAudioEl = document.createElement('audio');
+    _groundAudioEl.id = 'ground-audio-hidden';
+    _groundAudioEl.muted = true;
+    _groundAudioEl.autoplay = true;
+    var url = location.protocol + '//' + location.host + '/api/stream.mp4?src=ground-main';
+    _groundAudioEl.src = url;
+    document.body.appendChild(_groundAudioEl);
+    return _groundAudioEl;
+  }
+
+  function _applyMuteState() {
     var icon = document.getElementById('mute-icon');
     var label = document.getElementById('mute-label');
-    if (video.muted) {
+    if (_liveMuted) {
       if (icon) icon.innerHTML = '&#x1F507;';
       if (label) label.textContent = 'Unmute';
     } else {
       if (icon) icon.innerHTML = '&#x1F50A;';
       if (label) label.textContent = 'Mute';
     }
+
+    // ALL views use the hidden ground audio element for sound.
+    // Video elements are always kept muted to avoid autoplay policy issues
+    // and because the ground camera mic is consistently better quality.
+    var ga = _ensureGroundAudio();
+    ga.muted = _liveMuted;
+
+    // Keep all video elements muted always
+    var mainVid = document.getElementById('live-video');
+    if (mainVid) mainVid.muted = true;
+    var splitGround = document.getElementById('split-video-ground');
+    var splitFeeder = document.getElementById('split-video-feeder');
+    if (splitGround) splitGround.muted = true;
+    if (splitFeeder) splitFeeder.muted = true;
+  }
+
+  window.toggleLiveMute = function() {
+    _liveMuted = !_liveMuted;
+    _applyMuteState();
   }
 
   // ── Live Feed: fullscreen toggle ──
@@ -2468,20 +2555,23 @@
     lightboxDetection = null;
   };
 
-  window.lightboxReview = async function(verdict) {
+  window.lightboxReview = async function(verdict, correctSpecies) {
     if (!lightboxFile) return;
-    if (verdict === 'wrong') {
+    if (verdict === 'wrong' && !correctSpecies) {
       // Show inline dropdown instead of prompt
       lightboxToggleWrongDropdown();
       return;
     }
     var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
+    if (correctSpecies) {
+      url += '&correct_species=' + encodeURIComponent(correctSpecies);
+    }
     if (verdict === 'reclassify') {
       url += '&missed_birds=true';
     }
     try {
       await fetch(url, { method: 'POST' });
-      var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
+      var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
       // Auto-advance to next detection after a brief delay
       if (lightboxDetectionList.length > 1) {
@@ -2814,7 +2904,8 @@
   function getYardSpecies() {
     var now = Date.now();
     var windowMs = 10 * 60 * 1000;
-    var recent = (birdnetSummaryCache && birdnetSummaryCache.recent) ? birdnetSummaryCache.recent : [];
+    var cache = birdnetSummaryCache || window._yardFallbackCache;
+    var recent = (cache && cache.recent) ? cache.recent : [];
     var allRecent = recent.slice();
     for (var si = 0; si < sseRealtimeDetections.length; si++) {
       allRecent.push(sseRealtimeDetections[si]);
@@ -3017,7 +3108,7 @@
     // Fetch BirdNET audio data (cached; includes per-date breakdowns)
     try {
       if (!birdnetSummaryCache) {
-        birdnetSummaryCache = await apiFetch('/birdnet-data/summary.json');
+        birdnetSummaryCache = await apiFetch('/bird-api/birdnet-summary');
         // Normalize BirdNET species names
         (birdnetSummaryCache.species || []).forEach(function(s) { s.common_name = normalizeSpecies(s.common_name); });
         if (birdnetSummaryCache.by_date) {
@@ -3342,16 +3433,9 @@
     // Ensure BirdNET summary is loaded (for audio context in review)
     try {
       if (!birdnetSummaryCache) {
-        birdnetSummaryCache = await apiFetch('/birdnet-data/summary.json');
+        birdnetSummaryCache = await apiFetch('/bird-api/birdnet-summary');
+        (birdnetSummaryCache.recent || []).forEach(function(r) { r.species = normalizeSpecies(r.species); });
       }
-    } catch (e) {}
-
-    // Load recent BirdNET detections for "also heard around this time"
-    try {
-      var recentAudio = await apiFetch('/birdnet-sse/recent');
-      recentAudio.forEach(function(r) { r.species = normalizeSpecies(r.species); });
-      if (!birdnetSummaryCache) birdnetSummaryCache = {};
-      birdnetSummaryCache.recent = recentAudio;
     } catch (e) {}
 
     updateReviewProgress();
@@ -3643,6 +3727,19 @@
       '<div class="review-image-wrap">' +
         (imgUrl ? '<img id="review-image" src="' + imgUrl + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '">' : '<div style="color:var(--text-muted)">No image available</div>') +
       '</div>' +
+      '<div class="review-actions" style="padding:8px 24px;">' +
+        '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">&#x2713; Correct</button>' +
+        '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">&#x2717; Wrong</button>' +
+        '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">&#x1F343; Not a Bird</button>' +
+        '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">&#x1F5D1; Trash</button>' +
+        '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>' +
+        '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">&#x2192; Skip</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;justify-content:center;padding:4px 24px 8px;">' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous detection">&larr; Prev</button>' +
+        '<span style="color:var(--text-muted);font-size:13px;" id="review-position">' + (reviewIndex + 1) + ' / ' + pendingReview.length + '</span>' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next detection">Next &rarr;</button>' +
+      '</div>' +
       '<div class="review-body">' +
         '<div class="review-prediction">' + spLink(speciesName) + '</div>' +
         '<div class="review-sci">' + escHtml(sciName) + '</div>' +
@@ -3653,18 +3750,6 @@
         (alsoHeardHtml || '') +
         (otherBirdsHtml || '') +
         (predictionSection || '') +
-        '<div class="review-actions">' +
-          '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">&#x2713; Correct</button>' +
-          '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">&#x2717; Wrong</button>' +
-          '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">&#x1F5D1; Trash</button>' +
-          '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>' +
-          '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">&#x2192; Skip</button>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px;">' +
-          '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous detection">&larr; Prev</button>' +
-          '<span style="color:var(--text-muted);font-size:13px;" id="review-position">' + (reviewIndex + 1) + ' / ' + pendingReview.length + '</span>' +
-          '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next detection">Next &rarr;</button>' +
-        '</div>' +
         '<div class="review-wrong-dropdown" id="wrong-dropdown">' +
           '<label for="wrong-search">Select the correct species:</label>' +
           '<input type="text" class="review-wrong-search" id="wrong-search" placeholder="Type to filter species..." oninput="filterSpeciesDropdown()">' +
@@ -3719,11 +3804,12 @@
     renderReviewItem();
   };
 
-  window.submitReview = async function(verdict) {
+  window.submitReview = async function(verdict, correctSpecies) {
     if (reviewIndex >= pendingReview.length) return;
     const item = pendingReview[reviewIndex];
     try {
       var url = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=' + verdict;
+      if (correctSpecies) url += '&correct_species=' + encodeURIComponent(correctSpecies);
       if (verdict === 'reclassify') url += '&missed_birds=true';
       await fetch(url, { method: 'POST' });
       reviewStats.total_reviewed++;
@@ -3731,7 +3817,7 @@
       updateReviewProgress();
       reviewIndex++;
       renderReviewItem();
-      showToast(verdict === 'correct' ? 'Marked correct' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted', 'success');
+      showToast(verdict === 'correct' ? 'Marked correct' : correctSpecies === 'not_a_bird' ? 'Marked: Not a Bird' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted', 'success');
     } catch (e) {
       showToast('Failed to submit review', 'error');
     }
@@ -3958,24 +4044,102 @@
   }
 
   // ── Stream Switcher ──
+  function teardownSplit() {
+    var split = document.getElementById('live-split');
+    if (split) {
+      split.querySelectorAll('video').forEach(function(v) {
+        v.pause(); v.removeAttribute('src'); v.srcObject = null; v.load();
+      });
+      split.remove();
+    }
+    window._splitDetections = null;
+  }
+
+  function initSplitFeed() {
+    var wrapper = document.getElementById('live-wrapper');
+    if (!wrapper) return;
+    // Hide primary video + overlay
+    var mainVideo = document.getElementById('live-video');
+    var overlay = document.getElementById('detection-overlay');
+    var offline = document.getElementById('live-offline');
+    if (mainVideo) { mainVideo.pause(); mainVideo.removeAttribute('src'); mainVideo.srcObject = null; mainVideo.load(); mainVideo.style.display = 'none'; }
+    if (overlay) overlay.style.display = 'none';
+    if (offline) offline.style.display = 'none';
+
+    teardownSplit();
+    window._splitDetections = { feeder: [], ground: [] };
+
+    var split = document.createElement('div');
+    split.className = 'live-split';
+    split.id = 'live-split';
+
+    ['feeder', 'ground'].forEach(function(camName, idx) {
+      var cell = document.createElement('div');
+      cell.className = 'split-cell';
+      cell.dataset.cam = camName;
+
+      var vid = document.createElement('video');
+      vid.autoplay = true; vid.muted = true; vid.playsInline = true;
+      vid.id = 'split-video-' + camName;
+      cell.appendChild(vid);
+
+      var cvs = document.createElement('canvas');
+      cvs.className = 'split-overlay';
+      cvs.id = 'split-overlay-' + camName;
+      cell.appendChild(cvs);
+
+      split.appendChild(cell);
+
+      // Connect via MP4
+      var mp4Url = location.protocol + '//' + location.host + '/api/stream.mp4?src=' + camName + '-main';
+      vid.src = mp4Url;
+      vid.play().catch(function(){});
+      vid.onerror = function() {
+        setTimeout(function() { vid.src = mp4Url; vid.play().catch(function(){}); }, 3000);
+      };
+    });
+
+    wrapper.appendChild(split);
+  }
+
   window.switchStream = function(streamName) {
     if (streamName === currentStream) return;
     currentStream = streamName;
     // Update button states
     document.getElementById('stream-btn-feeder').classList.toggle('active', streamName === 'feeder-main');
     document.getElementById('stream-btn-ground').classList.toggle('active', streamName === 'ground-main');
+    document.getElementById('stream-btn-both').classList.toggle('active', streamName === 'both');
+
     // Clear detection overlay
     liveDetections = [];
     clearDetectionOverlay();
+
+    var wrapper = document.getElementById('live-wrapper');
+
+    if (streamName === 'both') {
+      if (wrapper) wrapper.classList.add('both-active');
+      initSplitFeed();
+      _applyMuteState(); // reapply audio routing for new view
+      return;
+    }
+
+    // Leaving split mode — restore primary video
+    if (wrapper) wrapper.classList.remove('both-active');
+    teardownSplit();
+    var mainVideo = document.getElementById('live-video');
+    var overlay = document.getElementById('detection-overlay');
+    if (mainVideo) mainVideo.style.display = '';
+    if (overlay) overlay.style.display = '';
+
     // Reinitialize the live feed with the new stream
-    var video = document.getElementById('live-video');
-    if (video) {
-      video.pause();
-      video.removeAttribute('src');
-      video.srcObject = null;
-      video.load();
+    if (mainVideo) {
+      mainVideo.pause();
+      mainVideo.removeAttribute('src');
+      mainVideo.srcObject = null;
+      mainVideo.load();
     }
     initLiveFeed();
+    _applyMuteState(); // reapply audio routing for new view
   };
 
   // ── Detection Overlay Toggle ──
@@ -3991,9 +4155,13 @@
 
   function clearDetectionOverlay() {
     var canvas = document.getElementById('detection-overlay');
-    if (!canvas) return;
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas) { var ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+    // Also clear split overlays
+    ['feeder', 'ground'].forEach(function(cam) {
+      var cvs = document.getElementById('split-overlay-' + cam);
+      if (cvs) { var c = cvs.getContext('2d'); c.clearRect(0, 0, cvs.width, cvs.height); }
+    });
+    if (window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
   }
 
   // ── Live Detection SSE (bounding boxes) ──
@@ -4013,70 +4181,53 @@
       try {
         var det = JSON.parse(event.data);
         if (!showDetectionOverlay) return;
-        // Filter to currently viewed camera
         var detCamera = det.camera || '';
-        var viewingCamera = currentStream.replace('-main', '');
-        if (detCamera && detCamera !== viewingCamera) return;
 
-        det._expireAt = Date.now() + 2500; // fade out after 2.5 seconds
-        liveDetections.push(det);
+        if (currentStream === 'both') {
+          // Split mode: route to the matching cell's detection list
+          det._expireAt = Date.now() + 2500;
+          if (!window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
+          if (window._splitDetections[detCamera]) {
+            window._splitDetections[detCamera].push(det);
+          }
+        } else {
+          // Single cam mode: filter to currently viewed camera
+          var viewingCamera = currentStream.replace('-main', '');
+          if (detCamera && detCamera !== viewingCamera) return;
+          det._expireAt = Date.now() + 2500;
+          liveDetections.push(det);
+        }
       } catch (e) {
         console.warn('[LiveDet SSE] Parse error:', e);
       }
     };
   }
 
-  // Detection overlay rendering loop
-  var _detOverlayRAF = null;
-  function renderDetectionOverlay() {
-    var canvas = document.getElementById('detection-overlay');
-    var video = document.getElementById('live-video');
-    if (!canvas || !video) { _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay); return; }
-
-    // Match canvas size to the video element's display size
-    var rect = video.getBoundingClientRect();
-    var wrapper = document.getElementById('live-wrapper');
-    var wrapRect = wrapper ? wrapper.getBoundingClientRect() : rect;
-    canvas.width = wrapRect.width;
-    canvas.height = wrapRect.height;
-
+  // Draw detection boxes on a canvas given a video element and detection list
+  function drawDetections(canvas, video, detections, now) {
     var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!showDetectionOverlay || liveDetections.length === 0) {
-      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
-      return;
-    }
-
-    var now = Date.now();
-    // Remove expired detections
-    liveDetections = liveDetections.filter(function(d) { return d._expireAt > now; });
-
-    // Calculate how the video maps to the display
     var videoW = video.videoWidth || 1920;
     var videoH = video.videoHeight || 1080;
     var dispW = canvas.width;
     var dispH = canvas.height;
 
-    // Detect object-fit mode: fullscreen uses 'contain', normal uses 'cover'
     var isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
     var scale = isFullscreen
-      ? Math.min(dispW / videoW, dispH / videoH)   // contain
-      : Math.max(dispW / videoW, dispH / videoH);  // cover
+      ? Math.min(dispW / videoW, dispH / videoH)
+      : Math.max(dispW / videoW, dispH / videoH);
     var scaledW = videoW * scale;
     var scaledH = videoH * scale;
     var offsetX = (dispW - scaledW) / 2;
     var offsetY = (dispH - scaledH) / 2;
 
-    for (var i = 0; i < liveDetections.length; i++) {
-      var det = liveDetections[i];
+    for (var i = 0; i < detections.length; i++) {
+      var det = detections[i];
       var bbox = det.bbox;
       if (!bbox || bbox.length < 4) continue;
 
       var fw = det.frame_width || videoW;
       var fh = det.frame_height || videoH;
 
-      // Map bbox from frame coords to scaled video coords
       var x1 = (bbox[0] / fw) * scaledW + offsetX;
       var y1 = (bbox[1] / fh) * scaledH + offsetY;
       var x2 = (bbox[2] / fw) * scaledW + offsetX;
@@ -4085,17 +4236,13 @@
       var bw = x2 - x1;
       var bh = y2 - y1;
 
-      // Fade out: calculate opacity based on remaining lifetime
       var remaining = det._expireAt - now;
-      var totalLife = 2500;
-      var alpha = Math.min(1, remaining / 500); // fade in last 500ms
+      var alpha = Math.min(1, remaining / 500);
 
-      // Draw bounding box
       ctx.strokeStyle = 'rgba(74, 222, 128, ' + alpha + ')';
       ctx.lineWidth = 2;
       ctx.strokeRect(x1, y1, bw, bh);
 
-      // Draw label background
       var label = (det.species || 'Bird') + ' ' + Math.round((det.confidence || 0) * 100) + '%';
       ctx.font = 'bold 12px -apple-system, sans-serif';
       var textW = ctx.measureText(label).width;
@@ -4108,6 +4255,55 @@
       ctx.fillStyle = 'rgba(74, 222, 128, ' + alpha + ')';
       ctx.fillText(label, x1 + 5, labelY + 13);
     }
+  }
+
+  // Detection overlay rendering loop
+  var _detOverlayRAF = null;
+  function renderDetectionOverlay() {
+    var now = Date.now();
+
+    if (currentStream === 'both') {
+      // Split mode: render on each camera's overlay canvas
+      if (window._splitDetections && showDetectionOverlay) {
+        ['feeder', 'ground'].forEach(function(cam) {
+          var cvs = document.getElementById('split-overlay-' + cam);
+          var vid = document.getElementById('split-video-' + cam);
+          if (!cvs || !vid) return;
+          var cell = cvs.parentElement;
+          cvs.width = cell.clientWidth;
+          cvs.height = cell.clientHeight;
+          var ctx = cvs.getContext('2d');
+          ctx.clearRect(0, 0, cvs.width, cvs.height);
+          window._splitDetections[cam] = window._splitDetections[cam].filter(function(d) { return d._expireAt > now; });
+          if (window._splitDetections[cam].length > 0) {
+            drawDetections(cvs, vid, window._splitDetections[cam], now);
+          }
+        });
+      }
+      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
+      return;
+    }
+
+    // Single cam mode
+    var canvas = document.getElementById('detection-overlay');
+    var video = document.getElementById('live-video');
+    if (!canvas || !video) { _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay); return; }
+
+    var wrapper = document.getElementById('live-wrapper');
+    var wrapRect = wrapper ? wrapper.getBoundingClientRect() : video.getBoundingClientRect();
+    canvas.width = wrapRect.width;
+    canvas.height = wrapRect.height;
+
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!showDetectionOverlay || liveDetections.length === 0) {
+      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
+      return;
+    }
+
+    liveDetections = liveDetections.filter(function(d) { return d._expireAt > now; });
+    drawDetections(canvas, video, liveDetections, now);
 
     _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
   }
@@ -4118,11 +4314,14 @@
   var sseSource = null;
   var sseLastSeenId = 0;          // dedup: ignore events with id <= this
 
+  var _sseLastActivity = 0; // timestamp of last SSE message or open
+
   function connectBirdnetSSE() {
     if (sseSource) { try { sseSource.close(); } catch(e) {} }
-    sseSource = new EventSource('/birdnet-sse/events');
+    sseSource = new EventSource('/bird-api/birdnet-events');
 
     sseSource.onopen = function() {
+      _sseLastActivity = Date.now();
       console.log('[SSE] Connected');
       var dot = document.getElementById('sse-dot');
       if (dot) { dot.textContent = '●'; dot.className = 'sse-status connected'; dot.title = 'Live connected'; }
@@ -4135,6 +4334,7 @@
     };
 
     sseSource.onmessage = function(event) {
+      _sseLastActivity = Date.now();
       try {
         var det = JSON.parse(event.data);
         // Deduplicate: skip events we've already processed
@@ -4148,11 +4348,23 @@
     };
   }
 
+  // SSE health watchdog: force reconnect if no activity for 2 minutes
+  // (EventSource auto-reconnect can silently fail on auth redirects)
+  setInterval(function() {
+    if (!sseSource) return;
+    var staleMs = Date.now() - _sseLastActivity;
+    if (sseSource.readyState === 2 || staleMs > 120000) {
+      console.log('[SSE] Watchdog: forcing reconnect (stale ' + Math.round(staleMs/1000) + 's)');
+      connectBirdnetSSE();
+    }
+  }, 30000);
+
   function onRealtimeDetection(det) {
     // Normalize subspecies
     det.common_name = normalizeSpecies(det.common_name);
-    // Build a timestamp string matching the BirdNET summary format
-    var ts = det.date + ' ' + det.time;
+    // Prefer ISO timestamp with explicit timezone (from updated birdnet_sse.py)
+    // Falls back to naive date+time concatenation for backward compat
+    var ts = det.iso_time || (det.date + ' ' + det.time);
 
     // Add to SSE buffer
     sseRealtimeDetections.push({
@@ -4199,7 +4411,7 @@
   window.playClip = function(clipName) {
     if (!clipName) return;
     var audio = document.getElementById('yard-audio');
-    var url = '/birdnet-clips/' + clipName;
+    var url = '/bird-api/birdnet-clip/' + clipName;
 
     // Toggle: if same clip is playing, stop it
     if (audio.src && audio.src.indexOf(clipName) !== -1 && !audio.paused) {
@@ -4288,17 +4500,31 @@
   async function refresh() {
     // Skip refresh if tab is hidden (shouldn't fire, but guard anyway)
     if (document.hidden) { _needsRefreshOnVisible = true; return; }
-    birdnetSummaryCache = null; // Invalidate so fresh BirdNET data is fetched
+    // Mark cache as stale so loadSpeciesData() re-fetches.
+    // Keep old data in _yardFallbackCache so getYardSpecies() still works during the fetch.
+    var oldCache = birdnetSummaryCache;
+    window._yardFallbackCache = oldCache;
+    birdnetSummaryCache = null; // Allow re-fetch (loadSpeciesData checks this)
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
+    // If loadSpeciesData failed to re-fetch, restore old cache so yard doesn't go blank
+    if (!birdnetSummaryCache && oldCache) birdnetSummaryCache = oldCache;
     renderRecent();
     // If viewing today, auto-refresh with latest data
     if (selectedDate === todayStr()) {
       await loadSpeciesData();
     }
+    // If loadSpeciesData also failed, make sure old cache is still there
+    if (!birdnetSummaryCache && oldCache) birdnetSummaryCache = oldCache;
+    // Always re-render yard after refresh
+    renderYardPanel();
   }
 
   init();
   _refreshInterval = setInterval(refresh, 60000);
+
+  // Periodic yard re-render every 30s — ensures species age out smoothly
+  // and detections from summary.json remain visible between SSE events
+  setInterval(function() { renderYardPanel(); }, 30000);
 })();
 </script>
 </body>

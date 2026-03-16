@@ -55,10 +55,18 @@ app.add_middleware(
 )
 
 
+_classifications_cache = []
+_classifications_mtime = 0.0
+_classifications_size = 0
+
 def load_classifications():
-    """Load all classification entries from JSONL."""
+    """Load classification entries from JSONL with file-change caching."""
+    global _classifications_cache, _classifications_mtime, _classifications_size
     if not JSONL_PATH.exists():
         return []
+    st = JSONL_PATH.stat()
+    if st.st_mtime == _classifications_mtime and st.st_size == _classifications_size:
+        return _classifications_cache
     entries = []
     with open(JSONL_PATH) as f:
         for line in f:
@@ -75,6 +83,9 @@ def load_classifications():
                         if "common_name" in t:
                             t["common_name"] = normalize_species(t["common_name"])
                 entries.append(e)
+    _classifications_cache = entries
+    _classifications_mtime = st.st_mtime
+    _classifications_size = st.st_size
     return entries
 
 
@@ -654,3 +665,260 @@ def extract_timestamp_from_filename(filename):
         return stem
     except Exception:
         return None
+
+
+# ──────────────────────────────────────────────────
+# BirdNET Audio Detection Endpoints
+# Replaces: NAS birdnet_sse.py, export_birdnet.sh, summary.json
+# ──────────────────────────────────────────────────
+
+import asyncio
+import sqlite3
+import threading
+
+BIRDNET_DB_PATH = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
+BIRDNET_CLIPS_DIR = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"))
+
+# Cache for birdnet summary (regenerated when DB changes)
+_birdnet_summary_cache = None
+_birdnet_summary_mtime = 0.0
+_birdnet_last_id = 0  # for SSE polling
+
+
+def _birdnet_db():
+    """Get a read-only SQLite connection to the BirdNET database."""
+    if not BIRDNET_DB_PATH.exists():
+        return None
+    conn = sqlite3.connect(str(BIRDNET_DB_PATH), timeout=5)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _birdnet_tz_offset():
+    """Return server timezone offset in minutes west of UTC."""
+    lt = _time.localtime()
+    return (_time.altzone if _time.daylight and lt.tm_isdst else _time.timezone) // 60
+
+
+@app.get("/api/birdnet-summary")
+def birdnet_summary():
+    """BirdNET audio detection summary — replaces static summary.json.
+
+    Returns species counts (all-time + per-date), recent detections, and metadata.
+    """
+    global _birdnet_summary_cache, _birdnet_summary_mtime
+
+    # Cache for 30 seconds
+    now = _time.time()
+    if _birdnet_summary_cache and (now - _birdnet_summary_mtime) < 30:
+        return _birdnet_summary_cache
+
+    conn = _birdnet_db()
+    if not conn:
+        return {"total_detections": 0, "species_count": 0, "species": [],
+                "by_date": {}, "dates": [], "recent": [], "tz_offset": _birdnet_tz_offset()}
+
+    try:
+        cur = conn.cursor()
+
+        # All-time species counts
+        cur.execute("""
+            SELECT common_name, scientific_name,
+                   COUNT(*) as count,
+                   ROUND(AVG(confidence), 3) as avg_confidence,
+                   MAX(date || ' ' || time) as last_seen
+            FROM notes
+            GROUP BY common_name
+            ORDER BY count DESC
+        """)
+        species = []
+        for row in cur.fetchall():
+            species.append({
+                "common_name": normalize_species(row["common_name"]),
+                "scientific_name": row["scientific_name"],
+                "count": row["count"],
+                "avg_confidence": row["avg_confidence"],
+                "last_seen": row["last_seen"],
+            })
+
+        # Per-date breakdowns
+        cur.execute("""
+            SELECT date, common_name, scientific_name,
+                   COUNT(*) as count,
+                   ROUND(AVG(confidence), 3) as avg_confidence
+            FROM notes
+            GROUP BY date, common_name
+            ORDER BY date DESC, count DESC
+        """)
+        by_date = {}
+        for row in cur.fetchall():
+            d = row["date"]
+            if d not in by_date:
+                by_date[d] = {"species": [], "total_detections": 0, "species_count": 0}
+            by_date[d]["species"].append({
+                "common_name": normalize_species(row["common_name"]),
+                "scientific_name": row["scientific_name"],
+                "count": row["count"],
+                "avg_confidence": row["avg_confidence"],
+            })
+            by_date[d]["total_detections"] += row["count"]
+
+        for d in by_date:
+            by_date[d]["species_count"] = len(by_date[d]["species"])
+
+        dates = sorted(by_date.keys(), reverse=True)
+
+        # Total counts
+        cur.execute("SELECT COUNT(*) as total, COUNT(DISTINCT common_name) as species FROM notes")
+        totals = cur.fetchone()
+
+        # Recent 200 detections (for "In the Yard" panel)
+        cur.execute("""
+            SELECT common_name, confidence, date || ' ' || time as time, clip_name
+            FROM notes
+            WHERE date >= date('now', 'localtime', '-1 day')
+            ORDER BY id DESC
+            LIMIT 200
+        """)
+        recent = []
+        for row in cur.fetchall():
+            recent.append({
+                "species": normalize_species(row["common_name"]),
+                "confidence": row["confidence"],
+                "time": row["time"],
+                "clip_name": row["clip_name"] or "",
+            })
+
+        result = {
+            "total_detections": totals["total"],
+            "species_count": totals["species"],
+            "species": species,
+            "by_date": by_date,
+            "dates": dates,
+            "recent": recent,
+            "tz_offset": _birdnet_tz_offset(),
+        }
+
+        _birdnet_summary_cache = result
+        _birdnet_summary_mtime = now
+        return result
+
+    finally:
+        conn.close()
+
+
+from starlette.responses import StreamingResponse
+
+
+@app.get("/api/birdnet-events")
+async def birdnet_events():
+    """Server-Sent Events stream for real-time BirdNET audio detections.
+
+    Polls the local SQLite DB every 3 seconds for new rows and pushes them
+    as SSE events. Replaces the separate birdnet_sse.py process.
+    """
+    global _birdnet_last_id
+
+    # Initialize last_id from DB if needed
+    if _birdnet_last_id == 0:
+        conn = _birdnet_db()
+        if conn:
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT MAX(id) FROM notes")
+                row = cur.fetchone()
+                _birdnet_last_id = row[0] or 0
+            finally:
+                conn.close()
+
+    async def event_stream():
+        global _birdnet_last_id
+        last_id = _birdnet_last_id
+        heartbeat_counter = 0
+
+        yield "data: {\"type\": \"connected\"}\n\n"
+
+        while True:
+            await asyncio.sleep(3)
+            heartbeat_counter += 1
+
+            # Send heartbeat every 15 seconds (5 cycles)
+            if heartbeat_counter % 5 == 0:
+                yield ": heartbeat\n\n"
+
+            conn = _birdnet_db()
+            if not conn:
+                continue
+
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT id, common_name, scientific_name, confidence,
+                           date, time, clip_name
+                    FROM notes
+                    WHERE id > ?
+                    ORDER BY id ASC
+                """, (last_id,))
+
+                for row in cur.fetchall():
+                    det_id = row["id"]
+                    # Build ISO timestamp with explicit timezone
+                    naive_ts = f"{row['date']}T{row['time']}"
+                    tz_off = _birdnet_tz_offset()
+                    tz_sign = "-" if tz_off >= 0 else "+"
+                    tz_hours = abs(tz_off) // 60
+                    tz_mins = abs(tz_off) % 60
+                    iso_time = f"{naive_ts}{tz_sign}{tz_hours:02d}:{tz_mins:02d}"
+
+                    event = {
+                        "id": det_id,
+                        "common_name": normalize_species(row["common_name"]),
+                        "scientific_name": row["scientific_name"],
+                        "confidence": round(row["confidence"], 3),
+                        "date": row["date"],
+                        "time": row["time"],
+                        "iso_time": iso_time,
+                        "clip_name": row["clip_name"] or "",
+                    }
+                    yield f"data: {json.dumps(event)}\n\n"
+                    last_id = det_id
+                    _birdnet_last_id = det_id
+
+                    # Invalidate summary cache on new detection
+                    global _birdnet_summary_mtime
+                    _birdnet_summary_mtime = 0
+
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/birdnet-clip/{clip_path:path}")
+def birdnet_clip(clip_path: str):
+    """Serve a BirdNET audio clip (WAV file)."""
+    # Sanitize path to prevent directory traversal
+    safe_path = Path(clip_path)
+    if ".." in safe_path.parts:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    full_path = BIRDNET_CLIPS_DIR / safe_path
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    return FileResponse(
+        str(full_path),
+        media_type="audio/wav",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

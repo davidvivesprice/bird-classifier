@@ -53,14 +53,14 @@ LOG_DIR = BASE_DIR / "logs"
 MODEL_DIR = Path("/Users/vives/bird-classifier/models")
 
 # Models
-YOLO_MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
+YOLO_MODEL_PATH = MODEL_DIR / "yolov8n_bird.onnx"
 SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
 SPECIES_TPU_PATH = MODEL_DIR / "aiy_birds_v1_edgetpu.tflite"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
 REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 
 # Detection thresholds
-BIRD_CLASS_ID = 14                # COCO class index for "bird"
+BIRD_CLASS_ID = 0                 # Custom model: single class "bird"
 DETECTION_CONFIDENCE = 0.3        # Min confidence to consider a YOLO detection
 NMS_IOU_THRESHOLD = 0.45          # Non-max suppression overlap threshold
 CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of box size)
