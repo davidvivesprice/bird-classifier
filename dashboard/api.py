@@ -304,6 +304,18 @@ def load_regional_species():
     return _regional_cache
 
 
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date(date_str: str | None) -> str | None:
+    """Validate date parameter format. Returns the date string or None."""
+    if not date_str or date_str == "all":
+        return date_str
+    if not _DATE_RE.match(date_str):
+        raise HTTPException(status_code=400, detail=f"Invalid date format: '{date_str}'. Expected YYYY-MM-DD or 'all'.")
+    return date_str
+
+
 def filter_by_date(entries, date_str):
     """Filter entries to a specific date (YYYY-MM-DD) using source_timestamp."""
     if not date_str or date_str == "all":
@@ -337,6 +349,7 @@ def cameras_list():
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
     """Overall classification statistics, optionally filtered by date and camera."""
+    _validate_date(date)
     def _compute():
         entries = load_classifications()
         filtered = filter_by_date(entries, date)
@@ -364,6 +377,7 @@ def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-
 def species_list(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
                  camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
     """List all detected species with counts and metadata, optionally filtered by date and camera."""
+    _validate_date(date)
     def _compute():
         load_classifications()  # ensure indexes current
         # Use date index for fast filtering
@@ -765,8 +779,9 @@ def _download_and_cache(name: str, safe: str):
         try:
             with _urlreq.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode('utf-8', errors='replace')
-        except Exception:
+        except Exception as exc:
             # Try without "American " prefix
+            logging.debug("AAB fetch failed for '%s': %s", name, exc)
             if name.startswith("American "):
                 slug2 = name.replace("American ", "").replace(' ', '_')
                 url2 = f"https://www.allaboutbirds.org/guide/{_urlreq.quote(slug2)}/id"
@@ -799,7 +814,8 @@ def _download_and_cache(name: str, safe: str):
         dest = SPECIES_IMAGES_DIR / f"{safe}.jpg"
         dest.write_bytes(data)
         return dest, "image/jpeg"
-    except Exception:
+    except Exception as exc:
+        logging.warning("Failed to download species image for '%s': %s", name, exc)
         return None
 
 
@@ -918,7 +934,8 @@ def extract_timestamp_from_filename(filename):
         if len(parts) == 2:
             return parts[0] + " " + parts[1].replace("-", ":")
         return stem
-    except Exception:
+    except Exception as exc:
+        logging.debug("Timestamp parse failed for '%s': %s", filename, exc)
         return None
 
 
@@ -1144,8 +1161,8 @@ async def birdnet_events():
                     global _birdnet_summary_mtime
                     _birdnet_summary_mtime = 0
 
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.warning("[BirdNET SSE] DB poll error: %s", exc)
             finally:
                 conn.close()
 
@@ -1168,7 +1185,11 @@ def birdnet_clip(clip_path: str):
     if ".." in safe_path.parts:
         raise HTTPException(status_code=400, detail="Invalid path")
 
-    full_path = BIRDNET_CLIPS_DIR / safe_path
+    full_path = (BIRDNET_CLIPS_DIR / safe_path).resolve()
+    # Verify resolved path stays within allowed directory
+    if not str(full_path).startswith(str(BIRDNET_CLIPS_DIR.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     if not full_path.exists():
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -1189,8 +1210,8 @@ def load_cull_config() -> dict:
             with open(CULL_CONFIG_PATH) as f:
                 cfg = json.load(f)
             return {**defaults, **cfg}
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning("Failed to load cull config: %s", exc)
     return defaults
 
 
@@ -1282,8 +1303,11 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
     if not src_dir.exists() or not src_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"Species directory '{safe_dir}' not found")
 
-    if keep < 0:
-        raise HTTPException(status_code=400, detail="keep must be >= 0")
+    if keep < 0 or keep > 10000:
+        raise HTTPException(status_code=400, detail="keep must be between 0 and 10000")
+
+    if sort_by not in ("date", "confidence"):
+        raise HTTPException(status_code=400, detail="sort_by must be 'date' or 'confidence'")
 
     if sort_by == "confidence":
         # Use file index for score lookup
