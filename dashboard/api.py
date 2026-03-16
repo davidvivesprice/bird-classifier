@@ -48,6 +48,18 @@ def normalize_species(name: str) -> str:
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
+
+@app.on_event("startup")
+def warm_cache():
+    """Pre-load JSONL caches on startup so the first request is fast."""
+    import logging
+    t0 = _time.time()
+    entries = load_classifications()
+    reviews = load_reviews()
+    t1 = _time.time()
+    logging.info("Cache warmed: %d classifications, %d reviews in %.1fs", len(entries), len(reviews), t1 - t0)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,60 +68,117 @@ app.add_middleware(
 )
 
 
-_classifications_cache = []
-_classifications_mtime = 0.0
-_classifications_size = 0
+_classifications_cache: list = []
+_classifications_size: int = 0  # byte offset — only read new bytes on append
+
+
+def _normalize_entry(e: dict) -> dict:
+    """Normalize species names in a classification entry."""
+    if "top_prediction" in e and "common_name" in e["top_prediction"]:
+        e["top_prediction"]["common_name"] = normalize_species(e["top_prediction"]["common_name"])
+    for b in e.get("birds", []):
+        if "common_name" in b:
+            b["common_name"] = normalize_species(b["common_name"])
+        for t in b.get("top3", []):
+            if "common_name" in t:
+                t["common_name"] = normalize_species(t["common_name"])
+    return e
+
 
 def load_classifications():
-    """Load classification entries from JSONL with file-change caching."""
-    global _classifications_cache, _classifications_mtime, _classifications_size
+    """Load classification entries from JSONL with incremental append caching.
+
+    Only reads bytes added since the last load.  If the file shrinks (truncated
+    or replaced), does a full reload.  This keeps the common case — classifier
+    appending new entries — down to microseconds instead of 7+ seconds.
+    """
+    global _classifications_cache, _classifications_size
     if not JSONL_PATH.exists():
+        _classifications_cache = []
+        _classifications_size = 0
         return []
     st = JSONL_PATH.stat()
-    if st.st_mtime == _classifications_mtime and st.st_size == _classifications_size:
+    current_size = st.st_size
+
+    # No change
+    if current_size == _classifications_size:
         return _classifications_cache
-    entries = []
-    with open(JSONL_PATH) as f:
+
+    # File shrunk or replaced — full reload
+    if current_size < _classifications_size:
+        _classifications_cache = []
+        _classifications_size = 0
+
+    # Read only new bytes from the last known position
+    new_entries = []
+    with open(JSONL_PATH, "rb") as f:
+        f.seek(_classifications_size)
         for line in f:
             line = line.strip()
             if line:
-                e = json.loads(line)
-                # Normalize subspecies/forms to canonical parent species
-                if "top_prediction" in e and "common_name" in e["top_prediction"]:
-                    e["top_prediction"]["common_name"] = normalize_species(e["top_prediction"]["common_name"])
-                for b in e.get("birds", []):
-                    if "common_name" in b:
-                        b["common_name"] = normalize_species(b["common_name"])
-                    for t in b.get("top3", []):
-                        if "common_name" in t:
-                            t["common_name"] = normalize_species(t["common_name"])
-                entries.append(e)
-    _classifications_cache = entries
-    _classifications_mtime = st.st_mtime
-    _classifications_size = st.st_size
-    return entries
+                try:
+                    e = json.loads(line)
+                    new_entries.append(_normalize_entry(e))
+                except json.JSONDecodeError:
+                    pass  # skip partial/corrupt lines
+
+    _classifications_cache.extend(new_entries)
+    _classifications_size = current_size
+    return _classifications_cache
+
+
+_reviews_cache: dict = {}
+_reviews_size: int = 0
 
 
 def load_reviews():
-    """Load review verdicts."""
+    """Load review verdicts with incremental append caching."""
+    global _reviews_cache, _reviews_size
     if not REVIEWS_PATH.exists():
+        _reviews_cache = {}
+        _reviews_size = 0
         return {}
-    reviews = {}
-    with open(REVIEWS_PATH) as f:
+    st = REVIEWS_PATH.stat()
+    current_size = st.st_size
+
+    if current_size == _reviews_size:
+        return _reviews_cache
+
+    if current_size < _reviews_size:
+        _reviews_cache = {}
+        _reviews_size = 0
+
+    with open(REVIEWS_PATH, "rb") as f:
+        f.seek(_reviews_size)
         for line in f:
             line = line.strip()
             if line:
-                r = json.loads(line)
-                reviews[r["file"]] = r
-    return reviews
+                try:
+                    r = json.loads(line)
+                    _reviews_cache[r["file"]] = r
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+    _reviews_size = current_size
+    return _reviews_cache
+
+
+_regional_cache: list = []
+_regional_mtime: float = 0.0
 
 
 def load_regional_species():
-    """Load the regional species list."""
+    """Load the regional species list (cached until file changes)."""
+    global _regional_cache, _regional_mtime
     if not REGIONAL_SPECIES_PATH.exists():
         return []
+    mt = REGIONAL_SPECIES_PATH.stat().st_mtime
+    if mt == _regional_mtime and _regional_cache:
+        return _regional_cache
     with open(REGIONAL_SPECIES_PATH) as f:
-        return [line.strip() for line in f if line.strip() and line.strip() != "background"]
+        _regional_cache = [line.strip() for line in f if line.strip() and line.strip() != "background"]
+    _regional_mtime = mt
+    return _regional_cache
 
 
 def filter_by_date(entries, date_str):

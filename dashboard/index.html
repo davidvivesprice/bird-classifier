@@ -2265,10 +2265,26 @@
     return 'var(--accent-red)';
   }
 
-  async function apiFetch(url) {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return resp.json();
+  async function apiFetch(url, opts) {
+    opts = opts || {};
+    var timeout = opts.timeout || 15000;
+    var retries = opts.retries || 1;
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        var controller = new AbortController();
+        var timer = setTimeout(function() { controller.abort(); }, timeout);
+        var resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+      } catch (e) {
+        if (attempt < retries) {
+          await new Promise(function(r) { setTimeout(r, 2000); });
+          continue;
+        }
+        throw e;
+      }
+    }
   }
 
   // ── Live Feed: mute toggle ──
@@ -3510,7 +3526,7 @@
       var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
       if (multibirdFilter) url += '&multibird=1';
-      const data = await apiFetch(url);
+      const data = await apiFetch(url, { timeout: 30000, retries: 2 });
       pendingReview = data.pending || [];
       _reviewOffset = data.pending ? data.pending.length : 0;
       _reviewHasMore = data.has_more || false;
