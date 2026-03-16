@@ -292,8 +292,13 @@ def get_image_raw(filename: str):
 
 
 @app.get("/api/review/pending")
-def review_pending(species: str = ""):
-    """Get unreviewed classifications for the annotation GUI."""
+def review_pending(species: str = "", offset: int = 0, limit: int = 50):
+    """Get unreviewed classifications for the annotation GUI (paginated).
+
+    Returns `limit` items starting from `offset`.  The full count and
+    species list are always included so the UI can show progress and
+    the species filter without needing all items up-front.
+    """
     entries = load_classifications()
     classified = [e for e in entries if e["action"] == "classified"]
     reviews = load_reviews()
@@ -319,18 +324,87 @@ def review_pending(species: str = ""):
 
     total_classified = len(classified)
     total_reviewed = len(reviews)
+    total_pending = len(pending)
+
+    # Paginate: only return the requested slice
+    page = pending[offset:offset + limit]
 
     return {
-        "pending": pending,
+        "pending": page,
         "total_classified": total_classified,
         "total_reviewed": total_reviewed,
-        "remaining": len(pending),
+        "remaining": total_pending,
         "species_list": sorted(species_set),
+        "offset": offset,
+        "limit": limit,
+        "has_more": (offset + limit) < total_pending,
+    }
+
+
+@app.get("/api/review/goals")
+def review_goals(threshold: int = 20):
+    """Species classification goals — which species need more confirmed reviews for training.
+
+    Counts confirmed reviews per species (correct → classified species,
+    wrong with correct_species → corrected species).  Returns species from
+    the regional list that have at least 1 but fewer than `threshold` confirmed shots.
+    """
+    reviews = load_reviews()
+    regional = set(load_regional_species())
+
+    confirmed: dict[str, int] = defaultdict(int)
+    for r in reviews.values():
+        if r["verdict"] == "correct":
+            # Need to look up the classified species for this file
+            pass  # handled below
+        elif r["verdict"] == "wrong" and r.get("correct_species"):
+            sp = normalize_species(r["correct_species"])
+            confirmed[sp] += 1
+
+    # For correct verdicts, look up species from classifications
+    entries = load_classifications()
+    file_species: dict[str, str] = {}
+    for e in entries:
+        if e.get("action") == "classified" and "top_prediction" in e:
+            file_species[e["file"]] = e["top_prediction"]["common_name"]
+
+    for r in reviews.values():
+        if r["verdict"] == "correct":
+            sp = file_species.get(r["file"], "")
+            if sp:
+                confirmed[sp] += 1
+
+    goals = []
+    for sp in regional:
+        count = confirmed.get(sp, 0)
+        if count > 0 and count < threshold:
+            goals.append({
+                "species": sp,
+                "confirmed": count,
+                "target": threshold,
+                "complete": round(count / threshold * 100),
+            })
+        elif count >= threshold:
+            goals.append({
+                "species": sp,
+                "confirmed": count,
+                "target": threshold,
+                "complete": 100,
+            })
+
+    # Sort: furthest from goal first (completed at bottom)
+    goals.sort(key=lambda g: (g["complete"] >= 100, g["complete"]))
+
+    return {
+        "goals": goals,
+        "threshold": threshold,
+        "total_species_with_data": sum(1 for g in goals if g["confirmed"] > 0),
+        "total_species_complete": sum(1 for g in goals if g["complete"] >= 100),
     }
 
 
 @app.post("/api/review/{filename}")
-def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false"):
+def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
     """Submit a review verdict for a classification."""
     safe_name = os.path.basename(filename)
     if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
@@ -346,6 +420,7 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
         "verdict": verdict,
         "correct_species": correct_species if verdict == "wrong" else "",
         "missed_birds": missed_birds_bool,
+        "bird_index": int(bird_index),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -400,7 +475,7 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
 
 
 @app.post("/api/review/{filename}/update")
-def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false"):
+def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
     """Update an existing review verdict (appends new entry, load_reviews picks latest)."""
     safe_name = os.path.basename(filename)
     if verdict not in ("correct", "wrong", "skip", "trash", "reclassify"):
@@ -414,6 +489,7 @@ def update_review(filename: str, verdict: str, correct_species: str = "", missed
         "verdict": verdict,
         "correct_species": correct_species if verdict == "wrong" else "",
         "missed_birds": missed_birds_bool,
+        "bird_index": int(bird_index),
         "timestamp": datetime.now().isoformat(),
     }
 

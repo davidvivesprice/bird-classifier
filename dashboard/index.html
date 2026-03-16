@@ -475,6 +475,26 @@
     margin: 0 auto;
   }
 
+  /* Goals panel */
+  .goals-panel { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .goals-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; cursor: pointer; background: var(--bg-card);
+    user-select: none; font-size: 0.9rem; font-weight: 600;
+  }
+  .goals-header:hover { background: var(--bg-hover); }
+  .goals-header .goals-toggle { font-size: 0.75rem; color: var(--text-muted); }
+  .goals-body { display: none; padding: 8px 14px 12px; background: var(--bg-card); border-top: 1px solid var(--border); }
+  .goals-body.open { display: block; }
+  .goals-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 0.82rem; }
+  .goals-row .goals-species { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; color: var(--accent); }
+  .goals-row .goals-species:hover { text-decoration: underline; }
+  .goals-row .goals-bar-wrap { width: 100px; height: 10px; background: var(--bg-primary); border-radius: 5px; overflow: hidden; flex-shrink: 0; }
+  .goals-row .goals-bar-fill { height: 100%; border-radius: 5px; transition: width 0.3s; }
+  .goals-row .goals-count { width: 48px; text-align: right; color: var(--text-muted); font-size: 0.78rem; flex-shrink: 0; }
+  .goals-show-complete { font-size: 0.78rem; color: var(--accent); cursor: pointer; margin-top: 6px; }
+  .goals-show-complete:hover { text-decoration: underline; }
+
   .review-progress-bar {
     background: var(--bg-card);
     border-radius: 20px;
@@ -923,6 +943,23 @@
     color: var(--text-muted);
     font-size: 0.75rem;
   }
+  /* Bird selector (multi-bird review) */
+  .bird-selector { margin-bottom: 16px; }
+  .bird-selector-title {
+    font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 600;
+  }
+  .bird-select-card {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border: 2px solid var(--border); border-radius: 6px; margin-bottom: 4px;
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .bird-select-card:hover { background: var(--bg-hover); }
+  .bird-select-card.selected { border-color: var(--accent-green); background: rgba(34,197,94,0.08); }
+  .bird-select-card .bsc-num { font-weight: 700; font-size: 0.85rem; color: var(--text-muted); min-width: 20px; }
+  .bird-select-card.selected .bsc-num { color: var(--accent-green); }
+  .bird-select-card .bsc-species { flex: 1; font-size: 0.85rem; }
+  .bird-select-card .bsc-scores { font-size: 0.75rem; color: var(--text-muted); }
 
   /* Review sub-tabs */
   .review-subtabs {
@@ -1773,6 +1810,13 @@
             <option value="">All Species</option>
           </select>
         </div>
+        <div class="goals-panel" id="goals-panel" style="display:none;">
+          <div class="goals-header" onclick="toggleGoalsPanel()">
+            <span>🎯 Classification Goals</span>
+            <span class="goals-toggle" id="goals-toggle-text">▸ show</span>
+          </div>
+          <div class="goals-body" id="goals-body"></div>
+        </div>
         <div class="review-progress-bar" id="review-progress-bar">
           <div class="review-progress-fill" id="review-progress-fill" style="width: 0%"></div>
           <div class="review-progress-text" id="review-progress-text">Loading...</div>
@@ -1945,6 +1989,10 @@
   let pendingReview = [];
   let reviewIndex = 0;
   let reviewStats = { total_classified: 0, total_reviewed: 0, remaining: 0 };
+  let _reviewOffset = 0;        // Server-side pagination cursor
+  let _reviewHasMore = false;   // More items available on server
+  const _REVIEW_PAGE_SIZE = 50; // Items per API request
+  let selectedBirdIndex = 0;    // Which bird in multi-bird frames is being reviewed
   let regionalSpecies = [];
   let availableDates = [];
   let reviewFilterSpecies = null; // Filter review to specific species
@@ -3430,10 +3478,12 @@
 
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
-      var url = '/bird-api/review/pending';
-      if (speciesFilter) url += '?species=' + encodeURIComponent(speciesFilter);
+      var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
+      if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
       const data = await apiFetch(url);
       pendingReview = data.pending || [];
+      _reviewOffset = data.pending ? data.pending.length : 0;
+      _reviewHasMore = data.has_more || false;
       reviewStats.total_classified = data.total_classified || 0;
       reviewStats.total_reviewed = data.total_reviewed || 0;
       reviewStats.remaining = data.remaining || 0;
@@ -3470,6 +3520,9 @@
     updateReviewProgress();
     renderReviewItem();
 
+    // Load goals panel (non-blocking)
+    loadGoals();
+
     // Also fetch skipped count for badge
     try {
       var skResp = await apiFetch('/bird-api/skipped?limit=0');
@@ -3483,6 +3536,62 @@
 
   window.filterClassifyBySpecies = function() {
     loadReviewData();
+  };
+
+  // ── Goals Panel ──
+  var _goalsShowComplete = false;
+  async function loadGoals() {
+    try {
+      var data = await apiFetch('/bird-api/review/goals');
+      var goals = data.goals || [];
+      if (goals.length === 0) return;
+      document.getElementById('goals-panel').style.display = '';
+      renderGoals(goals);
+    } catch (e) {}
+  }
+
+  function renderGoals(goals) {
+    var body = document.getElementById('goals-body');
+    var incomplete = goals.filter(function(g) { return g.complete < 100; });
+    var complete = goals.filter(function(g) { return g.complete >= 100; });
+
+    var html = '';
+    incomplete.forEach(function(g) {
+      var color = g.complete < 25 ? '#ef4444' : g.complete < 60 ? '#f59e0b' : '#22c55e';
+      html += '<div class="goals-row">' +
+        '<span class="goals-species" onclick="showSpeciesPopup(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
+        '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:' + g.complete + '%;background:' + color + ';"></span></span>' +
+        '<span class="goals-count">' + g.confirmed + '/' + g.target + '</span>' +
+      '</div>';
+    });
+
+    if (complete.length > 0) {
+      html += '<div class="goals-show-complete" onclick="toggleGoalsComplete()">' +
+        (_goalsShowComplete ? '▾ Hide' : '▸ Show') + ' ' + complete.length + ' completed</div>';
+      if (_goalsShowComplete) {
+        complete.forEach(function(g) {
+          html += '<div class="goals-row">' +
+            '<span class="goals-species" onclick="showSpeciesPopup(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
+            '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:100%;background:#22c55e;"></span></span>' +
+            '<span class="goals-count" style="color:#22c55e;">✓ ' + g.confirmed + '</span>' +
+          '</div>';
+        });
+      }
+    }
+
+    body.innerHTML = html;
+  }
+
+  window.toggleGoalsPanel = function() {
+    var body = document.getElementById('goals-body');
+    var toggle = document.getElementById('goals-toggle-text');
+    body.classList.toggle('open');
+    toggle.textContent = body.classList.contains('open') ? '▾ hide' : '▸ show';
+  };
+
+  window.toggleGoalsComplete = function() {
+    _goalsShowComplete = !_goalsShowComplete;
+    loadGoals();
   };
 
   function updateReviewProgress() {
@@ -3700,11 +3809,13 @@
     var verdict = (species === pred) ? 'correct' : 'wrong';
     var url = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=' + verdict;
     if (verdict === 'wrong') url += '&correct_species=' + encodeURIComponent(species);
+    if (selectedBirdIndex > 0) url += '&bird_index=' + selectedBirdIndex;
     try {
       await fetch(url, { method: 'POST' });
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      selectedBirdIndex = 0;
       reviewIndex++;
       renderReviewItem();
       showToast(verdict === 'correct' ? 'Confirmed: ' + species : 'Corrected to: ' + species, 'success');
@@ -3717,6 +3828,12 @@
     const area = document.getElementById('review-area');
 
     if (reviewIndex >= pendingReview.length) {
+      if (_reviewHasMore) {
+        // More items on server — fetch them
+        area.innerHTML = '<div class="loading-msg">Loading more items...</div>';
+        fetchMoreReviewItems().then(function() { renderReviewItem(); });
+        return;
+      }
       area.innerHTML = '<div class="review-empty">' +
         '<span class="big">&#x2705;</span>' +
         '<div style="font-size:1.2rem;font-weight:600;margin-bottom:8px;">All caught up!</div>' +
@@ -3726,11 +3843,23 @@
     }
 
     const item = pendingReview[reviewIndex];
-    // Handle both API shapes: pending has species/confidence at top level; full has top_prediction/best_detection
-    const speciesName = item.species || (item.top_prediction || {}).common_name || (item.top3 && item.top3[0] ? item.top3[0].common_name : '') || 'Unknown';
-    const sciName = (item.top_prediction || {}).scientific_name || (item.top3 && item.top3[0] ? item.top3[0].scientific_name : '') || '';
-    const conf = item.confidence || (item.best_detection ? item.best_detection.confidence : 0);
-    const top3 = item.top3 || [];
+    const birds = item.birds || [];
+    // Multi-bird: use selectedBirdIndex to pick which bird's data to show
+    var activeBird = null;
+    var speciesName, sciName, conf, top3;
+    if (birds.length > 1 && selectedBirdIndex > 0 && selectedBirdIndex < birds.length) {
+      activeBird = birds[selectedBirdIndex];
+      speciesName = activeBird.common_name || activeBird.species || 'Unknown';
+      sciName = activeBird.scientific_name || (activeBird.top3 && activeBird.top3[0] ? activeBird.top3[0].scientific_name : '') || '';
+      conf = activeBird.detection ? activeBird.detection.confidence : 0;
+      top3 = activeBird.top3 || [];
+    } else {
+      // Default: primary bird (index 0)
+      speciesName = item.species || (item.top_prediction || {}).common_name || (item.top3 && item.top3[0] ? item.top3[0].common_name : '') || 'Unknown';
+      sciName = (item.top_prediction || {}).scientific_name || (item.top3 && item.top3[0] ? item.top3[0].scientific_name : '') || '';
+      conf = item.confidence || (item.best_detection ? item.best_detection.confidence : 0);
+      top3 = item.top3 || [];
+    }
     const imgUrl = item.file ? '/bird-api/image/' + encodeURIComponent(item.file) : '';
     const itemTimestamp = item.timestamp || item.source_timestamp || '';
 
@@ -3762,26 +3891,24 @@
       }
     }
 
-    // Multi-bird: show other birds in the frame
-    var otherBirdsHtml = '';
-    var birds = item.birds || [];
+    // Multi-bird: clickable bird selector
+    var birdSelectorHtml = '';
     if (birds.length > 1) {
-      var otherItems = birds.filter(function(b) {
-        return b.species !== speciesName;
-      }).map(function(b) {
+      var birdCards = birds.map(function(b, idx) {
+        var bName = b.common_name || b.species || 'Unknown';
         var detConf = b.detection ? Math.round(b.detection.confidence * 100) + '%' : '';
-        return '<div class="other-bird-item">' +
-          '<span>📷</span> ' +
-          spLink(b.species) +
-          ' <span class="ob-score">(score: ' + b.raw_score + ', det: ' + detConf + ')</span>' +
+        var rawScore = b.raw_score != null ? b.raw_score : '';
+        var isSelected = idx === selectedBirdIndex;
+        return '<div class="bird-select-card' + (isSelected ? ' selected' : '') + '" onclick="selectBird(' + idx + ')">' +
+          '<span class="bsc-num">#' + (idx + 1) + '</span>' +
+          '<span class="bsc-species">' + escHtml(bName) + '</span>' +
+          '<span class="bsc-scores">' + (rawScore ? 'score: ' + rawScore : '') + (detConf ? ' det: ' + detConf : '') + '</span>' +
         '</div>';
       }).join('');
-      if (otherItems) {
-        otherBirdsHtml = '<div class="other-birds">' +
-          '<div class="other-birds-title">📷 Other birds in this frame</div>' +
-          otherItems +
-        '</div>';
-      }
+      birdSelectorHtml = '<div class="bird-selector">' +
+        '<div class="bird-selector-title">📷 Birds in this frame — select to review</div>' +
+        birdCards +
+      '</div>';
     }
 
     var rawUrl = imgUrl.replace('/bird-api/image/', '/bird-api/image-raw/');
@@ -3802,9 +3929,9 @@
         '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">&#x2192; Skip</button>' +
       '</div>' +
       '<div style="display:flex;gap:8px;align-items:center;justify-content:center;padding:4px 24px 8px;">' +
-        '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous detection">&larr; Prev</button>' +
-        '<span style="color:var(--text-muted);font-size:13px;" id="review-position">' + (reviewIndex + 1) + ' / ' + pendingReview.length + '</span>' +
-        '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next detection">Next &rarr;</button>' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous detection">&#x2190;</button>' +
+        '<span style="color:var(--text-muted);font-size:13px;" id="review-position">' + (reviewIndex + 1) + ' / ' + reviewStats.remaining + '</span>' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next detection">&#x2192;</button>' +
       '</div>' +
       '<div class="review-body">' +
         '<div class="review-prediction">' + spLink(speciesName) + '</div>' +
@@ -3814,7 +3941,7 @@
           'Detection confidence: ' + confLabel(conf) +
         '</div>' +
         (alsoHeardHtml || '') +
-        (otherBirdsHtml || '') +
+        (birdSelectorHtml || '') +
         (predictionSection || '') +
         '<div class="review-wrong-dropdown" id="wrong-dropdown">' +
           '<label for="wrong-search">Select the correct species:</label>' +
@@ -3863,12 +3990,43 @@
     dd.classList.toggle('visible');
   };
 
+  window.selectBird = function(idx) {
+    selectedBirdIndex = idx;
+    renderReviewItem();
+  };
+
   window.reviewNav = function(dir) {
     var newIdx = reviewIndex + dir;
     if (newIdx < 0 || newIdx >= pendingReview.length) return;
+    selectedBirdIndex = 0;
     reviewIndex = newIdx;
+    // Pre-fetch next batch when within 10 items of the end
+    if (_reviewHasMore && (pendingReview.length - reviewIndex) < 10) {
+      fetchMoreReviewItems();
+    }
     renderReviewItem();
   };
+
+  var _fetchingMore = false;
+  async function fetchMoreReviewItems() {
+    if (_fetchingMore || !_reviewHasMore) return;
+    _fetchingMore = true;
+    try {
+      var speciesFilter = document.getElementById('classify-species-filter').value;
+      var url = '/bird-api/review/pending?offset=' + _reviewOffset + '&limit=' + _REVIEW_PAGE_SIZE;
+      if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
+      var data = await apiFetch(url);
+      var newItems = data.pending || [];
+      if (newItems.length > 0) {
+        pendingReview = pendingReview.concat(newItems);
+        _reviewOffset += newItems.length;
+      }
+      _reviewHasMore = data.has_more || false;
+    } catch (e) {
+      // Silently fail — will retry on next nav
+    }
+    _fetchingMore = false;
+  }
 
   window.submitReview = async function(verdict, correctSpecies) {
     if (reviewIndex >= pendingReview.length) return;
@@ -3877,11 +4035,17 @@
       var url = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=' + verdict;
       if (correctSpecies) url += '&correct_species=' + encodeURIComponent(correctSpecies);
       if (verdict === 'reclassify') url += '&missed_birds=true';
+      if (selectedBirdIndex > 0) url += '&bird_index=' + selectedBirdIndex;
       await fetch(url, { method: 'POST' });
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      selectedBirdIndex = 0;
       reviewIndex++;
+      // Pre-fetch next batch when within 10 items of the end
+      if (_reviewHasMore && (pendingReview.length - reviewIndex) < 10) {
+        fetchMoreReviewItems();
+      }
       renderReviewItem();
       showToast(verdict === 'correct' ? 'Marked correct' : correctSpecies === 'not_a_bird' ? 'Marked: Not a Bird' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted', 'success');
     } catch (e) {
@@ -3899,11 +4063,17 @@
     if (reviewIndex >= pendingReview.length) return;
     const item = pendingReview[reviewIndex];
     try {
-      await fetch('/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=wrong&correct_species=' + encodeURIComponent(species), { method: 'POST' });
+      var wrongUrl = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=wrong&correct_species=' + encodeURIComponent(species);
+      if (selectedBirdIndex > 0) wrongUrl += '&bird_index=' + selectedBirdIndex;
+      await fetch(wrongUrl, { method: 'POST' });
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      selectedBirdIndex = 0;
       reviewIndex++;
+      if (_reviewHasMore && (pendingReview.length - reviewIndex) < 10) {
+        fetchMoreReviewItems();
+      }
       renderReviewItem();
       showToast('Correction submitted: ' + species, 'success');
     } catch (e) {
