@@ -495,6 +495,18 @@
   .goals-show-complete { font-size: 0.78rem; color: var(--accent); cursor: pointer; margin-top: 6px; }
   .goals-show-complete:hover { text-decoration: underline; }
 
+  /* Manage inventory table */
+  .manage-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .manage-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .manage-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .manage-table tr:hover { background: var(--bg-hover); }
+  .manage-table .over { color: #ef4444; font-weight: 600; }
+  .manage-table .ok { color: var(--text-muted); }
+  .btn-trim { padding: 3px 10px; border-radius: 4px; border: 1px solid #ef4444; background: transparent; color: #ef4444; font-size: 0.78rem; cursor: pointer; }
+  .btn-trim:hover { background: #ef4444; color: #fff; }
+  .btn-sufficient { padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 0.78rem; cursor: pointer; }
+  .btn-sufficient.active { border-color: var(--accent-green); color: var(--accent-green); }
+
   .review-progress-bar {
     background: var(--bg-card);
     border-radius: 20px;
@@ -1801,6 +1813,7 @@
         <button class="review-subtab active" data-subtab="classify" onclick="switchReviewSubtab('classify')">Classify</button>
         <button class="review-subtab" data-subtab="skipped" onclick="switchReviewSubtab('skipped')">Skipped <span id="skipped-count-badge" class="badge" style="display:none">0</span></button>
         <button class="review-subtab" data-subtab="classified" onclick="switchReviewSubtab('classified')">Classified <span id="classified-count-badge" class="badge" style="display:none">0</span></button>
+        <button class="review-subtab" data-subtab="manage" onclick="switchReviewSubtab('manage')">Manage</button>
       </div>
 
       <!-- Classify sub-tab -->
@@ -1820,6 +1833,9 @@
         <div class="review-progress-bar" id="review-progress-bar">
           <div class="review-progress-fill" id="review-progress-fill" style="width: 0%"></div>
           <div class="review-progress-text" id="review-progress-text">Loading...</div>
+        </div>
+        <div id="rerun-bar" style="display:none;text-align:center;margin-bottom:8px;">
+          <button id="rerun-btn" class="btn-sm" style="background:var(--accent-amber);color:#000;border:none;padding:6px 16px;border-radius:6px;font-weight:600;cursor:pointer;" onclick="rerunMissed()">Rerun Missed (<span id="rerun-count">0</span> files)</button>
         </div>
         <div id="review-area">
           <div class="loading-msg">Loading review queue...</div>
@@ -1865,6 +1881,15 @@
           <div class="loading-msg">Loading classified items...</div>
         </div>
       </div>
+
+      <!-- Manage sub-tab -->
+      <div class="review-subtab-content" id="subtab-manage">
+        <div style="padding:12px 0;">
+          <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">Manage species file counts, set caps, and trim overrepresented species.</p>
+          <button class="btn-sm" onclick="loadInventory()" style="margin-bottom:12px;">Refresh Inventory</button>
+          <div id="manage-inventory" class="loading-msg">Click Refresh to load inventory...</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1893,12 +1918,12 @@
     <div class="lightbox-footer" id="lightbox-footer"></div>
     <div id="lightbox-details" style="padding:8px 16px;"></div>
     <div class="lightbox-review" id="lightbox-review" style="padding:10px 16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;border-top:1px solid var(--border);">
-        <button class="review-btn btn-correct" onclick="lightboxReview('correct')">&#x2713; Correct</button>
-        <button class="review-btn btn-wrong" onclick="lightboxToggleWrongDropdown()">&#x2717; Wrong</button>
-        <button class="review-btn btn-notbird" onclick="lightboxReview('wrong','not_a_bird')">&#x1F343; Not a Bird</button>
-        <button class="review-btn btn-trash" onclick="lightboxReview('trash')">&#x1F5D1; Trash</button>
-        <button class="review-btn btn-skip" onclick="lightboxReview('skip')">&#x2192; Skip</button>
-        <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>
+        <button class="review-btn btn-correct" onclick="lightboxReview('correct')">Correct</button>
+        <button class="review-btn btn-wrong" onclick="lightboxToggleWrongDropdown()">Wrong</button>
+        <button class="review-btn btn-notbird" onclick="lightboxReview('wrong','not_a_bird')">No Bird</button>
+        <button class="review-btn btn-trash" onclick="lightboxReview('trash')">Trash</button>
+        <button class="review-btn btn-skip" onclick="lightboxReview('skip')">Skip</button>
+        <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">Missed</button>
         <span id="lb-review-nav-group" style="display:none;gap:4px;align-items:center;">
           <button class="review-btn btn-nav" id="lb-review-nav-left" onclick="lightboxNav(-1)" title="Previous detection (&larr;)">&#x2190;</button>
           <button class="review-btn btn-nav" id="lb-review-nav-right" onclick="lightboxNav(1)" title="Next detection (&rarr;)">&#x2192;</button>
@@ -3520,8 +3545,9 @@
     updateReviewProgress();
     renderReviewItem();
 
-    // Load goals panel (non-blocking)
+    // Load goals panel and rerun count (non-blocking)
     loadGoals();
+    loadRerunCount();
 
     // Also fetch skipped count for badge
     try {
@@ -3592,6 +3618,111 @@
   window.toggleGoalsComplete = function() {
     _goalsShowComplete = !_goalsShowComplete;
     loadGoals();
+  };
+
+  // ── Rerun Missed ──
+  async function loadRerunCount() {
+    try {
+      var data = await apiFetch('/bird-api/review/rerun-count');
+      var count = data.count || 0;
+      var bar = document.getElementById('rerun-bar');
+      var span = document.getElementById('rerun-count');
+      if (count > 0) {
+        span.textContent = count;
+        bar.style.display = '';
+      } else {
+        bar.style.display = 'none';
+      }
+    } catch (e) {}
+  }
+
+  window.rerunMissed = async function() {
+    var countEl = document.getElementById('rerun-count');
+    var count = parseInt(countEl.textContent) || 0;
+    if (!confirm('Rerun ' + count + ' missed-bird files?\n\nThis will move them back to the incoming queue for reclassification.')) return;
+    try {
+      var resp = await fetch('/bird-api/review/rerun-missed', { method: 'POST' });
+      var data = await resp.json();
+      showToast(data.message, 'success');
+      document.getElementById('rerun-bar').style.display = 'none';
+    } catch (e) {
+      showToast('Rerun failed', 'error');
+    }
+  };
+
+  // ── Manage / Cull ──
+  var _inventoryData = null;
+
+  window.loadInventory = async function() {
+    var container = document.getElementById('manage-inventory');
+    container.innerHTML = '<div class="loading-msg">Loading inventory...</div>';
+    try {
+      var data = await apiFetch('/bird-api/cull/inventory');
+      _inventoryData = data;
+      renderInventory(data);
+    } catch (e) {
+      container.innerHTML = '<div class="loading-msg">Failed to load inventory</div>';
+    }
+  };
+
+  function renderInventory(data) {
+    var inv = data.inventory || [];
+    var cfg = data.config || {};
+    var html = '<table class="manage-table">' +
+      '<tr><th>Species</th><th>Files</th><th>Confirmed</th><th>Cap</th><th>Over</th><th>Sufficient</th><th></th></tr>';
+
+    inv.forEach(function(s) {
+      var overClass = s.over_cap > 0 ? 'over' : 'ok';
+      var suffClass = s.sufficient ? ' active' : '';
+      html += '<tr>' +
+        '<td>' + escHtml(s.species) + '</td>' +
+        '<td>' + s.file_count + '</td>' +
+        '<td>' + s.confirmed + '</td>' +
+        '<td>' + s.cap + '</td>' +
+        '<td class="' + overClass + '">' + (s.over_cap > 0 ? '+' + s.over_cap : '-') + '</td>' +
+        '<td><button class="btn-sufficient' + suffClass + '" onclick="toggleSufficient(\'' + escAttr(s.species) + '\')">' + (s.sufficient ? 'Yes' : 'No') + '</button></td>' +
+        '<td>' + (s.file_count > 20 ? '<button class="btn-trim" onclick="trimSpecies(\'' + escAttr(s.dir_name) + '\', \'' + escAttr(s.species) + '\', ' + s.file_count + ')">Trim</button>' : '') + '</td>' +
+      '</tr>';
+    });
+
+    html += '</table>';
+    document.getElementById('manage-inventory').innerHTML = html;
+  }
+
+  window.toggleSufficient = async function(species) {
+    try {
+      var cfg = (_inventoryData || {}).config || await apiFetch('/bird-api/cull/config');
+      var list = cfg.sufficient_species || [];
+      var idx = list.indexOf(species);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+      } else {
+        list.push(species);
+      }
+      await fetch('/bird-api/cull/config?sufficient_species=' + encodeURIComponent(JSON.stringify(list)), { method: 'POST' });
+      showToast(species + (idx >= 0 ? ' removed from' : ' added to') + ' sufficient list', 'success');
+      loadInventory();
+    } catch (e) {
+      showToast('Failed to update', 'error');
+    }
+  };
+
+  window.trimSpecies = async function(dirName, species, currentCount) {
+    var keepStr = prompt('Trim ' + species + ' (currently ' + currentCount + ' files).\n\nKeep how many newest files?', '50');
+    if (!keepStr) return;
+    var keep = parseInt(keepStr);
+    if (isNaN(keep) || keep < 0) { showToast('Invalid number', 'error'); return; }
+    var toTrash = currentCount - keep;
+    if (toTrash <= 0) { showToast('Nothing to trim', 'info'); return; }
+    if (!confirm('Trash ' + toTrash + ' oldest ' + species + ' files?\n\nKeeping ' + keep + ' newest.')) return;
+    try {
+      var resp = await fetch('/bird-api/cull/trash-species?species_dir=' + encodeURIComponent(dirName) + '&keep=' + keep, { method: 'POST' });
+      var data = await resp.json();
+      showToast(data.message, 'success');
+      loadInventory();
+    } catch (e) {
+      showToast('Trim failed', 'error');
+    }
   };
 
   function updateReviewProgress() {
@@ -3913,25 +4044,31 @@
 
     var rawUrl = imgUrl.replace('/bird-api/image/', '/bird-api/image-raw/');
     area.innerHTML = '<div class="review-card">' +
-      '<div class="lightbox-tabs" style="padding:0 12px;background:var(--bg-card);">' +
+      '<div class="lightbox-tabs" style="padding:0 12px;background:var(--bg-card);display:flex;align-items:center;">' +
         '<button class="lightbox-tab" data-rvtab="photo" onclick="switchReviewImageTab(\'photo\')">Photo</button>' +
         '<button class="lightbox-tab active" data-rvtab="annotated" onclick="switchReviewImageTab(\'annotated\')">Annotated</button>' +
+        '<span style="margin-left:auto;color:var(--text-muted);font-size:12px;" id="review-position">' + (reviewIndex + 1) + ' / ' + reviewStats.remaining + '</span>' +
       '</div>' +
       '<div class="review-image-wrap">' +
         (imgUrl ? '<img id="review-image" src="' + imgUrl + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '">' : '<div style="color:var(--text-muted)">No image available</div>') +
       '</div>' +
-      '<div class="review-actions" style="padding:8px 24px;">' +
-        '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">&#x2713; Correct</button>' +
-        '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">&#x2717; Wrong</button>' +
-        '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">&#x1F343; Not a Bird</button>' +
-        '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">&#x1F5D1; Trash</button>' +
-        '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">&#x1F504; Missed</button>' +
-        '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">&#x2192; Skip</button>' +
+      '<div class="review-actions" style="padding:8px 24px;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">' +
+        '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">Correct</button>' +
+        '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">Wrong</button>' +
+        '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">No Bird</button>' +
+        '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">Trash</button>' +
+        '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">Missed</button>' +
+        '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">Skip</button>' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous">&#x2190;</button>' +
+        '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next">&#x2192;</button>' +
       '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;justify-content:center;padding:4px 24px 8px;">' +
-        '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous detection">&#x2190;</button>' +
-        '<span style="color:var(--text-muted);font-size:13px;" id="review-position">' + (reviewIndex + 1) + ' / ' + reviewStats.remaining + '</span>' +
-        '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next detection">&#x2192;</button>' +
+      '<div class="review-wrong-dropdown" id="wrong-dropdown" style="padding:0 24px;">' +
+        '<label for="wrong-search">Select the correct species:</label>' +
+        '<input type="text" class="review-wrong-search" id="wrong-search" placeholder="Type to filter species..." oninput="filterSpeciesDropdown()">' +
+        '<select id="wrong-species" size="6">' +
+          buildSpeciesOptions() +
+        '</select>' +
+        '<button class="btn-submit-wrong" onclick="submitWrongCorrection()">Submit Correction</button>' +
       '</div>' +
       '<div class="review-body">' +
         '<div class="review-prediction">' + spLink(speciesName) + '</div>' +
@@ -3943,14 +4080,6 @@
         (alsoHeardHtml || '') +
         (birdSelectorHtml || '') +
         (predictionSection || '') +
-        '<div class="review-wrong-dropdown" id="wrong-dropdown">' +
-          '<label for="wrong-search">Select the correct species:</label>' +
-          '<input type="text" class="review-wrong-search" id="wrong-search" placeholder="Type to filter species..." oninput="filterSpeciesDropdown()">' +
-          '<select id="wrong-species" size="6">' +
-            buildSpeciesOptions() +
-          '</select>' +
-          '<button class="btn-submit-wrong" onclick="submitWrongCorrection()">Submit Correction</button>' +
-        '</div>' +
       '</div>' +
     '</div>';
   }
@@ -4094,6 +4223,9 @@
     }
     if (tab === 'classified' && !classifiedLoaded) {
       loadClassifiedItems();
+    }
+    if (tab === 'manage') {
+      loadInventory();
     }
   };
 

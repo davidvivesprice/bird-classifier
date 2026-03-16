@@ -34,6 +34,7 @@ REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/chilmark_feede
 SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
 SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
 SPECIES_GALLERY_PATH = Path("/Users/vives/bird-classifier/dashboard/species_gallery.json")
+CULL_CONFIG_PATH = Path("/Users/vives/bird-classifier/config/cull_config.json")
 
 # Subspecies / regional forms → canonical parent species
 SPECIES_ALIASES = {
@@ -306,7 +307,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50):
     pending = []
     species_set = set()
     for e in classified:
-        if e["file"] not in reviews:
+        if e["file"] not in reviews or reviews[e["file"]]["verdict"] == "requeued":
             sp = e["top_prediction"]["common_name"] if "top_prediction" in e else "unknown"
             species_set.add(sp)
             if species and sp != species:
@@ -338,6 +339,73 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50):
         "offset": offset,
         "limit": limit,
         "has_more": (offset + limit) < total_pending,
+    }
+
+
+INCOMING_DIR = BASE_DIR / "incoming"
+
+
+@app.get("/api/review/rerun-count")
+def rerun_count():
+    """Count files flagged with verdict=reclassify (missed birds)."""
+    reviews = load_reviews()
+    count = sum(1 for r in reviews.values() if r["verdict"] == "reclassify")
+    return {"count": count}
+
+
+@app.post("/api/review/rerun-missed")
+def rerun_missed():
+    """Move all reclassify-flagged files back to incoming/ for reprocessing.
+
+    For each file with verdict=reclassify:
+    1. Find in classified/*/ → move to incoming/
+    2. Delete annotated version (new one will be generated)
+    3. Write verdict=requeued entry so it shows as pending after re-classification
+    """
+    reviews = load_reviews()
+    flagged = [f for f, r in reviews.items() if r["verdict"] == "reclassify"]
+
+    INCOMING_DIR.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    not_found = 0
+
+    for fname in flagged:
+        # Find in classified subdirectories
+        src = None
+        for species_dir in CLASSIFIED_DIR.iterdir():
+            if species_dir.is_dir():
+                candidate = species_dir / fname
+                if candidate.exists():
+                    src = candidate
+                    break
+
+        if src:
+            dst = INCOMING_DIR / fname
+            shutil.move(str(src), str(dst))
+            # Remove annotated version
+            ann = ANNOTATED_DIR / fname
+            if ann.exists():
+                ann.unlink()
+            moved += 1
+        else:
+            not_found += 1
+
+        # Write requeued verdict so pending filter picks it up after reclassification
+        requeue_entry = {
+            "file": fname,
+            "verdict": "requeued",
+            "correct_species": "",
+            "missed_birds": False,
+            "bird_index": 0,
+            "timestamp": datetime.now().isoformat(),
+        }
+        with open(REVIEWS_PATH, "a") as f:
+            f.write(json.dumps(requeue_entry) + "\n")
+
+    return {
+        "moved": moved,
+        "not_found": not_found,
+        "message": f"Requeued {moved} files for reclassification" + (f" ({not_found} not found on disk)" if not_found else ""),
     }
 
 
@@ -998,3 +1066,139 @@ def birdnet_clip(clip_path: str):
         media_type="audio/wav",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+# ── Culling System ──
+
+def load_cull_config() -> dict:
+    """Load cull config from JSON file, returning defaults if missing."""
+    defaults = {"default_max_keep": 100, "species_caps": {}, "sufficient_species": []}
+    if CULL_CONFIG_PATH.exists():
+        try:
+            with open(CULL_CONFIG_PATH) as f:
+                cfg = json.load(f)
+            return {**defaults, **cfg}
+        except Exception:
+            pass
+    return defaults
+
+
+def save_cull_config(cfg: dict):
+    """Write cull config to JSON file."""
+    CULL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CULL_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+
+
+@app.get("/api/cull/config")
+def get_cull_config():
+    """Read current cull configuration."""
+    return load_cull_config()
+
+
+@app.post("/api/cull/config")
+def update_cull_config(
+    default_max_keep: Optional[int] = None,
+    species_caps: Optional[str] = None,
+    sufficient_species: Optional[str] = None,
+):
+    """Update cull configuration.
+
+    Parameters are optional — only provided fields are updated.
+    species_caps and sufficient_species are JSON strings.
+    """
+    cfg = load_cull_config()
+    if default_max_keep is not None:
+        cfg["default_max_keep"] = default_max_keep
+    if species_caps is not None:
+        cfg["species_caps"] = json.loads(species_caps)
+    if sufficient_species is not None:
+        cfg["sufficient_species"] = json.loads(sufficient_species)
+    save_cull_config(cfg)
+    return {"status": "ok", "config": cfg}
+
+
+@app.get("/api/cull/inventory")
+def cull_inventory():
+    """Per-species file counts on disk + confirmed review counts."""
+    reviews = load_reviews()
+    entries = load_classifications()
+
+    # Build file→species map from classifications
+    file_species: dict[str, str] = {}
+    for e in entries:
+        if e.get("action") == "classified" and "top_prediction" in e:
+            file_species[e["file"]] = e["top_prediction"]["common_name"]
+
+    # Count confirmed reviews per species
+    confirmed: dict[str, int] = defaultdict(int)
+    for r in reviews.values():
+        if r["verdict"] == "correct":
+            sp = file_species.get(r["file"], "")
+            if sp:
+                confirmed[sp] += 1
+        elif r["verdict"] == "wrong" and r.get("correct_species"):
+            confirmed[normalize_species(r["correct_species"])] += 1
+
+    # Count files on disk per species directory
+    cfg = load_cull_config()
+    inventory = []
+    if CLASSIFIED_DIR.exists():
+        for species_dir in sorted(CLASSIFIED_DIR.iterdir()):
+            if species_dir.is_dir() and species_dir.name != "background":
+                sp_name = species_dir.name.replace("_", " ")
+                files = list(species_dir.glob("*.jpg"))
+                cap = cfg["species_caps"].get(sp_name, cfg["default_max_keep"])
+                inventory.append({
+                    "species": sp_name,
+                    "dir_name": species_dir.name,
+                    "file_count": len(files),
+                    "confirmed": confirmed.get(sp_name, 0),
+                    "cap": cap,
+                    "over_cap": max(0, len(files) - cap),
+                    "sufficient": sp_name in cfg.get("sufficient_species", []),
+                })
+
+    inventory.sort(key=lambda x: x["file_count"], reverse=True)
+    return {"inventory": inventory, "config": cfg}
+
+
+@app.post("/api/cull/trash-species")
+def cull_trash_species(species_dir: str, keep: int = 50):
+    """Bulk trash: keep newest N files for a species, trash the rest.
+
+    Also removes corresponding annotated versions.
+    """
+    safe_dir = os.path.basename(species_dir)
+    src_dir = CLASSIFIED_DIR / safe_dir
+    if not src_dir.exists() or not src_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Species directory '{safe_dir}' not found")
+
+    if keep < 0:
+        raise HTTPException(status_code=400, detail="keep must be >= 0")
+
+    # Get all jpg files sorted by modification time (newest first)
+    files = sorted(src_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+
+    if len(files) <= keep:
+        return {"trashed": 0, "kept": len(files), "message": f"Only {len(files)} files — nothing to trash"}
+
+    to_trash = files[keep:]
+    TRASH_DIR.mkdir(parents=True, exist_ok=True)
+
+    trashed = 0
+    for f in to_trash:
+        dst = TRASH_DIR / f.name
+        shutil.move(str(f), str(dst))
+        # Remove annotated version
+        ann = ANNOTATED_DIR / f.name
+        if ann.exists():
+            ann.unlink()
+        trashed += 1
+
+    return {
+        "trashed": trashed,
+        "kept": keep,
+        "message": f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} newest",
+    }

@@ -52,6 +52,7 @@ ANNOTATED_DIR = BASE_DIR / "annotated"
 TRASH_DIR = BASE_DIR / "trash"
 LOG_DIR = BASE_DIR / "logs"
 MODEL_DIR = Path("/Users/vives/bird-classifier/models")
+CULL_CONFIG_PATH = Path("/Users/vives/bird-classifier/config/cull_config.json")
 
 # Models
 YOLO_MODEL_PATH = MODEL_DIR / "yolov8n_bird.onnx"
@@ -629,6 +630,29 @@ def _strip_camera_prefix(filename):
     return stem
 
 
+_cull_config_cache = None
+_cull_config_mtime = 0.0
+
+
+def load_cull_config():
+    """Load cull config, caching until file changes."""
+    global _cull_config_cache, _cull_config_mtime
+    defaults = {"default_max_keep": 100, "species_caps": {}, "sufficient_species": []}
+    if not CULL_CONFIG_PATH.exists():
+        return defaults
+    try:
+        mt = CULL_CONFIG_PATH.stat().st_mtime
+        if _cull_config_cache is not None and mt == _cull_config_mtime:
+            return _cull_config_cache
+        with open(CULL_CONFIG_PATH) as f:
+            cfg = {**defaults, **json.load(f)}
+        _cull_config_cache = cfg
+        _cull_config_mtime = mt
+        return cfg
+    except Exception:
+        return defaults
+
+
 def extract_timestamp(filename):
     """Extract timestamp from filename like 2026-03-02_11-10-42.jpg → '2026-03-02 11:10:42'.
 
@@ -844,6 +868,21 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     # Add range filter info if present
     if range_filter_info:
         result.update(range_filter_info)
+
+    # Auto-cull check: if species is marked sufficient and over cap, trash instead
+    cull_cfg = load_cull_config()
+    species_name = top["common_name"]
+    if species_name in cull_cfg.get("sufficient_species", []):
+        cap = cull_cfg.get("species_caps", {}).get(species_name, cull_cfg["default_max_keep"])
+        existing = len(list(species_dir.glob("*.jpg")))
+        if existing >= cap:
+            TRASH_DIR.mkdir(parents=True, exist_ok=True)
+            result["action"] = "trashed:overcap"
+            append_result(result)
+            shutil.move(str(image_path), str(TRASH_DIR / fname))
+            logging.info("CULL %s — %s over cap (%d/%d)", fname, species_name, existing, cap)
+            return
+
     append_result(result)
 
     # Save annotated image with bounding box + labels for ALL birds
