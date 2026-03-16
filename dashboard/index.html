@@ -1818,10 +1818,13 @@
 
       <!-- Classify sub-tab -->
       <div class="review-subtab-content active" id="subtab-classify">
-        <div style="padding:8px 0;">
-          <select id="classify-species-filter" onchange="filterClassifyBySpecies()" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;text-align:center;">
+        <div style="padding:8px 0;display:flex;gap:8px;align-items:center;">
+          <select id="classify-species-filter" onchange="filterClassifyBySpecies()" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;text-align:center;">
             <option value="">All Species</option>
           </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-muted);white-space:nowrap;cursor:pointer;">
+            <input type="checkbox" id="classify-multibird-filter" onchange="filterClassifyBySpecies()"> Multi-bird
+          </label>
         </div>
         <div class="goals-panel" id="goals-panel" style="display:none;">
           <div class="goals-header" onclick="toggleGoalsPanel()">
@@ -3503,8 +3506,10 @@
 
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
+      var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
       var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
+      if (multibirdFilter) url += '&multibird=1';
       const data = await apiFetch(url);
       pendingReview = data.pending || [];
       _reviewOffset = data.pending ? data.pending.length : 0;
@@ -3564,6 +3569,14 @@
     loadReviewData();
   };
 
+  window.filterToSpecies = function(species) {
+    var select = document.getElementById('classify-species-filter');
+    if (select) {
+      select.value = species;
+      loadReviewData();
+    }
+  };
+
   // ── Goals Panel ──
   var _goalsShowComplete = false;
   async function loadGoals() {
@@ -3585,7 +3598,7 @@
     incomplete.forEach(function(g) {
       var color = g.complete < 25 ? '#ef4444' : g.complete < 60 ? '#f59e0b' : '#22c55e';
       html += '<div class="goals-row">' +
-        '<span class="goals-species" onclick="showSpeciesPopup(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
+        '<span class="goals-species" onclick="filterToSpecies(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
         '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:' + g.complete + '%;background:' + color + ';"></span></span>' +
         '<span class="goals-count">' + g.confirmed + '/' + g.target + '</span>' +
       '</div>';
@@ -3597,7 +3610,7 @@
       if (_goalsShowComplete) {
         complete.forEach(function(g) {
           html += '<div class="goals-row">' +
-            '<span class="goals-species" onclick="showSpeciesPopup(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
+            '<span class="goals-species" onclick="filterToSpecies(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
             '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:100%;background:#22c55e;"></span></span>' +
             '<span class="goals-count" style="color:#22c55e;">✓ ' + g.confirmed + '</span>' +
           '</div>';
@@ -3639,14 +3652,27 @@
   window.rerunMissed = async function() {
     var countEl = document.getElementById('rerun-count');
     var count = parseInt(countEl.textContent) || 0;
-    if (!confirm('Rerun ' + count + ' missed-bird files?\n\nThis will move them back to the incoming queue for reclassification.')) return;
+    if (!confirm('Rerun ' + count + ' missed-bird files?\n\nThis moves them back to the incoming queue. The classifier will re-process them (may take a few minutes depending on queue size).')) return;
+    var btn = document.getElementById('rerun-btn');
+    btn.disabled = true;
+    btn.textContent = 'Rerunning ' + count + ' files...';
     try {
       var resp = await fetch('/bird-api/review/rerun-missed', { method: 'POST' });
       var data = await resp.json();
-      showToast(data.message, 'success');
-      document.getElementById('rerun-bar').style.display = 'none';
+      var msg = data.message;
+      if (data.moved > 0) msg += '\n\nFiles are now in the incoming queue. The classifier will pick them up automatically — check back in a few minutes.';
+      btn.textContent = 'Done — ' + data.moved + ' moved';
+      btn.style.background = 'var(--accent-green)';
+      alert(msg);
+      setTimeout(function() {
+        document.getElementById('rerun-bar').style.display = 'none';
+        btn.disabled = false;
+        btn.style.background = '';
+      }, 3000);
     } catch (e) {
       showToast('Rerun failed', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Rerun Missed (' + count + ' files)';
     }
   };
 
@@ -3708,15 +3734,19 @@
   };
 
   window.trimSpecies = async function(dirName, species, currentCount) {
-    var keepStr = prompt('Trim ' + species + ' (currently ' + currentCount + ' files).\n\nKeep how many newest files?', '50');
+    var keepStr = prompt('Trim ' + species + ' (currently ' + currentCount + ' files).\n\nKeep how many?', '50');
     if (!keepStr) return;
     var keep = parseInt(keepStr);
     if (isNaN(keep) || keep < 0) { showToast('Invalid number', 'error'); return; }
     var toTrash = currentCount - keep;
     if (toTrash <= 0) { showToast('Nothing to trim', 'info'); return; }
-    if (!confirm('Trash ' + toTrash + ' oldest ' + species + ' files?\n\nKeeping ' + keep + ' newest.')) return;
+    var sortBy = confirm('Keep the ' + keep + ' BEST scoring files?\n\n' +
+      'OK = Keep best confidence scores (recommended)\n' +
+      'Cancel = Keep newest by date') ? 'confidence' : 'date';
+    var sortLabel = sortBy === 'confidence' ? 'highest confidence' : 'newest';
+    if (!confirm('Trash ' + toTrash + ' ' + species + ' files?\n\nKeeping ' + keep + ' ' + sortLabel + '.')) return;
     try {
-      var resp = await fetch('/bird-api/cull/trash-species?species_dir=' + encodeURIComponent(dirName) + '&keep=' + keep, { method: 'POST' });
+      var resp = await fetch('/bird-api/cull/trash-species?species_dir=' + encodeURIComponent(dirName) + '&keep=' + keep + '&sort_by=' + sortBy, { method: 'POST' });
       var data = await resp.json();
       showToast(data.message, 'success');
       loadInventory();
@@ -3978,14 +4008,14 @@
     // Multi-bird: use selectedBirdIndex to pick which bird's data to show
     var activeBird = null;
     var speciesName, sciName, conf, top3;
-    if (birds.length > 1 && selectedBirdIndex > 0 && selectedBirdIndex < birds.length) {
+    if (birds.length > 1 && selectedBirdIndex >= 0 && selectedBirdIndex < birds.length) {
       activeBird = birds[selectedBirdIndex];
       speciesName = activeBird.common_name || activeBird.species || 'Unknown';
       sciName = activeBird.scientific_name || (activeBird.top3 && activeBird.top3[0] ? activeBird.top3[0].scientific_name : '') || '';
       conf = activeBird.detection ? activeBird.detection.confidence : 0;
       top3 = activeBird.top3 || [];
     } else {
-      // Default: primary bird (index 0)
+      // Single bird or no birds array — use top-level item data
       speciesName = item.species || (item.top_prediction || {}).common_name || (item.top3 && item.top3[0] ? item.top3[0].common_name : '') || 'Unknown';
       sciName = (item.top_prediction || {}).scientific_name || (item.top3 && item.top3[0] ? item.top3[0].scientific_name : '') || '';
       conf = item.confidence || (item.best_detection ? item.best_detection.confidence : 0);
@@ -4142,8 +4172,10 @@
     _fetchingMore = true;
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
+      var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
       var url = '/bird-api/review/pending?offset=' + _reviewOffset + '&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
+      if (multibirdFilter) url += '&multibird=1';
       var data = await apiFetch(url);
       var newItems = data.pending || [];
       if (newItems.length > 0) {

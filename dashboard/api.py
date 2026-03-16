@@ -293,7 +293,7 @@ def get_image_raw(filename: str):
 
 
 @app.get("/api/review/pending")
-def review_pending(species: str = "", offset: int = 0, limit: int = 50):
+def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = ""):
     """Get unreviewed classifications for the annotation GUI (paginated).
 
     Returns `limit` items starting from `offset`.  The full count and
@@ -311,6 +311,8 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50):
             sp = e["top_prediction"]["common_name"] if "top_prediction" in e else "unknown"
             species_set.add(sp)
             if species and sp != species:
+                continue
+            if multibird and len(e.get("birds", [])) < 2:
                 continue
             pending.append({
                 "file": e["file"],
@@ -1165,9 +1167,10 @@ def cull_inventory():
 
 
 @app.post("/api/cull/trash-species")
-def cull_trash_species(species_dir: str, keep: int = 50):
-    """Bulk trash: keep newest N files for a species, trash the rest.
+def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
+    """Bulk trash files for a species, keeping the best N.
 
+    sort_by: "date" (keep newest) or "confidence" (keep highest scoring).
     Also removes corresponding annotated versions.
     """
     safe_dir = os.path.basename(species_dir)
@@ -1178,8 +1181,24 @@ def cull_trash_species(species_dir: str, keep: int = 50):
     if keep < 0:
         raise HTTPException(status_code=400, detail="keep must be >= 0")
 
-    # Get all jpg files sorted by modification time (newest first)
-    files = sorted(src_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if sort_by == "confidence":
+        # Build filename→score map from JSONL
+        entries = load_classifications()
+        file_scores: dict[str, int] = {}
+        for e in entries:
+            if e.get("action") == "classified" and "top_prediction" in e:
+                file_scores[e["file"]] = e["top_prediction"].get("raw_score", 0)
+        # Sort by score (highest first), ties broken by mtime (newest first)
+        files = sorted(
+            src_dir.glob("*.jpg"),
+            key=lambda f: (file_scores.get(f.name, 0), f.stat().st_mtime),
+            reverse=True,
+        )
+        sort_label = "highest confidence"
+    else:
+        # Sort by modification time (newest first)
+        files = sorted(src_dir.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+        sort_label = "newest"
 
     if len(files) <= keep:
         return {"trashed": 0, "kept": len(files), "message": f"Only {len(files)} files — nothing to trash"}
@@ -1200,5 +1219,5 @@ def cull_trash_species(species_dir: str, keep: int = 50):
     return {
         "trashed": trashed,
         "kept": keep,
-        "message": f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} newest",
+        "message": f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} {sort_label}",
     }
