@@ -762,3 +762,10 @@
 {"file": "ground_2026-03-15_09-34-46.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:48.911359"}
 {"file": "ground_2026-03-15_09-35-09.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:52.086917"}
 {"file": "ground_2026-03-15_09-35-20.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:54.584633"}
+{"file": "2026-03-02_07-20-17.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:29:25.832972"}
+{"file": "2026-03-05_06-43-55.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:29:31.442059"}
+{"file": "ground_2026-03-17_08-16-50.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:30:08.036999"}
+{"file": "ground_2026-03-17_08-16-50.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:30:12.712821"}
+{"file": "ground_2026-03-17_08-16-18.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:30:18.130891"}
+{"file": "ground_2026-03-17_08-16-07.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:30:20.866563"}
+{"file": "ground_2026-03-17_08-16-18.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T10:30:23.928891"}

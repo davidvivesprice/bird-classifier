@@ -602,3 +602,24 @@ ssh -p 2000 vives@192.168.5.92 "cd /volume1/docker && sudo /usr/local/bin/docker
 - **`onnxruntime==1.23.2`** is the last version with Intel Mac (x86_64) wheels. Do not upgrade.
 - **SSE through Traefik/nginx requires**: `proxy_buffering off`, `Connection ''`, `chunked_transfer_encoding off`, and an initial greeting message to prime HTTP/2 streams.
 - **nginx `absolute_redirect off`** required — without it, 302 redirects lose the `:9444` port behind Traefik.
+
+---
+
+## Quality Audit Log
+
+### Phase 7 — Production Hardening (2026-03-17)
+13 issues found across 3 backend services, all fixed:
+- **enhanced_audio_stream.py**: ffmpeg stderr deadlock (→DEVNULL), O(n²) numpy concat (→list accumulation), RTSP container leak (→try/finally), bandpass filter state reset (→sosfilt_zi), zombie ffmpeg (→kill fallback), reader thread not joined (→join on shutdown), fixed reconnect delay (→exponential backoff 3→30s)
+- **live_detector.py**: YOLO/classifier crash kills camera thread (→try/except), label parsing breaks on nested parentheses (→rindex)
+- **audio_analyzer.py**: per-insert SQLite connection (→persistent conn + lock), no inference timeout (→30s thread watchdog), no reconnect backoff (→exponential 5→30s), clip save crash on disk full (→try/except)
+
+### Phase 8 — Deep Audit Round 2 (2026-03-17)
+Second-pass audit covering api.py, index.html, classify.py, sync_snapshots.sh. ~80 raw findings triaged → 10 confirmed bugs, 16 false positives rejected:
+- **index.html**: Canvas event listeners stack on every chart re-render (→remove before add)
+- **api.py**: Corrupt species images cached permanently on partial download (→atomic temp+rename), cull_trash_species crashes with 500 (→try/except with counts), rerun_missed stale cache (→force invalidation)
+- **live_detector.py**: daemon thread vs block_on_close contradiction (→remove daemon flag)
+- **audio_analyzer.py**: Inference timeout thread leak warning
+- **enhanced_audio_stream.py**: encoder.stdout.read blocks indefinitely (→select with timeout)
+- **classify.py**: DST boundary off by 2h (→timezone-aware datetime), auto-cull missing try/except, partial JPEG race with sync
+
+Key false positives rejected: SpeciesVoter logic is intentional (not broken), int(scores) correct for uint8 model output, escAttr XSS protection is sound, SSE reconnect properly managed, CPython GIL makes dict/deque ops atomic.

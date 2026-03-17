@@ -574,6 +574,10 @@ def rerun_missed():
         }
         _append_jsonl(REVIEWS_PATH, requeue_entry)
 
+    # Force cache reload so requeued files don't appear stale
+    global _classifications_size
+    _classifications_size = 0
+
     return {
         "moved": moved,
         "not_found": not_found,
@@ -812,7 +816,10 @@ def _download_and_cache(name: str, safe: str):
 
         SPECIES_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         dest = SPECIES_IMAGES_DIR / f"{safe}.jpg"
-        dest.write_bytes(data)
+        # Atomic write: temp file + rename prevents corrupt images on partial download
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        tmp.rename(dest)
         return dest, "image/jpeg"
     except Exception as exc:
         logging.warning("Failed to download species image for '%s': %s", name, exc)
@@ -1333,17 +1340,26 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
     TRASH_DIR.mkdir(parents=True, exist_ok=True)
 
     trashed = 0
+    failed = 0
     for f in to_trash:
         dst = TRASH_DIR / f.name
-        shutil.move(str(f), str(dst))
-        # Remove annotated version
-        ann = ANNOTATED_DIR / f.name
-        if ann.exists():
-            ann.unlink()
-        trashed += 1
+        try:
+            shutil.move(str(f), str(dst))
+            # Remove annotated version
+            ann = ANNOTATED_DIR / f.name
+            if ann.exists():
+                ann.unlink()
+            trashed += 1
+        except Exception as exc:
+            logging.warning("Failed to trash %s: %s", f.name, exc)
+            failed += 1
 
+    msg = f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} {sort_label}"
+    if failed:
+        msg += f" ({failed} failed)"
     return {
         "trashed": trashed,
         "kept": keep,
-        "message": f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} {sort_label}",
+        "failed": failed,
+        "message": msg,
     }

@@ -3484,6 +3484,9 @@
       // Native click handler on the canvas for Y-axis label clicks
       // Chart.js uses CSS-pixel coordinates for chartArea and getValueForPixel
       var canvas = speciesChart.canvas;
+      // Remove old listeners before adding new ones (prevents stacking on re-render)
+      if (canvas._chartLabelClick) canvas.removeEventListener('click', canvas._chartLabelClick);
+      if (canvas._chartLabelHover) canvas.removeEventListener('mousemove', canvas._chartLabelHover);
       canvas._chartLabelClick = function(e) {
         var chart = speciesChart;
         if (!chart || !chart.scales || !chart.scales.y || !chart.chartArea) return;
