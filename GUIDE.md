@@ -623,3 +623,24 @@ Second-pass audit covering api.py, index.html, classify.py, sync_snapshots.sh. ~
 - **classify.py**: DST boundary off by 2h (→timezone-aware datetime), auto-cull missing try/except, partial JPEG race with sync
 
 Key false positives rejected: SpeciesVoter logic is intentional (not broken), int(scores) correct for uint8 model output, escAttr XSS protection is sound, SSE reconnect properly managed, CPython GIL makes dict/deque ops atomic.
+
+### What This Means for Feature Development
+
+The Phase 7+8 audit eliminated a class of problems that made feature work unpredictable:
+
+**Before the audit:**
+- Adding a new chart feature could trigger the canvas listener stacking bug (8A) — popups open N times after N refreshes
+- Any RTSP interruption (camera reboot, network blip) leaked TCP connections (7C) and hammered the camera with reconnects every 3s (7J) until it locked out
+- A single ONNX inference crash killed the entire camera thread with no recovery (7D) — new detection features were untestable under real conditions
+- The ffmpeg audio encoder could silently deadlock (7A) or hang forever (8F), making enhanced audio unreliable as a platform for new processing modes
+- Species image downloads could corrupt the cache permanently (8B), breaking any feature that shows bird photos
+- The numpy O(n²) concat (7B) meant audio processing degraded over time — new audio features would inherit this performance cliff
+
+**After the audit:**
+- All three services recover gracefully from errors — try/except around every external call, exponential backoff on reconnects, proper resource cleanup
+- Dashboard re-renders are idempotent — no listener accumulation, no state leaks
+- File operations are atomic where needed and error-handled everywhere else
+- The audio pipeline is O(n) with proper filter state continuity — ready for new processing stages
+- New features can assume the infrastructure won't silently fail underneath them
+
+**Practical impact:** You can now safely add new dashboard panels, new detection models, new audio processing stages, or new API endpoints without worrying about the foundation crumbling. Errors are logged, resources are cleaned up, and services self-heal.
