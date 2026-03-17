@@ -74,7 +74,7 @@ CAMERA_STREAMS = {
 
 # Detection thresholds
 BIRD_CLASS_ID = 0
-DETECTION_CONFIDENCE = 0.3
+DETECTION_CONFIDENCE = 0.35
 NMS_IOU_THRESHOLD = 0.45
 CROP_PAD_RATIO = 0.15
 
@@ -475,6 +475,9 @@ def camera_loop(camera_name: str, stream_name: str,
             pred = classify_species(species_sess, species_input, labels, crop, regional)
 
             if pred["common_name"] in ("background", "unidentified bird", "unidentified"):
+                continue
+            # Skip low-confidence classifier results (likely wrong species ID)
+            if pred["raw_score"] < 5:
                 continue
 
             events.append({
