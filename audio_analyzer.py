@@ -80,7 +80,8 @@ CLIPS_DIR = Path(
         os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"),
     )
 )
-RECONNECT_DELAY = 5  # seconds before retrying on RTSP failure
+RECONNECT_BASE = 5   # initial seconds before retrying on RTSP failure
+RECONNECT_MAX = 30   # max backoff delay
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
 # ── Audio Preprocessing ───────────────────────────────────────────────────
@@ -282,12 +283,17 @@ class DetectionAccumulator:
 
 
 # ── Database ───────────────────────────────────────────────────────────────
+_db_conn = None
+_db_lock = threading.Lock()
+
+
 def init_db():
-    """Create the notes table if it doesn't exist."""
+    """Create the notes table if it doesn't exist. Opens persistent connection."""
+    global _db_conn
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute(
+    _db_conn = sqlite3.connect(str(DB_PATH), timeout=10, check_same_thread=False)
+    _db_conn.execute("PRAGMA journal_mode=WAL")
+    _db_conn.execute(
         """
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,17 +308,15 @@ def init_db():
         )
         """
     )
-    conn.commit()
-    conn.close()
+    _db_conn.commit()
     log.info("Database ready: %s", DB_PATH)
 
 
 def insert_detection(det, clip_name, source="ground"):
     """Insert a detection row into the database."""
     now = datetime.datetime.now()
-    conn = sqlite3.connect(str(DB_PATH), timeout=5)
-    try:
-        conn.execute(
+    with _db_lock:
+        _db_conn.execute(
             """
             INSERT INTO notes (source_node, date, time, common_name,
                                scientific_name, confidence, clip_name, input_file)
@@ -329,9 +333,7 @@ def insert_detection(det, clip_name, source="ground"):
                 RTSP_URL,
             ),
         )
-        conn.commit()
-    finally:
-        conn.close()
+        _db_conn.commit()
 
 
 # ── Audio Clip Saving ──────────────────────────────────────────────────────
@@ -466,10 +468,13 @@ def run(test_mode=False):
     dyn_thresh = DynamicThreshold() if DYNAMIC_THRESHOLD_ENABLED else None
     accumulator = DetectionAccumulator() if DEEP_DETECTION_ENABLED else None
 
+    reconnect_delay = RECONNECT_BASE
+
     while not _shutdown.is_set():
         container = None
         try:
             container, audio_stream = open_rtsp_audio()
+            reconnect_delay = RECONNECT_BASE  # reset on successful connection
 
             pcm_buf = bytearray()
 
@@ -497,6 +502,7 @@ def run(test_mode=False):
                     audio = preprocess_audio(audio)
 
                     # Run BirdNET inference with overlapping 3s windows
+                    # Timeout prevents pipeline stall if model hangs
                     try:
                         recording = RecordingBuffer(
                             analyzer, audio, SAMPLE_RATE,
@@ -505,8 +511,19 @@ def run(test_mode=False):
                             min_conf=0.25,  # pre-filter low to feed accumulator
                             overlap=OVERLAP,
                         )
-                        with contextlib.redirect_stdout(io.StringIO()):
-                            recording.analyze()
+                        inference_result = [False]
+
+                        def _run_inference():
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                recording.analyze()
+                            inference_result[0] = True
+
+                        t_inf = threading.Thread(target=_run_inference, daemon=True)
+                        t_inf.start()
+                        t_inf.join(timeout=30)  # 30s max for inference
+                        if not inference_result[0]:
+                            log.error("Inference timed out (30s), skipping chunk")
+                            continue
                     except Exception as e:
                         log.error("Inference error: %s", e)
                         continue
@@ -571,7 +588,11 @@ def run(test_mode=False):
                             clip_end = len(raw)
                         clip_raw = raw[clip_start:clip_end]
 
-                        clip_name = save_clip(clip_raw, det)
+                        try:
+                            clip_name = save_clip(clip_raw, det)
+                        except Exception as e:
+                            log.warning("Failed to save clip: %s", e)
+                            clip_name = ""
                         insert_detection(det, clip_name)
                         total_detections += 1
                         extra = ""
@@ -620,8 +641,9 @@ def run(test_mode=False):
                     pass
 
         if not _shutdown.is_set():
-            log.info("Reconnecting in %ds...", RECONNECT_DELAY)
-            _shutdown.wait(RECONNECT_DELAY)
+            log.info("Reconnecting in %ds...", reconnect_delay)
+            _shutdown.wait(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
 
 
 # ── Signal Handling ────────────────────────────────────────────────────────

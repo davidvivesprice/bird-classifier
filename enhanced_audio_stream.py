@@ -21,7 +21,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import av
 import numpy as np
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfilt, sosfilt_zi
 
 # ── Configuration ──────────────────────────────────────────────────────────
 RTSP_URL = os.environ.get(
@@ -38,6 +38,10 @@ MP3_BITRATE = "192k"
 
 # Ring buffer: holds processed PCM chunks for clients to read
 RING_SIZE = 30  # ~30 seconds of audio
+
+# Reconnection backoff
+RECONNECT_BASE = 3
+RECONNECT_MAX = 30
 
 # ── Audio preprocessing ───────────────────────────────────────────────────
 # Simple bandpass filter — removes wind/traffic rumble (<300Hz) and
@@ -71,7 +75,10 @@ def _rtsp_reader():
     """Background thread: decode RTSP audio, apply bandpass, push to ring buffer."""
     global _ring_seq
 
+    reconnect_delay = RECONNECT_BASE
+
     while not _shutdown.is_set():
+        container = None
         try:
             log.info("Opening RTSP stream: %s", RTSP_URL)
             container = av.open(RTSP_URL, options={
@@ -86,7 +93,6 @@ def _rtsp_reader():
 
             if not audio_stream:
                 log.error("No audio stream found in RTSP")
-                time.sleep(5)
                 continue
 
             log.info("Audio stream: %s %dHz %dch",
@@ -98,8 +104,16 @@ def _rtsp_reader():
                 format="s16", layout="mono", rate=SAMPLE_RATE
             )
 
-            pcm_buf = np.array([], dtype=np.float32)
+            # Accumulate audio frames in a list (avoid O(n²) np.concatenate)
+            pcm_parts = []
+            pcm_parts_samples = 0
             chunks_produced = 0
+
+            # Initialize bandpass filter state for seamless chunk boundaries
+            zi = sosfilt_zi(_bandpass_sos)
+
+            # Reset backoff on successful connection
+            reconnect_delay = RECONNECT_BASE
 
             for packet in container.demux(audio_stream):
                 if _shutdown.is_set():
@@ -109,14 +123,25 @@ def _rtsp_reader():
                     for rf in resampled:
                         raw = rf.to_ndarray().flatten()
                         audio = raw.astype(np.float32) / 32768.0
-                        pcm_buf = np.concatenate([pcm_buf, audio])
+                        pcm_parts.append(audio)
+                        pcm_parts_samples += len(audio)
 
-                        while len(pcm_buf) >= CHUNK_SAMPLES:
+                        while pcm_parts_samples >= CHUNK_SAMPLES:
+                            # Concatenate once to extract chunk
+                            pcm_buf = np.concatenate(pcm_parts)
                             chunk = pcm_buf[:CHUNK_SAMPLES]
-                            pcm_buf = pcm_buf[CHUNK_SAMPLES:]
+                            remainder = pcm_buf[CHUNK_SAMPLES:]
 
-                            # Apply bandpass filter
-                            filtered = sosfilt(_bandpass_sos, chunk).astype(np.float32)
+                            # Rebuild parts list from remainder
+                            if len(remainder) > 0:
+                                pcm_parts = [remainder]
+                                pcm_parts_samples = len(remainder)
+                            else:
+                                pcm_parts = []
+                                pcm_parts_samples = 0
+
+                            # Apply bandpass filter with state persistence
+                            filtered, zi = sosfilt(_bandpass_sos, chunk, zi=zi)
                             pcm_bytes = (filtered * 32768).astype(np.int16).tobytes()
 
                             # Push to ring buffer
@@ -133,16 +158,21 @@ def _rtsp_reader():
                             if chunks_produced % 60 == 0:
                                 log.info("Processed %d chunks (%.0fs)", chunks_produced, chunks_produced * CHUNK_SECONDS)
 
-            container.close()
-
         except av.error.ExitError:
             log.warning("RTSP stream ended")
         except Exception as e:
             log.error("RTSP error: %s", e)
+        finally:
+            if container:
+                try:
+                    container.close()
+                except Exception:
+                    pass
 
         if not _shutdown.is_set():
-            log.info("Reconnecting in 3s...")
-            time.sleep(3)
+            log.info("Reconnecting in %ds...", reconnect_delay)
+            _shutdown.wait(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
 
 
 class StreamHandler(BaseHTTPRequestHandler):
@@ -172,6 +202,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
 
         # Start ffmpeg encoder: raw PCM → MP3 stream
+        # stderr=DEVNULL prevents pipe buffer deadlock when ffmpeg emits warnings
         encoder = subprocess.Popen([
             "/usr/local/bin/ffmpeg", "-hide_banner", "-loglevel", "warning",
             "-f", "s16le",
@@ -182,7 +213,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             "-b:a", MP3_BITRATE,
             "-f", "mp3",
             "pipe:1",
-        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
         # Send HTTP headers
         self.send_response(200)
@@ -247,7 +278,13 @@ class StreamHandler(BaseHTTPRequestHandler):
         except Exception as e:
             log.warning("Stream error for %s: %s", self.client_address[0], e)
         finally:
+            # Graceful encoder cleanup: terminate, then kill if stuck
             encoder.terminate()
+            try:
+                encoder.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                encoder.kill()
+                encoder.wait()
             feed_thread.join(timeout=2)
             log.info("Stream ended for %s (sent %dKB)", self.client_address[0], bytes_sent // 1024)
 
@@ -279,7 +316,7 @@ def main():
     log.info("  Filter: bandpass %d-%d Hz", BANDPASS_LOW, BANDPASS_HIGH)
     log.info("  Chunk: %.1fs, Ring: %d chunks", CHUNK_SECONDS, RING_SIZE)
 
-    # Start RTSP reader thread
+    # Start RTSP reader thread (non-daemon so we can join on shutdown)
     reader = threading.Thread(target=_rtsp_reader, daemon=True)
     reader.start()
 
@@ -300,7 +337,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        _shutdown.set()
         server.server_close()
+        reader.join(timeout=5)
         log.info("Server stopped")
 
 
