@@ -84,16 +84,20 @@ RECONNECT_DELAY = 5  # seconds before retrying on RTSP failure
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
 # ── Audio Preprocessing ───────────────────────────────────────────────────
-# Bandpass filter (300Hz–15kHz) — matches BirdNET-Go's equalizer config.
-# Removes wind/traffic rumble (<300Hz) and ultrasonic noise (>15kHz).
+# Two-stage noise reduction pipeline + RMS normalization:
+#   1. Bandpass filter (300Hz–15kHz) — removes sub-bass rumble and ultrasonic noise
+#   2. noisereduce spectral gating — suppresses broadband noise within the passband
+#   3. RMS normalization — restores original signal level so the model sees audio
+#      at the amplitude it was trained on
+
+# Stage 1: Bandpass filter
 BANDPASS_LOW = 300
 BANDPASS_HIGH = 15000
 BANDPASS_ORDER = 4
 _bandpass_sos = butter(BANDPASS_ORDER, [BANDPASS_LOW, BANDPASS_HIGH],
                        btype='band', fs=SAMPLE_RATE, output='sos')
 
-# Noise reduction: spectral gating via noisereduce (stationary mode).
-# Suppresses broadband noise within the passband while preserving tonal bird calls.
+# Stage 2: noisereduce spectral gating
 NOISE_REDUCE_ENABLED = True
 try:
     import noisereduce as nr
@@ -103,25 +107,42 @@ except ImportError:
 
 
 def preprocess_audio(audio_float32):
-    """Apply bandpass filter + spectral noise reduction to a float32 audio buffer.
+    """Apply bandpass + spectral noise reduction + RMS normalization.
+
+    Pipeline: bandpass → noisereduce spectral gating → RMS match.
+    The final RMS normalization restores the original signal level so the model
+    receives audio at the amplitude it was trained on, with noise replaced by
+    silence rather than the overall volume being crushed.
 
     Args:
         audio_float32: numpy float32 array, values in [-1, 1]
 
     Returns:
-        Cleaned float32 audio array, same shape.
+        Cleaned float32 audio array, same shape, matched to original RMS.
     """
+    # Measure original RMS before any processing
+    original_rms = np.sqrt(np.mean(audio_float32 ** 2))
+
     # Stage 1: Bandpass filter (sub-millisecond)
     cleaned = sosfilt(_bandpass_sos, audio_float32).astype(np.float32)
 
-    # Stage 2: Spectral noise reduction (~250ms for 6s@48kHz)
+    # Stage 2: Spectral noise reduction (~250-500ms for 6s@48kHz)
     if NOISE_REDUCE_ENABLED and nr is not None:
         cleaned = nr.reduce_noise(
             y=cleaned, sr=SAMPLE_RATE,
             stationary=True,
             n_fft=1024,
-            prop_decrease=0.85,     # how much to reduce noise (0=none, 1=full)
+            prop_decrease=0.85,
         ).astype(np.float32)
+
+    # Stage 3: RMS normalization — rescale so cleaned audio matches original level.
+    # This ensures the model sees the same amplitude it was trained on.
+    # The noise is gone but the bird call signal fills the original dynamic range.
+    cleaned_rms = np.sqrt(np.mean(cleaned ** 2))
+    if cleaned_rms > 1e-10:  # avoid division by zero on silence
+        cleaned = cleaned * (original_rms / cleaned_rms)
+        # Clip to [-1, 1] to prevent rare edge-case clipping
+        np.clip(cleaned, -1.0, 1.0, out=cleaned)
 
     return cleaned
 
@@ -621,7 +642,7 @@ def main():
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)
     log.info("  Deep detection instant: %.0f%%", DEEP_DETECTION_INSTANT * 100)
-    log.info("  Noise reduction: %s", "ON (bandpass + noisereduce)" if NOISE_REDUCE_ENABLED else "bandpass only")
+    log.info("  Noise reduction: %s", "ON (bandpass + noisereduce + RMS match)" if NOISE_REDUCE_ENABLED else "bandpass only")
     log.info("  DB: %s", DB_PATH)
     log.info("  Clips: %s", CLIPS_DIR)
 
