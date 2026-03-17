@@ -366,6 +366,12 @@ class SSEHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
+        # Send an immediate greeting to prime the HTTP/2 data stream.
+        # Without this first data frame, Traefik/nginx may buffer the
+        # connection and the browser's EventSource never receives messages.
+        self.wfile.write(b'data: {"type":"connected"}\n\n')
+        self.wfile.flush()
+
         client_queue = queue.Queue(maxsize=100)
         with sse_lock:
             sse_clients.append(client_queue)

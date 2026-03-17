@@ -1734,6 +1734,10 @@
   }
   .camera-badge-feeder { background: rgba(96,165,250,0.2); color: var(--accent-blue); }
   .camera-badge-ground { background: rgba(45,212,191,0.2); color: var(--accent-teal); }
+  .camera-badge-live { background: rgba(251,191,36,0.25); color: var(--accent-amber); }
+  @keyframes live-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .live-sighting .recent-meta { color: var(--accent-amber); }
+  .live-sighting .recent-meta::before { content: '⚡ '; }
   .camera-badge-unknown { background: rgba(107,114,128,0.2); color: var(--text-muted); }
 </style>
 </head>
@@ -3225,13 +3229,18 @@
       const name = d.top_prediction ? d.top_prediction.common_name : 'Unknown';
       const conf = d.best_detection ? d.best_detection.confidence : (d.top_prediction ? d.top_prediction.raw_score : 0);
       const ts = d.source_timestamp || d.timestamp;
-      const thumbUrl = d.file ? '/bird-api/image/' + encodeURIComponent(d.file) : '';
+      const isLive = d.action === 'live';
+      // Live detections: use species image; classified: use camera thumbnail
+      const thumbUrl = isLive
+        ? '/bird-api/species-image/' + encodeURIComponent(name)
+        : (d.file ? '/bird-api/image/' + encodeURIComponent(d.file) : '');
       const cam = d.camera || '';
       const camBadge = cam === 'feeder' ? '<span class="camera-badge camera-badge-feeder" title="Feeder cam">F</span>'
                       : cam === 'ground' ? '<span class="camera-badge camera-badge-ground" title="Ground cam">G</span>'
                       : cam ? '<span class="camera-badge camera-badge-unknown" title="' + cam + '">' + cam.charAt(0).toUpperCase() + '</span>'
                       : '';
-      return '<div class="recent-item" style="cursor:pointer" onclick="openDetection(' + i + ')">' +
+      const liveClass = isLive ? ' live-sighting' : '';
+      return '<div class="recent-item' + liveClass + '" style="cursor:pointer" onclick="' + (isLive ? 'openSpeciesPopup(\'' + escAttr(name) + '\')' : 'openDetection(' + i + ')') + '">' +
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
           '<div class="recent-species">' + spLink(name) + '</div>' +
@@ -3509,8 +3518,15 @@
   async function loadAllRecent() {
     try {
       const all = await apiFetch('/bird-api/recent?limit=100' + cameraParam('&'));
-      recentDetections = all;
-      return all;
+      // Preserve recent live detections (< 5 min old) from SSE, merge with API results
+      var now = Date.now();
+      var liveDets = recentDetections.filter(function(d) {
+        if (d.action !== 'live') return false;
+        var t = parseTimestamp(d.source_timestamp);
+        return (now - t) < 300000; // keep live detections < 5 min old
+      });
+      recentDetections = liveDets.concat(all).slice(0, 100);
+      return recentDetections;
     } catch (e) {
       return [];
     }
@@ -4666,50 +4682,83 @@
   }
 
   // ── Live Detection SSE (bounding boxes) ──
-  function connectLiveDetectionSSE() {
-    if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
-    liveDetectionSource = new EventSource('/live-detections/events');
+  function _handleLiveDetection(event) {
+    try {
+      var det = JSON.parse(event.data);
+      if (det.type === 'connected') {
+        console.log('[LiveDet SSE] Stream primed');
+        return;
+      }
+      var detCamera = det.camera || '';
 
-    liveDetectionSource.onopen = function() {
-      console.log('[LiveDet SSE] Connected');
-    };
-
-    liveDetectionSource.onerror = function() {
-      console.log('[LiveDet SSE] Connection error, will auto-reconnect');
-    };
-
-    liveDetectionSource.onmessage = function(event) {
-      try {
-        var det = JSON.parse(event.data);
-        if (!showDetectionOverlay) return;
-        var detCamera = det.camera || '';
-
+      // ── Bounding box overlay ──
+      if (showDetectionOverlay) {
         if (currentStream === 'both') {
-          // Split mode: route to the matching cell's detection list
           det._expireAt = Date.now() + 2500;
           if (!window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
           if (window._splitDetections[detCamera]) {
             window._splitDetections[detCamera].push(det);
-            // Cap split detection arrays
             if (window._splitDetections[detCamera].length > 100) {
               window._splitDetections[detCamera] = window._splitDetections[detCamera].slice(-50);
             }
           }
         } else {
-          // Single cam mode: filter to currently viewed camera
           var viewingCamera = currentStream.replace('-main', '');
-          if (detCamera && detCamera !== viewingCamera) return;
-          det._expireAt = Date.now() + 2500;
-          liveDetections.push(det);
-          // Cap live detections array
-          if (liveDetections.length > 100) {
-            liveDetections = liveDetections.slice(-50);
+          if (!detCamera || detCamera === viewingCamera) {
+            det._expireAt = Date.now() + 2500;
+            liveDetections.push(det);
+            if (liveDetections.length > 100) {
+              liveDetections = liveDetections.slice(-50);
+            }
           }
         }
-      } catch (e) {
-        console.warn('[LiveDet SSE] Parse error:', e);
       }
-    };
+
+      // ── Inject into Recent Sightings (real-time freshness) ──
+      if (det.species && det.confidence > 0.50) {
+        var now = Date.now();
+        // Dedup: skip if same species+camera seen in last 30s
+        var dominated = recentDetections.some(function(r) {
+          if (r.action !== 'live') return false;
+          if (!r.top_prediction || r.top_prediction.common_name !== det.species) return false;
+          if (r.camera !== detCamera) return false;
+          var rTime = parseTimestamp(r.source_timestamp);
+          return (now - rTime) < 30000;
+        });
+        if (!dominated) {
+          var liveSighting = {
+            file: null,
+            source_timestamp: det.timestamp,
+            timestamp: det.timestamp,
+            camera: detCamera,
+            action: 'live',
+            top_prediction: { common_name: det.species, scientific_name: det.scientific_name || '' },
+            best_detection: { confidence: det.confidence, box: det.bbox }
+          };
+          recentDetections.unshift(liveSighting);
+          if (recentDetections.length > 50) recentDetections = recentDetections.slice(0, 50);
+          renderRecent();
+        }
+      }
+    } catch (e) {
+      console.warn('[LiveDet SSE] Parse error:', e);
+    }
+  }
+
+  function connectLiveDetectionSSE() {
+    if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
+
+    var es = new EventSource('/live-detections/events');
+    liveDetectionSource = es;
+
+    // Use addEventListener instead of onmessage for robustness
+    es.addEventListener('open', function() {
+      console.log('[LiveDet SSE] Connected');
+    });
+    es.addEventListener('error', function() {
+      console.log('[LiveDet SSE] Connection error, will auto-reconnect');
+    });
+    es.addEventListener('message', _handleLiveDetection);
   }
 
   // Draw detection boxes on a canvas given a video element and detection list

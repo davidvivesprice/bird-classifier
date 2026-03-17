@@ -1,36 +1,20 @@
 #!/usr/bin/env python3
 """Enhanced audio stream server.
 
-Captures RTSP audio via python-av, applies a wind-resilient noise reduction
-pipeline, encodes to MP3 via ffmpeg, and serves as a streaming HTTP endpoint.
-The dashboard toggles between this and the raw camera feed.
+Captures RTSP audio via python-av, applies a bandpass filter (300Hz-15kHz)
+to isolate bird call frequencies, encodes to MP3 via ffmpeg, and serves
+as a streaming HTTP endpoint. The dashboard toggles between this and the
+raw camera feed.
 
 Architecture:
-  RTSP → python-av (decode) → preprocess → crossfade → ring buffer → ffmpeg (encode) → HTTP
-
-Audio preprocessing pipeline (optimized for coastal wind noise):
-  1. Bandpass filter (300Hz–15kHz) — removes sub-bass rumble and ultrasonic noise
-  2. Wind detection — if low-freq energy (<200Hz) dominates, skip noisereduce entirely
-  3. noisereduce (non-stationary mode) — adaptive spectral gating with gentle parameters
-     tuned to avoid gate-switching artifacts during wind gusts
-  4. RMS normalization — restores original signal level, gain capped at 3× (9.5 dB)
-  5. Chunk crossfade — Hann window overlap at chunk boundaries prevents clicks
-
-This pipeline differs from audio_analyzer.py which uses aggressive settings
-(prop_decrease=0.85, stationary mode) because BirdNET detection needs maximum
-noise suppression and doesn't care about audio quality. This stream is for
-human ears — artifacts must never be audible.
+  RTSP → python-av (decode) → bandpass filter → ring buffer → ffmpeg (encode) → HTTP
 """
 
 import collections
-import io
 import logging
 import os
 import signal
-import socket
-import struct
 import subprocess
-import sys
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -55,35 +39,14 @@ MP3_BITRATE = "192k"
 # Ring buffer: holds processed PCM chunks for clients to read
 RING_SIZE = 30  # ~30 seconds of audio
 
-# ── Audio preprocessing (tuned for listener comfort, NOT detection) ────────
-# Unlike audio_analyzer.py (aggressive for BirdNET), this prioritizes
-# pleasant audio: no clicking, no distortion, even in extreme wind.
-
+# ── Audio preprocessing ───────────────────────────────────────────────────
+# Simple bandpass filter — removes wind/traffic rumble (<300Hz) and
+# ultrasonic noise (>15kHz), leaving the bird call frequency range clean.
 BANDPASS_LOW = 300
 BANDPASS_HIGH = 15000
 BANDPASS_ORDER = 4
 _bandpass_sos = butter(BANDPASS_ORDER, [BANDPASS_LOW, BANDPASS_HIGH],
                        btype='band', fs=SAMPLE_RATE, output='sos')
-
-# Wind detection: 200Hz lowpass to measure sub-bass energy from wind gusts
-WIND_DETECT_CUTOFF = 200
-WIND_RATIO_THRESHOLD = 3.0  # skip noisereduce when wind energy > 3× passband
-_wind_detect_sos = butter(2, WIND_DETECT_CUTOFF, btype='low',
-                          fs=SAMPLE_RATE, output='sos')
-
-# RMS normalization gain cap (prevents amplifying residual artifacts)
-MAX_RMS_GAIN = 3.0  # 9.5 dB max boost
-
-# Chunk crossfade to eliminate boundary clicks
-FADE_SAMPLES = 2048  # ~42ms at 48kHz — imperceptible transition
-_prev_tail = None
-
-NOISE_REDUCE_ENABLED = True
-try:
-    import noisereduce as nr
-except ImportError:
-    nr = None
-    NOISE_REDUCE_ENABLED = False
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -104,82 +67,8 @@ _ring_cond = threading.Condition(_ring_lock)  # notify clients of new data
 _stream_ready = threading.Event()  # set once first chunk is in the buffer
 
 
-def preprocess_chunk(audio_float32):
-    """Apply wind-resilient noise reduction for human listening.
-
-    Pipeline:
-      1. Bandpass (300Hz–15kHz) — removes rumble and ultrasonic noise
-      2. Wind check — if sub-bass energy dominates, skip noisereduce
-      3. noisereduce (non-stationary, gentle) — adaptive spectral gating
-      4. RMS normalization — restore volume, gain capped at 3×
-    """
-    original_rms = np.sqrt(np.mean(audio_float32 ** 2))
-    if original_rms < 1e-10:
-        return audio_float32
-
-    # Stage 1: Bandpass filter
-    cleaned = sosfilt(_bandpass_sos, audio_float32).astype(np.float32)
-
-    # Stage 2: Wind detection — measure sub-bass energy from raw audio
-    # Wind gusts produce massive energy below 200Hz; when this dominates,
-    # noisereduce creates the worst artifacts, so we skip it entirely.
-    skip_nr = False
-    if NOISE_REDUCE_ENABLED and nr is not None:
-        wind_energy = np.sqrt(np.mean(sosfilt(_wind_detect_sos, audio_float32) ** 2))
-        band_energy = np.sqrt(np.mean(cleaned ** 2))
-        wind_ratio = wind_energy / (band_energy + 1e-10)
-        if wind_ratio > WIND_RATIO_THRESHOLD:
-            skip_nr = True
-
-    # Stage 3: Noise reduction (non-stationary mode, gentle parameters)
-    if NOISE_REDUCE_ENABLED and nr is not None and not skip_nr:
-        cleaned = nr.reduce_noise(
-            y=cleaned, sr=SAMPLE_RATE,
-            stationary=False,
-            n_fft=1024,
-            prop_decrease=0.40,
-            time_constant_s=3.0,
-            freq_mask_smooth_hz=1000,
-            time_mask_smooth_ms=120,
-            thresh_n_mult_nonstationary=3.5,
-            sigmoid_slope_nonstationary=6,
-        ).astype(np.float32)
-
-    # Stage 4: RMS normalization with gain cap
-    cleaned_rms = np.sqrt(np.mean(cleaned ** 2))
-    if cleaned_rms > 1e-10:
-        gain = min(original_rms / cleaned_rms, MAX_RMS_GAIN)
-        cleaned = cleaned * gain
-        np.clip(cleaned, -1.0, 1.0, out=cleaned)
-
-    return cleaned
-
-
-def _crossfade_chunk(processed):
-    """Apply Hann window crossfade at chunk boundaries to eliminate clicks.
-
-    Each chunk's first FADE_SAMPLES are blended with the previous chunk's
-    last FADE_SAMPLES using a Hann window taper.
-    """
-    global _prev_tail
-
-    if _prev_tail is not None and len(processed) >= FADE_SAMPLES:
-        fade_in = np.linspace(0, 1, FADE_SAMPLES, dtype=np.float32)
-        fade_out = 1.0 - fade_in
-        processed[:FADE_SAMPLES] = (
-            _prev_tail * fade_out + processed[:FADE_SAMPLES] * fade_in
-        )
-
-    if len(processed) >= FADE_SAMPLES:
-        _prev_tail = processed[-FADE_SAMPLES:].copy()
-    else:
-        _prev_tail = None
-
-    return processed
-
-
 def _rtsp_reader():
-    """Background thread: decode RTSP audio, preprocess, push to ring buffer."""
+    """Background thread: decode RTSP audio, apply bandpass, push to ring buffer."""
     global _ring_seq
 
     while not _shutdown.is_set():
@@ -226,10 +115,9 @@ def _rtsp_reader():
                             chunk = pcm_buf[:CHUNK_SAMPLES]
                             pcm_buf = pcm_buf[CHUNK_SAMPLES:]
 
-                            # Preprocess the chunk + crossfade boundaries
-                            processed = preprocess_chunk(chunk)
-                            processed = _crossfade_chunk(processed)
-                            pcm_bytes = (processed * 32768).astype(np.int16).tobytes()
+                            # Apply bandpass filter
+                            filtered = sosfilt(_bandpass_sos, chunk).astype(np.float32)
+                            pcm_bytes = (filtered * 32768).astype(np.int16).tobytes()
 
                             # Push to ring buffer
                             with _ring_cond:
@@ -314,7 +202,6 @@ class StreamHandler(BaseHTTPRequestHandler):
                     with _ring_cond:
                         # Wait for new data
                         while not _shutdown.is_set():
-                            # Find chunks newer than last_seq
                             new_chunks = [(s, d) for s, d in _ring_buf if s > last_seq]
                             if new_chunks:
                                 break
@@ -344,8 +231,8 @@ class StreamHandler(BaseHTTPRequestHandler):
         feed_thread.start()
 
         # Stream MP3 from encoder to client
+        bytes_sent = 0
         try:
-            bytes_sent = 0
             while not _shutdown.is_set():
                 data = encoder.stdout.read(4096)
                 if not data:
@@ -389,10 +276,7 @@ def main():
     log.info("Enhanced audio stream server starting on port %d", HTTP_PORT)
     log.info("  RTSP: %s", RTSP_URL)
     log.info("  MP3 bitrate: %s", MP3_BITRATE)
-    log.info("  Noise reduction: %s", "ON (non-stationary, prop=0.40, wind bypass)" if NOISE_REDUCE_ENABLED else "OFF")
-    log.info("  Wind bypass threshold: %.1f", WIND_RATIO_THRESHOLD)
-    log.info("  RMS gain cap: %.1f×", MAX_RMS_GAIN)
-    log.info("  Crossfade: %d samples (%.1fms)", FADE_SAMPLES, FADE_SAMPLES / SAMPLE_RATE * 1000)
+    log.info("  Filter: bandpass %d-%d Hz", BANDPASS_LOW, BANDPASS_HIGH)
     log.info("  Chunk: %.1fs, Ring: %d chunks", CHUNK_SECONDS, RING_SIZE)
 
     # Start RTSP reader thread
