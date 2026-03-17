@@ -522,7 +522,10 @@ def run(test_mode=False):
                         t_inf.start()
                         t_inf.join(timeout=30)  # 30s max for inference
                         if not inference_result[0]:
-                            log.error("Inference timed out (30s), skipping chunk")
+                            log.error("Inference timed out (30s), skipping chunk. "
+                                      "Orphaned thread will be cleaned up by daemon flag.")
+                            # Note: daemon thread will be reaped on process exit.
+                            # If this happens repeatedly, the model is likely broken.
                             continue
                     except Exception as e:
                         log.error("Inference error: %s", e)

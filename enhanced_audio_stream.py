@@ -13,6 +13,7 @@ Architecture:
 import collections
 import logging
 import os
+import select
 import signal
 import subprocess
 import threading
@@ -265,6 +266,12 @@ class StreamHandler(BaseHTTPRequestHandler):
         bytes_sent = 0
         try:
             while not _shutdown.is_set():
+                # Use select to avoid blocking forever if ffmpeg stalls
+                ready, _, _ = select.select([encoder.stdout], [], [], 5.0)
+                if not ready:
+                    if encoder.poll() is not None:
+                        break
+                    continue
                 data = encoder.stdout.read(4096)
                 if not data:
                     if encoder.poll() is not None:

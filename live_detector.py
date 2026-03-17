@@ -687,7 +687,7 @@ def main():
     server = ThreadingHTTPServer(('0.0.0.0', args.port), SSEHandler)
     server.daemon_threads = False   # allow graceful handler cleanup
     server.block_on_close = True    # join threads on server_close()
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True, name='sse-server')
+    server_thread = threading.Thread(target=server.serve_forever, daemon=False, name='sse-server')
     server_thread.start()
     logging.info("SSE server listening on port %d (threaded)", args.port)
 

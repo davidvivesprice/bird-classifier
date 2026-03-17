@@ -23,7 +23,7 @@ import os
 import shutil
 import sys
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -119,15 +119,14 @@ def _solar_times(lat, lon, dt=None):
 
 
 def _utc_offset_for_date(dt):
-    """Return UTC offset for US Eastern time (EST=-5, EDT=-4)."""
-    year = dt.year
-    march1 = date(year, 3, 1)
-    nov1 = date(year, 11, 1)
-    # DST starts 2nd Sunday of March
-    dst_start = march1 + timedelta(days=(6 - march1.weekday()) % 7 + 7)
-    # DST ends 1st Sunday of November
-    dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
-    return -4 if dst_start <= dt <= dst_end else -5
+    """Return UTC offset using the system's local timezone.
+
+    Uses timezone-aware datetime to get the correct offset, including
+    during DST transitions (which happen at 2:00 AM, not midnight).
+    """
+    # Get the actual UTC offset from the OS timezone database
+    local_dt = datetime.now(timezone.utc).astimezone()
+    return int(local_dt.utcoffset().total_seconds() / 3600)
 
 
 def is_nighttime():
@@ -885,7 +884,10 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
             TRASH_DIR.mkdir(parents=True, exist_ok=True)
             result["action"] = "trashed:overcap"
             append_result(result)
-            shutil.move(str(image_path), str(TRASH_DIR / fname))
+            try:
+                shutil.move(str(image_path), str(TRASH_DIR / fname))
+            except Exception as exc:
+                logging.warning("Failed to trash %s: %s", fname, exc)
             logging.info("CULL %s — %s over cap (%d/%d)", fname, species_name, existing, cap)
             return
 
@@ -896,7 +898,10 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
     annotated.save(str(ANNOTATED_DIR / fname), quality=90)
 
-    shutil.move(str(image_path), str(species_dir / fname))
+    try:
+        shutil.move(str(image_path), str(species_dir / fname))
+    except Exception as exc:
+        logging.warning("Failed to move %s to %s: %s", fname, species_dir, exc)
 
     raw_note = ""
     if all_raw[0][0]["common_name"] != top["common_name"]:
@@ -916,11 +921,18 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
 
 
 def get_pending_files():
-    """Get JPEG files in incoming/ ready for processing."""
+    """Get JPEG files in incoming/ ready for processing.
+
+    Skips .tmp files and files modified in the last 2 seconds (may still
+    be mid-transfer from sync_snapshots.sh).
+    """
     if not INCOMING_DIR.exists():
         return []
+    now = time.time()
     files = sorted(INCOMING_DIR.glob("*.jpg"))
-    return [f for f in files if not f.name.endswith(".tmp")]
+    return [f for f in files
+            if not f.name.endswith(".tmp")
+            and (now - f.stat().st_mtime) > 2.0]
 
 
 def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
