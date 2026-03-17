@@ -463,3 +463,302 @@
 {"file": "2026-03-12_05-49-39.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-12T07:48:04.325677"}
 {"file": "2026-03-12_05-50-00.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-12T07:48:05.044800"}
 {"file": "2026-03-12_05-50-11.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-12T07:48:05.954468"}
+{"file": "feeder_2026-03-15_07-04-08.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:04:58.124074"}
+{"file": "feeder_2026-03-15_07-03-23.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:05:01.282907"}
+{"file": "ground_2026-03-15_07-02-33.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:05:08.464143"}
+{"file": "ground_2026-03-15_07-02-21.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:05:16.295415"}
+{"file": "feeder_2026-03-15_07-01-53.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:07:47.205788"}
+{"file": "feeder_2026-03-15_06-57-45.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:08:11.721917"}
+{"file": "ground_2026-03-15_07-46-40.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:01.353234"}
+{"file": "ground_2026-03-15_07-46-29.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:06.925170"}
+{"file": "ground_2026-03-15_07-46-06.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:12.556055"}
+{"file": "feeder_2026-03-15_07-45-59.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:22.718618"}
+{"file": "feeder_2026-03-15_07-45-26.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:26.188978"}
+{"file": "feeder_2026-03-15_07-45-59.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T07:56:36.005762"}
+{"file": "feeder_2026-03-15_07-45-26.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:38.804246"}
+{"file": "feeder_2026-03-15_07-45-09.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:41.617108"}
+{"file": "ground_2026-03-15_07-44-29.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:45.061837"}
+{"file": "feeder_2026-03-15_07-42-38.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:47.882014"}
+{"file": "feeder_2026-03-15_07-42-04.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:56:50.306208"}
+{"file": "ground_2026-03-15_07-41-08.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T07:56:53.729063"}
+{"file": "feeder_2026-03-15_07-40-57.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T07:56:56.457754"}
+{"file": "ground_2026-03-15_07-40-29.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:01.064188"}
+{"file": "ground_2026-03-15_07-39-55.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:03.150071"}
+{"file": "ground_2026-03-15_07-39-55.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T07:57:09.315058"}
+{"file": "ground_2026-03-15_07-39-31.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:11.302429"}
+{"file": "ground_2026-03-15_07-39-20.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:22.474187"}
+{"file": "feeder_2026-03-15_07-38-09.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:28.059910"}
+{"file": "feeder_2026-03-15_07-37-58.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:32.438083"}
+{"file": "ground_2026-03-15_07-37-49.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:39.360044"}
+{"file": "feeder_2026-03-15_07-37-47.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:42.997222"}
+{"file": "feeder_2026-03-15_07-37-14.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:46.555626"}
+{"file": "feeder_2026-03-15_07-37-02.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:57:48.832623"}
+{"file": "ground_2026-03-15_07-36-47.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:02.821342"}
+{"file": "ground_2026-03-15_07-36-36.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:19.192829"}
+{"file": "ground_2026-03-15_07-36-13.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:23.444130"}
+{"file": "feeder_2026-03-15_07-35-20.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T07:58:35.297939"}
+{"file": "ground_2026-03-15_07-35-04.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:40.209070"}
+{"file": "feeder_2026-03-15_07-34-57.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:42.840854"}
+{"file": "ground_2026-03-15_07-34-52.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:58:45.317837"}
+{"file": "ground_2026-03-15_07-34-41.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:59:32.992644"}
+{"file": "ground_2026-03-15_07-34-02.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "timestamp": "2026-03-15T07:59:43.663516"}
+{"file": "feeder_2026-03-15_07-34-00.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T07:59:53.969123"}
+{"file": "feeder_2026-03-15_07-33-48.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T07:59:58.347973"}
+{"file": "ground_2026-03-15_07-33-38.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:00:07.569802"}
+{"file": "feeder_2026-03-15_07-33-02.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:00:14.385113"}
+{"file": "ground_2026-03-15_07-32-30.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:00:17.113810"}
+{"file": "ground_2026-03-15_07-32-18.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:00:18.845964"}
+{"file": "ground_2026-03-15_07-32-07.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:00:28.480087"}
+{"file": "feeder_2026-03-15_07-31-43.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:00:33.004870"}
+{"file": "2026-03-02_05-52-09.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:55:35.372300"}
+{"file": "2026-03-02_07-20-17.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:55:54.130166"}
+{"file": "2026-03-04_08-31-50.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:55:57.768131"}
+{"file": "2026-03-05_06-43-55.jpg", "verdict": "wrong", "correct_species": "Downy Woodpecker", "missed_birds": false, "timestamp": "2026-03-15T08:56:19.613095"}
+{"file": "2026-03-05_12-13-00.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:56:25.123711"}
+{"file": "2026-03-06_06-27-50.jpg", "verdict": "wrong", "correct_species": "Carolina Wren", "missed_birds": false, "timestamp": "2026-03-15T08:56:35.688519"}
+{"file": "2026-03-06_06-46-36.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:56:42.439160"}
+{"file": "2026-03-06_06-53-04.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:56:45.987191"}
+{"file": "2026-03-06_08-01-13.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:57:24.226727"}
+{"file": "2026-03-06_09-15-23.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T08:57:30.217213"}
+{"file": "2026-03-06_09-26-22.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "timestamp": "2026-03-15T08:57:43.222901"}
+{"file": "2026-03-06_11-22-52.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T08:57:49.135279"}
+{"file": "2026-03-06_12-51-35.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:57:52.002527"}
+{"file": "2026-03-06_12-54-57.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "timestamp": "2026-03-15T08:58:08.078115"}
+{"file": "2026-03-06_13-32-53.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T08:58:14.019334"}
+{"file": "2026-03-07_06-30-19.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "timestamp": "2026-03-15T08:58:21.370510"}
+{"file": "2026-03-07_06-39-56.jpg", "verdict": "wrong", "correct_species": "Hairy Woodpecker", "missed_birds": false, "timestamp": "2026-03-15T08:58:49.369779"}
+{"file": "2026-03-07_07-29-52.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "timestamp": "2026-03-15T08:58:55.540876"}
+{"file": "2026-03-07_07-44-55.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:59:00.791696"}
+{"file": "2026-03-07_08-09-25.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T08:59:06.139481"}
+{"file": "2026-03-07_09-02-09.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T08:59:14.523426"}
+{"file": "2026-03-07_09-40-57.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:59:18.511265"}
+{"file": "2026-03-07_14-51-23.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T08:59:49.691283"}
+{"file": "2026-03-09_08-50-14.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T08:59:54.265434"}
+{"file": "2026-03-09_15-22-21.jpg", "verdict": "wrong", "correct_species": "Northern Cardinal", "missed_birds": false, "timestamp": "2026-03-15T09:00:07.422252"}
+{"file": "2026-03-10_07-52-12.jpg", "verdict": "wrong", "correct_species": "Eastern Towhee", "missed_birds": false, "timestamp": "2026-03-15T09:00:21.941637"}
+{"file": "2026-03-10_13-04-31.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:00:27.238268"}
+{"file": "2026-03-10_15-05-52.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:00:32.630261"}
+{"file": "2026-03-10_15-14-46.jpg", "verdict": "wrong", "correct_species": "Northern Cardinal", "missed_birds": false, "timestamp": "2026-03-15T09:00:40.826583"}
+{"file": "2026-03-11_08-09-16.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:00:45.925514"}
+{"file": "2026-03-12_05-41-52.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:00:49.077000"}
+{"file": "2026-03-12_05-42-13.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:00:50.469847"}
+{"file": "2026-03-12_06-41-54.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:00:52.310488"}
+{"file": "2026-03-12_11-16-52.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:00:56.781863"}
+{"file": "2026-03-13_05-30-47.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:00.230622"}
+{"file": "2026-03-13_05-31-30.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:01.974446"}
+{"file": "2026-03-13_06-32-59.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:04.532645"}
+{"file": "2026-03-13_06-41-34.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:06.015567"}
+{"file": "2026-03-14_15-18-45.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:10.186154"}
+{"file": "2026-03-14_15-37-37.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:01:15.212950"}
+{"file": "2026-03-14_15-53-19.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:01:20.666064"}
+{"file": "ground_2026-03-15_05-14-56.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "timestamp": "2026-03-15T09:01:23.863310"}
+{"file": "ground_2026-03-15_05-42-49.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:26.426526"}
+{"file": "ground_2026-03-15_06-14-56.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "timestamp": "2026-03-15T09:01:28.539190"}
+{"file": "ground_2026-03-15_05-14-56.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "timestamp": "2026-03-15T09:01:32.853539"}
+{"file": "ground_2026-03-15_05-42-49.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:35.870314"}
+{"file": "ground_2026-03-15_07-34-02.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "timestamp": "2026-03-15T09:01:47.135941"}
+{"file": "feeder_2026-03-15_08-32-14.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "timestamp": "2026-03-15T09:01:50.735311"}
+{"file": "2026-03-02_05-52-09.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T09:01:53.948813"}
+{"file": "2026-03-02_07-40-47.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T11:14:47.640352"}
+{"file": "2026-03-02_09-05-10.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:15:04.177290"}
+{"file": "2026-03-03_06-57-22.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:15:21.861377"}
+{"file": "2026-03-03_06-57-33.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T11:15:33.602357"}
+{"file": "2026-03-03_09-51-19.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T11:15:54.746013"}
+{"file": "2026-03-04_06-13-34.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:15:59.696427"}
+{"file": "2026-03-04_06-13-55.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T11:16:22.678102"}
+{"file": "2026-03-04_06-40-43.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:16:25.823659"}
+{"file": "2026-03-04_06-40-54.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:16:30.023167"}
+{"file": "2026-03-05_10-31-47.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T11:16:45.220943"}
+{"file": "2026-03-05_10-32-10.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T11:17:05.654226"}
+{"file": "ground_2026-03-15_17-24-30.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:09.334453"}
+{"file": "ground_2026-03-15_17-24-19.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:18.225535"}
+{"file": "ground_2026-03-15_17-24-03.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:20.842402"}
+{"file": "ground_2026-03-15_17-23-52.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:37.499623"}
+{"file": "ground_2026-03-15_17-23-40.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:40.243655"}
+{"file": "ground_2026-03-15_17-23-30.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:41.519348"}
+{"file": "ground_2026-03-15_17-23-19.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:42.761557"}
+{"file": "ground_2026-03-15_17-23-08.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:44.200441"}
+{"file": "ground_2026-03-15_17-22-57.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:45.483913"}
+{"file": "ground_2026-03-15_17-22-46.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:25:47.807520"}
+{"file": "ground_2026-03-15_17-22-35.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T17:25:52.088763"}
+{"file": "ground_2026-03-15_17-22-24.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:05.603827"}
+{"file": "ground_2026-03-15_17-22-02.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:09.607847"}
+{"file": "ground_2026-03-15_17-21-51.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:12.222319"}
+{"file": "ground_2026-03-15_17-21-40.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:14.514257"}
+{"file": "ground_2026-03-15_17-21-28.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:20.480615"}
+{"file": "ground_2026-03-15_17-21-17.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:24.669656"}
+{"file": "ground_2026-03-15_17-21-06.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T17:26:26.567291"}
+{"file": "2026-03-02_13-55-28.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T22:07:39.600030"}
+{"file": "2026-03-02_14-01-36.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "timestamp": "2026-03-15T22:07:45.180320"}
+{"file": "2026-03-02_07-17-06.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "timestamp": "2026-03-15T22:07:49.742352"}
+{"file": "2026-03-02_07-17-16.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-15T22:29:52.820976"}
+{"file": "2026-03-03_08-16-02.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-15T22:37:50.996284"}
+{"file": "ground_2026-03-15_08-52-04.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-15T22:38:16.972354"}
+{"file": "2026-03-05_08-45-15.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-15T22:39:14.974098"}
+{"file": "2026-03-05_12-21-35.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-15T22:39:21.170196"}
+{"file": "2026-03-06_06-34-14.jpg", "verdict": "wrong", "correct_species": "Northern Cardinal", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-15T22:39:49.330248"}
+{"file": "2026-03-06_06-40-07.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-15T22:40:05.430450"}
+{"file": "2026-03-06_06-41-23.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-15T22:40:17.818930"}
+{"file": "2026-03-02_07-17-38.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:14:42.866021"}
+{"file": "2026-03-02_10-53-58.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.422438"}
+{"file": "2026-03-02_10-54-08.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.424987"}
+{"file": "2026-03-02_10-54-29.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.426548"}
+{"file": "2026-03-02_10-54-50.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.430915"}
+{"file": "2026-03-02_10-55-32.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.452727"}
+{"file": "2026-03-02_12-26-03.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.455292"}
+{"file": "2026-03-06_13-19-13.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.459122"}
+{"file": "2026-03-06_13-18-51.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.462494"}
+{"file": "2026-03-06_13-13-06.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.467953"}
+{"file": "2026-03-02_12-40-00.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.476019"}
+{"file": "2026-03-02_13-26-44.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.480579"}
+{"file": "2026-03-04_08-24-54.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.484321"}
+{"file": "2026-03-04_10-47-50.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.490541"}
+{"file": "2026-03-05_09-00-57.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.495765"}
+{"file": "2026-03-07_13-36-37.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.501706"}
+{"file": "2026-03-07_13-36-14.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.507703"}
+{"file": "2026-03-07_13-34-38.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.510754"}
+{"file": "2026-03-07_13-31-49.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.514137"}
+{"file": "2026-03-07_13-31-37.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.519610"}
+{"file": "2026-03-07_13-31-04.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.522798"}
+{"file": "2026-03-08_10-30-13.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.527017"}
+{"file": "2026-03-08_10-29-51.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.529763"}
+{"file": "2026-03-08_10-29-39.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.532894"}
+{"file": "2026-03-08_09-54-02.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.536702"}
+{"file": "2026-03-08_09-30-13.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.540173"}
+{"file": "2026-03-08_08-54-02.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.543588"}
+{"file": "2026-03-08_08-45-09.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.546047"}
+{"file": "2026-03-09_10-51-07.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.551268"}
+{"file": "2026-03-02_07-19-02.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.553690"}
+{"file": "2026-03-02_07-19-56.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.556422"}
+{"file": "2026-03-02_07-20-06.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.558923"}
+{"file": "2026-03-03_08-47-54.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.561372"}
+{"file": "2026-03-03_12-03-03.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.565016"}
+{"file": "2026-03-05_10-20-13.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.568441"}
+{"file": "2026-03-02_07-47-28.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.572513"}
+{"file": "feeder_2026-03-15_07-45-59.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.575576"}
+{"file": "ground_2026-03-15_07-41-08.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.580824"}
+{"file": "feeder_2026-03-15_07-40-57.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.584883"}
+{"file": "ground_2026-03-15_07-39-55.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.588747"}
+{"file": "feeder_2026-03-15_07-33-48.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.592354"}
+{"file": "feeder_2026-03-15_07-31-43.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.594052"}
+{"file": "2026-03-04_08-31-50.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.597530"}
+{"file": "2026-03-05_12-13-00.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.600286"}
+{"file": "2026-03-06_06-53-04.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.603606"}
+{"file": "2026-03-06_08-01-13.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.607063"}
+{"file": "2026-03-07_07-44-55.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.611004"}
+{"file": "2026-03-09_08-50-14.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.614139"}
+{"file": "2026-03-02_07-40-47.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.616209"}
+{"file": "2026-03-03_06-57-33.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.619285"}
+{"file": "2026-03-03_09-51-19.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.621710"}
+{"file": "2026-03-04_06-13-55.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.626127"}
+{"file": "2026-03-05_10-32-10.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.630584"}
+{"file": "ground_2026-03-15_17-22-35.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.634395"}
+{"file": "2026-03-02_07-17-06.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.636595"}
+{"file": "2026-03-02_07-17-16.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.639286"}
+{"file": "2026-03-03_08-16-02.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.641304"}
+{"file": "2026-03-05_12-21-35.jpg", "verdict": "requeued", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:17:31.644804"}
+{"file": "2026-03-02_10-53-58.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:20:17.229501"}
+{"file": "2026-03-02_10-54-08.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-16T10:20:24.972429"}
+{"file": "2026-03-02_10-54-29.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:12:11.208964"}
+{"file": "2026-03-02_10-54-50.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:12:15.197816"}
+{"file": "2026-03-02_10-55-32.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:12:23.760122"}
+{"file": "2026-03-02_12-26-03.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:12:28.343736"}
+{"file": "2026-03-02_12-40-00.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:12:31.676127"}
+{"file": "2026-03-02_13-26-44.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "bird_index": 1, "timestamp": "2026-03-17T09:12:52.835175"}
+{"file": "2026-03-02_07-17-06.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:24:04.487927"}
+{"file": "2026-03-02_07-17-16.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:24:32.689243"}
+{"file": "2026-03-02_07-17-48.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:24:47.901962"}
+{"file": "2026-03-02_07-19-02.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:24:54.269933"}
+{"file": "2026-03-02_07-19-13.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:25:05.043425"}
+{"file": "2026-03-02_07-19-24.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:25:08.699163"}
+{"file": "2026-03-02_07-19-45.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:25:15.270954"}
+{"file": "2026-03-02_07-19-45.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:25:49.510418"}
+{"file": "2026-03-02_07-19-45.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:26:06.286500"}
+{"file": "2026-03-02_07-19-45.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:26:21.604553"}
+{"file": "2026-03-02_07-17-06.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:26:41.836958"}
+{"file": "2026-03-02_12-19-29.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:27:06.052445"}
+{"file": "2026-03-05_08-45-15.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:28:27.916138"}
+{"file": "feeder_2026-03-15_07-33-02.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:29:11.707427"}
+{"file": "2026-03-02_11-07-59.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:29:44.835619"}
+{"file": "feeder_2026-03-15_07-34-00.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:32:32.840793"}
+{"file": "2026-03-05_09-01-26.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:33:49.132399"}
+{"file": "2026-03-02_10-18-39.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:35:21.751607"}
+{"file": "2026-03-02_09-19-21.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:35:26.732435"}
+{"file": "2026-03-02_07-16-23.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:36:14.634762"}
+{"file": "ground_2026-03-15_17-23-19.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:36:38.930486"}
+{"file": "2026-03-10_09-15-15.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:37:22.274419"}
+{"file": "2026-03-10_09-15-15.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:37:30.865893"}
+{"file": "2026-03-07_13-37-51.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:38:01.042073"}
+{"file": "2026-03-02_13-54-35.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:39:20.215523"}
+{"file": "2026-03-02_13-53-48.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:39:21.876491"}
+{"file": "2026-03-02_13-54-09.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:39:26.584810"}
+{"file": "2026-03-02_14-06-25.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:39:40.003569"}
+{"file": "2026-03-02_13-41-21.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:39:43.808055"}
+{"file": "2026-03-02_12-30-37.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:39:49.897327"}
+{"file": "2026-03-02_13-33-34.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:40:20.657028"}
+{"file": "2026-03-02_12-39-28.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:40:32.294275"}
+{"file": "2026-03-02_12-28-46.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:40:44.325951"}
+{"file": "2026-03-02_12-27-17.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:40:47.223202"}
+{"file": "2026-03-02_11-00-00.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:40:59.279165"}
+{"file": "ground_2026-03-15_07-02-21.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:41:19.939717"}
+{"file": "ground_2026-03-15_07-02-33.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:41:28.774963"}
+{"file": "2026-03-03_10-43-46.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:41:58.044943"}
+{"file": "2026-03-04_11-31-27.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:07.502100"}
+{"file": "2026-03-05_06-59-07.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:12.592060"}
+{"file": "2026-03-05_10-38-18.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:19.752335"}
+{"file": "2026-03-05_12-35-53.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:25.575576"}
+{"file": "2026-03-06_12-51-13.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:29.765656"}
+{"file": "2026-03-06_15-49-58.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:42:34.799520"}
+{"file": "2026-03-07_06-45-21.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:10.910338"}
+{"file": "2026-03-07_07-06-27.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:21.865211"}
+{"file": "2026-03-07_08-39-47.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:24.408495"}
+{"file": "2026-03-07_09-34-16.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:26.157754"}
+{"file": "2026-03-07_11-21-47.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:30.917519"}
+{"file": "2026-03-07_13-13-39.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:43:33.285497"}
+{"file": "2026-03-09_13-06-26.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:43:43.695283"}
+{"file": "2026-03-10_12-08-06.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:46:40.461251"}
+{"file": "2026-03-10_12-08-29.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:46:42.103620"}
+{"file": "2026-03-10_12-08-40.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:47:08.787234"}
+{"file": "2026-03-10_12-08-06.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:47:26.794170"}
+{"file": "2026-03-10_12-08-29.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:47:33.042203"}
+{"file": "2026-03-10_12-08-40.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:47:48.563398"}
+{"file": "2026-03-10_11-08-26.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:47:56.097774"}
+{"file": "2026-03-11_07-22-08.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:10.174930"}
+{"file": "2026-03-11_06-21-50.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:11.698782"}
+{"file": "2026-03-13_11-28-05.jpg", "verdict": "skip", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:15.087796"}
+{"file": "2026-03-13_13-59-55.jpg", "verdict": "wrong", "correct_species": "Song Sparrow", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:25.685183"}
+{"file": "feeder_2026-03-15_05-51-54.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:33.621163"}
+{"file": "ground_2026-03-15_07-21-08.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:40.098229"}
+{"file": "ground_2026-03-15_07-23-43.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:42.998408"}
+{"file": "ground_2026-03-15_07-25-04.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:52.810729"}
+{"file": "ground_2026-03-15_07-26-01.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:48:55.985358"}
+{"file": "feeder_2026-03-15_06-23-29.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:01.026538"}
+{"file": "ground_2026-03-15_06-20-15.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:03.192202"}
+{"file": "ground_2026-03-15_06-21-10.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:04.875788"}
+{"file": "ground_2026-03-15_06-21-21.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:06.474636"}
+{"file": "ground_2026-03-15_06-21-43.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:07.409023"}
+{"file": "ground_2026-03-15_06-23-43.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:08.573940"}
+{"file": "ground_2026-03-15_06-24-59.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 1, "timestamp": "2026-03-17T09:49:50.121963"}
+{"file": "ground_2026-03-15_06-25-21.jpg", "verdict": "wrong", "correct_species": "not_a_bird", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:49:55.192308"}
+{"file": "ground_2026-03-15_06-25-54.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:02.576633"}
+{"file": "ground_2026-03-15_06-26-05.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:05.676803"}
+{"file": "ground_2026-03-15_06-37-14.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 2, "timestamp": "2026-03-17T09:50:23.062325"}
+{"file": "feeder_2026-03-15_06-53-32.jpg", "verdict": "wrong", "correct_species": "Black-capped Chickadee", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:34.840402"}
+{"file": "feeder_2026-03-15_07-02-12.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:37.585164"}
+{"file": "ground_2026-03-15_08-31-46.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:44.386057"}
+{"file": "ground_2026-03-15_08-31-57.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:47.627199"}
+{"file": "ground_2026-03-15_08-33-53.jpg", "verdict": "wrong", "correct_species": "Tufted Titmouse", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:50:58.223379"}
+{"file": "ground_2026-03-15_08-35-47.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:01.176443"}
+{"file": "ground_2026-03-15_07-24-58.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:10.834351"}
+{"file": "ground_2026-03-15_07-31-53.jpg", "verdict": "wrong", "correct_species": "Dark-eyed Junco", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:19.232944"}
+{"file": "ground_2026-03-15_08-47-11.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:51:25.143190"}
+{"file": "ground_2026-03-15_08-47-22.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:29.944907"}
+{"file": "ground_2026-03-15_08-47-33.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:51:34.623204"}
+{"file": "ground_2026-03-15_08-47-57.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:38.711075"}
+{"file": "ground_2026-03-15_09-33-19.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:40.487892"}
+{"file": "ground_2026-03-15_09-33-31.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:41.784583"}
+{"file": "ground_2026-03-15_09-34-23.jpg", "verdict": "reclassify", "correct_species": "", "missed_birds": true, "bird_index": 0, "timestamp": "2026-03-17T09:51:44.127252"}
+{"file": "ground_2026-03-15_09-34-34.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:46.520446"}
+{"file": "ground_2026-03-15_09-34-46.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:48.911359"}
+{"file": "ground_2026-03-15_09-35-09.jpg", "verdict": "trash", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:52.086917"}
+{"file": "ground_2026-03-15_09-35-20.jpg", "verdict": "correct", "correct_species": "", "missed_birds": false, "bird_index": 0, "timestamp": "2026-03-17T09:51:54.584633"}
