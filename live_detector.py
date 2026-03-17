@@ -33,7 +33,7 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 import numpy as np
@@ -543,11 +543,13 @@ def main():
         else:
             logging.warning("[%s] Test frame failed (will retry in loop)", cam_name)
 
-    # Start SSE server
-    server = HTTPServer(('0.0.0.0', args.port), SSEHandler)
+    # Start SSE server (ThreadingHTTPServer allows multiple concurrent SSE clients)
+    server = ThreadingHTTPServer(('0.0.0.0', args.port), SSEHandler)
+    server.daemon_threads = False   # allow graceful handler cleanup
+    server.block_on_close = True    # join threads on server_close()
     server_thread = threading.Thread(target=server.serve_forever, daemon=True, name='sse-server')
     server_thread.start()
-    logging.info("SSE server listening on port %d", args.port)
+    logging.info("SSE server listening on port %d (threaded)", args.port)
 
     # Start camera threads
     threads = []
