@@ -1796,6 +1796,7 @@
   </div>
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="activity">Activity</button>
     <button class="tab-btn" data-tab="review">Review</button>
   </div>
 </div>
@@ -2067,6 +2068,67 @@
       <button onclick="closeSpeciesReviewModal()" style="background:none;border:none;color:var(--text-muted);font-size:1.5rem;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
     <div id="modal-review-content" style="padding:20px;"></div>
+  </div>
+</div>
+
+<!-- Activity Tab -->
+<div class="tab-content" id="tab-activity">
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:12px 0;">
+    <!-- Left: Species Search + Activity -->
+    <div class="panel" style="padding:16px;">
+      <h3 style="margin:0 0 12px">Species Activity</h3>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <input type="text" id="activity-species-input" list="activity-species-list" placeholder="Search species..." style="flex:1; padding:8px; border:1px solid #444; background:#1a1a2e; color:#e0e0e0; border-radius:6px; font-size:14px;">
+        <datalist id="activity-species-list"></datalist>
+        <button onclick="loadSpeciesActivity()" style="padding:8px 16px; background:#4a9eff; color:#fff; border:none; border-radius:6px; cursor:pointer;">Search</button>
+      </div>
+      <div id="activity-species-result" style="min-height:200px;">
+        <p style="opacity:0.5;">Search for a species to see activity patterns, peak hours, and food preferences.</p>
+      </div>
+      <canvas id="activity-hour-chart" style="display:none; max-height:200px; margin-top:12px;"></canvas>
+    </div>
+    <!-- Right: Food Log + Heatmap -->
+    <div>
+      <div class="panel" style="padding:16px; margin-bottom:16px;">
+        <h3 style="margin:0 0 12px">Feeder Food Log</h3>
+        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
+          <select id="food-type-select" style="flex:1; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
+            <option value="">Select food...</option>
+          </select>
+          <input type="text" id="food-notes-input" placeholder="Notes (optional)" style="flex:1; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
+          <button onclick="logFoodChange()" style="padding:8px 16px; background:#48bb78; color:#fff; border:none; border-radius:6px; cursor:pointer;">Log</button>
+        </div>
+        <div id="current-food-display" style="padding:8px; background:#1a1a2e; border-radius:6px; font-size:14px;">Loading...</div>
+        <div id="food-log-history" style="margin-top:8px; max-height:150px; overflow-y:auto; font-size:13px;"></div>
+      </div>
+      <div class="panel" style="padding:16px;">
+        <h3 style="margin:0 0 12px">Activity Heatmap <span style="font-size:12px; opacity:0.6;">(last 7 days)</span></h3>
+        <div id="activity-heatmap" style="overflow-x:auto; font-size:12px;">Loading...</div>
+      </div>
+    </div>
+  </div>
+  <!-- Metrics Section -->
+  <div class="panel" style="padding:16px; margin-top:0;">
+    <h3 style="margin:0 0 12px">System Metrics</h3>
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;" id="metrics-cards">
+      <div class="panel" style="padding:12px; text-align:center;">
+        <div style="font-size:24px; font-weight:bold;" id="metric-cost">—</div>
+        <div style="font-size:11px; opacity:0.6;">CPU-sec / detection</div>
+      </div>
+      <div class="panel" style="padding:12px; text-align:center;">
+        <div style="font-size:24px; font-weight:bold;" id="metric-yolo-p50">—</div>
+        <div style="font-size:11px; opacity:0.6;">YOLO p50 (ms)</div>
+      </div>
+      <div class="panel" style="padding:12px; text-align:center;">
+        <div style="font-size:24px; font-weight:bold;" id="metric-classify-p50">—</div>
+        <div style="font-size:11px; opacity:0.6;">Classify p50 (ms)</div>
+      </div>
+      <div class="panel" style="padding:12px; text-align:center;">
+        <div style="font-size:24px; font-weight:bold;" id="metric-reject-rate">—</div>
+        <div style="font-size:11px; opacity:0.6;">Broadcast rate</div>
+      </div>
+    </div>
+    <div id="metrics-funnel" style="margin-top:12px; font-size:13px;"></div>
   </div>
 </div>
 
@@ -3132,6 +3194,7 @@
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'review') loadReviewData();
+      if (btn.dataset.tab === 'activity') loadActivityTab();
     });
   });
 
@@ -5225,6 +5288,238 @@
 
   // Poll every 30 seconds + on page load
   setInterval(pollSystemHealth, 30000);
+
+  // ── Activity Tab ──
+  var _activityHourChart = null;
+
+  async function loadSpeciesAutocomplete() {
+    try {
+      var resp = await fetch('/bird-api/activity/species-list');
+      var data = await resp.json();
+      var dl = document.getElementById('activity-species-list');
+      if (dl) {
+        dl.innerHTML = data.species.map(function(s) {
+          return '<option value="' + escAttr(s.name) + '">';
+        }).join('');
+      }
+    } catch(e) { console.warn('Species autocomplete failed:', e); }
+  }
+
+  async function loadSpeciesActivity() {
+    var name = document.getElementById('activity-species-input').value.trim();
+    if (!name) return;
+    var el = document.getElementById('activity-species-result');
+    el.innerHTML = '<p style="opacity:0.5;">Loading...</p>';
+    try {
+      var resp = await fetch('/bird-api/activity/species/' + encodeURIComponent(name));
+      var d = await resp.json();
+      if (!d.total_detections) {
+        el.innerHTML = '<p style="opacity:0.5;">No detections found for "' + escHtml(name) + '"</p>';
+        return;
+      }
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+      html += '<div><strong>' + escHtml(d.species) + '</strong><br>';
+      html += '<span style="font-size:13px;opacity:0.8;">' + d.total_detections + ' detections (' + d.camera_detections + ' cam, ' + d.audio_detections + ' audio)</span><br>';
+      html += '<span style="font-size:13px;opacity:0.8;">' + d.peak_description + '</span><br>';
+      html += '<span style="font-size:12px;opacity:0.6;">First: ' + (d.first_seen || '?') + ' — Last: ' + (d.last_seen || '?') + '</span></div>';
+      // Cameras
+      html += '<div><strong>Cameras</strong><br>';
+      if (d.cameras) {
+        Object.keys(d.cameras).forEach(function(cam) {
+          html += '<span style="font-size:13px;">' + escHtml(cam) + ': ' + d.cameras[cam] + '</span><br>';
+        });
+      }
+      html += '</div></div>';
+      // Food preferences
+      if (d.by_food && Object.keys(d.by_food).length > 0) {
+        html += '<div style="margin-top:12px;"><strong>Food Preferences</strong>';
+        html += '<table style="width:100%;font-size:13px;margin-top:4px;"><tr style="opacity:0.6;"><th style="text-align:left;">Food</th><th>Detections</th><th>Rate/hr</th></tr>';
+        var foods = Object.keys(d.by_food).sort(function(a,b) { return d.by_food[b].rate_per_hour - d.by_food[a].rate_per_hour; });
+        foods.forEach(function(f) {
+          var fd = d.by_food[f];
+          html += '<tr><td>' + escHtml(f) + (f === d.preferred_food ? ' ⭐' : '') + '</td>';
+          html += '<td style="text-align:center;">' + fd.detections + '</td>';
+          html += '<td style="text-align:center;">' + fd.rate_per_hour + '</td></tr>';
+        });
+        html += '</table></div>';
+      }
+      el.innerHTML = html;
+      // Render hourly chart
+      var canvas = document.getElementById('activity-hour-chart');
+      canvas.style.display = 'block';
+      if (_activityHourChart) _activityHourChart.destroy();
+      _activityHourChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: Array.from({length:24}, function(_,i) { return i + ':00'; }),
+          datasets: [{
+            label: d.species,
+            data: d.by_hour,
+            backgroundColor: 'rgba(74,158,255,0.7)',
+            borderRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: '#333' } },
+            y: { ticks: { color: '#aaa' }, grid: { color: '#333' }, beginAtZero: true }
+          }
+        }
+      });
+    } catch(e) {
+      el.innerHTML = '<p style="color:#f66;">Error: ' + escHtml(e.message) + '</p>';
+    }
+  }
+  window.loadSpeciesActivity = loadSpeciesActivity;
+
+  // Enter key triggers search
+  document.addEventListener('DOMContentLoaded', function() {
+    var inp = document.getElementById('activity-species-input');
+    if (inp) inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') loadSpeciesActivity(); });
+  });
+
+  async function loadFoodUI() {
+    // Populate food type dropdown
+    try {
+      var resp = await fetch('/bird-api/food-types');
+      var data = await resp.json();
+      var sel = document.getElementById('food-type-select');
+      if (sel && data.food_types) {
+        sel.innerHTML = '<option value="">Select food...</option>' +
+          data.food_types.map(function(f) { return '<option value="' + escAttr(f) + '">' + escHtml(f.replace(/_/g,' ')) + '</option>'; }).join('');
+      }
+    } catch(e) {}
+    // Load current food
+    try {
+      var resp2 = await fetch('/bird-api/food-log/current');
+      var cur = await resp2.json();
+      var el = document.getElementById('current-food-display');
+      if (el) {
+        if (cur.food_type && cur.food_type !== 'unknown') {
+          var ago = cur.timestamp ? timeAgo(new Date(cur.timestamp)) : '';
+          el.innerHTML = '🌻 <strong>' + escHtml(cur.food_type.replace(/_/g,' ')) + '</strong> <span style="opacity:0.6;">(since ' + ago + ')</span>' +
+            (cur.notes ? ' — <em>' + escHtml(cur.notes) + '</em>' : '');
+        } else {
+          el.innerHTML = '<span style="opacity:0.5;">No food logged yet</span>';
+        }
+      }
+    } catch(e) {}
+    // Load history
+    try {
+      var resp3 = await fetch('/bird-api/food-log');
+      var entries = await resp3.json();
+      var hist = document.getElementById('food-log-history');
+      if (hist && entries.length > 0) {
+        hist.innerHTML = entries.slice(0, 10).map(function(e) {
+          return '<div style="padding:2px 0; border-bottom:1px solid #333;">' +
+            '<span style="opacity:0.6;font-size:11px;">' + (e.timestamp ? e.timestamp.replace('T',' ').slice(0,16) : '') + '</span> ' +
+            escHtml(e.food_type.replace(/_/g,' ')) +
+            (e.notes ? ' — <em style="opacity:0.7;">' + escHtml(e.notes) + '</em>' : '') +
+            '</div>';
+        }).join('');
+      }
+    } catch(e) {}
+  }
+
+  async function logFoodChange() {
+    var food = document.getElementById('food-type-select').value;
+    var notes = document.getElementById('food-notes-input').value.trim();
+    if (!food) { showToast('Select a food type'); return; }
+    try {
+      await fetch('/bird-api/food-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ food_type: food, notes: notes }),
+      });
+      document.getElementById('food-notes-input').value = '';
+      showToast('Food logged: ' + food.replace(/_/g,' '));
+      loadFoodUI();
+    } catch(e) { showToast('Error logging food'); }
+  }
+  window.logFoodChange = logFoodChange;
+
+  async function loadActivityHeatmap() {
+    var el = document.getElementById('activity-heatmap');
+    if (!el) return;
+    try {
+      var resp = await fetch('/bird-api/activity/heatmap?days=7');
+      var d = await resp.json();
+      if (!d.species || d.species.length === 0) {
+        el.innerHTML = '<p style="opacity:0.5;">No data yet</p>';
+        return;
+      }
+      var hours = Array.from({length:24}, function(_,i) { return i; });
+      var html = '<table style="width:100%;border-collapse:collapse;">';
+      html += '<tr><th style="text-align:left;padding:2px 4px;"></th>';
+      hours.forEach(function(h) {
+        html += '<th style="padding:2px;font-size:10px;opacity:0.5;width:3.5%;">' + h + '</th>';
+      });
+      html += '</tr>';
+      d.species.forEach(function(sp) {
+        var row = d.heatmap[sp];
+        var maxVal = Math.max.apply(null, row) || 1;
+        html += '<tr><td style="padding:2px 4px;font-size:11px;white-space:nowrap;cursor:pointer;" onclick="document.getElementById(\'activity-species-input\').value=\'' + escAttr(sp) + '\';loadSpeciesActivity();">' + escHtml(sp) + '</td>';
+        row.forEach(function(v) {
+          var intensity = v / maxVal;
+          var bg = v === 0 ? 'transparent' : 'rgba(74,158,255,' + (0.15 + intensity * 0.85).toFixed(2) + ')';
+          html += '<td style="padding:2px;text-align:center;background:' + bg + ';font-size:10px;border-radius:2px;">' + (v > 0 ? v : '') + '</td>';
+        });
+        html += '</tr>';
+      });
+      html += '</table>';
+      el.innerHTML = html;
+    } catch(e) {
+      el.innerHTML = '<p style="color:#f66;">Error loading heatmap</p>';
+    }
+  }
+
+  async function loadMetricsCards() {
+    try {
+      var resp = await fetch('/bird-api/system-health');
+      var d = await resp.json();
+      var det = d.services.live_detector || {};
+      var metrics = det.metrics || {};
+      var counters = metrics.counters || {};
+      var histograms = metrics.histograms || {};
+
+      var frames = (counters.frames_processed || {}).value || 0;
+      var broadcasts = (counters.broadcast || {}).value || 0;
+      var yolo = histograms.yolo_ms || {};
+      var classify = histograms.classify_ms || {};
+
+      document.getElementById('metric-yolo-p50').textContent = yolo.p50 ? Math.round(yolo.p50) : '—';
+      document.getElementById('metric-classify-p50').textContent = classify.p50 ? Math.round(classify.p50) : '—';
+      document.getElementById('metric-reject-rate').textContent = frames > 0 ? (broadcasts / frames * 100).toFixed(1) + '%' : '—';
+
+      // Cost: rough CPU-seconds per detection
+      var totalMs = (histograms.total_ms || {}).mean || 0;
+      var costPerDet = broadcasts > 0 ? ((totalMs * frames / 1000) / broadcasts).toFixed(1) : '—';
+      document.getElementById('metric-cost').textContent = costPerDet;
+
+      // Funnel
+      var funnel = metrics.funnels || {};
+      var detFunnel = funnel.detection || {};
+      var funnelEl = document.getElementById('metrics-funnel');
+      if (funnelEl && detFunnel.stages) {
+        var stages = detFunnel.stages;
+        var fhtml = '<strong>Detection Funnel:</strong> ';
+        stages.forEach(function(s, i) {
+          fhtml += escHtml(s.name) + ': ' + s.count;
+          if (i < stages.length - 1) fhtml += ' → ';
+        });
+        funnelEl.innerHTML = fhtml;
+      }
+    } catch(e) {}
+  }
+
+  function loadActivityTab() {
+    loadSpeciesAutocomplete();
+    loadFoodUI();
+    loadActivityHeatmap();
+    loadMetricsCards();
+  }
 
   // ── Init & Refresh ──
   async function init() {
