@@ -397,15 +397,23 @@ def _check_audio_analyzer():
 
 
 def _check_nas():
-    """Check NAS reachability via /healthz endpoint."""
+    """Check NAS reachability via /healthz endpoint.
+
+    Uses curl subprocess because Python urllib is blocked by macOS Application
+    Firewall when running from LaunchAgent (unsigned binary restriction).
+    """
+    import subprocess
     try:
-        url = "https://192.168.5.92:9444/healthz"
-        req = _urllib_request.Request(url, headers={"Host": "birds.vivessyn.duckdns.org"})
-        with _urllib_request.urlopen(req, timeout=_HEALTH_TIMEOUT, context=_SSL_CTX) as resp:
-            body = resp.read().decode()
-            if resp.status == 200:
-                return {"status": "ok", "detail": "NAS proxy healthy"}
-            return {"status": "warn", "detail": f"NAS returned {resp.status}: {body}"}
+        result = subprocess.run(
+            ["curl", "-sk", "--max-time", "3",
+             "https://192.168.5.92:9444/healthz",
+             "-H", "Host: birds.vivessyn.duckdns.org"],
+            capture_output=True, timeout=5,
+        )
+        body = result.stdout.decode().strip()
+        if result.returncode == 0 and body == "ok":
+            return {"status": "ok", "detail": "NAS proxy healthy"}
+        return {"status": "warn", "detail": f"NAS returned: {body or 'empty'} (exit {result.returncode})"}
     except Exception as e:
         err = str(e)
         detail = f"NAS unreachable ({err})"
