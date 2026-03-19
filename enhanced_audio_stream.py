@@ -24,6 +24,9 @@ import av
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
 
+from metrics import MetricsRegistry
+_metrics = MetricsRegistry()
+
 # ── Configuration ──────────────────────────────────────────────────────────
 RTSP_URL = os.environ.get(
     "RTSP_URL",
@@ -150,6 +153,8 @@ def _rtsp_reader():
                                 _ring_buf.append((_ring_seq, pcm_bytes))
                                 _ring_seq += 1
                                 _ring_cond.notify_all()
+                            _metrics.counter("chunks_produced").inc()
+                            _metrics.gauge("ring_buffer_items").set(len(_ring_buf))
 
                             if not _stream_ready.is_set():
                                 _stream_ready.set()
@@ -171,6 +176,7 @@ def _rtsp_reader():
                     pass
 
         if not _shutdown.is_set():
+            _metrics.counter("reconnects").inc()
             log.info("Reconnecting in %ds...", reconnect_delay)
             _shutdown.wait(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
@@ -188,11 +194,22 @@ class StreamHandler(BaseHTTPRequestHandler):
             self.wfile.write(f'{{"status":"ok","stream_ready":{ready}}}'.encode())
             return
 
+        if self.path == "/metrics":
+            import json
+            data = json.dumps(_metrics.snapshot()).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if self.path != "/stream.mp3":
             self.send_response(404)
             self.end_headers()
             return
 
+        _metrics.counter("client_connects").inc()
         log.info("Client connected: %s", self.client_address[0])
 
         # Wait for stream to be ready (up to 10s)

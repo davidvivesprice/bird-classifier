@@ -16,6 +16,7 @@ Usage:
 import contextlib
 import datetime
 import io
+import json
 import logging
 import os
 import signal
@@ -28,6 +29,9 @@ from pathlib import Path
 
 import numpy as np
 from scipy.signal import butter, sosfilt
+
+from metrics import MetricsRegistry
+_metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
 RTSP_URL = os.environ.get(
@@ -557,15 +561,26 @@ def run(test_mode=False):
                     raw = bytes(pcm_buf[:ANALYSIS_BYTES])
                     del pcm_buf[:ADVANCE_BYTES]
                     chunks_processed += 1
+                    _metrics.counter("windows_processed").inc()
+                    _metrics.gauge("pcm_buf_bytes").set(len(pcm_buf))
 
                     # Convert to float32 normalized [-1, 1]
-                    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                    audio_raw = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
                     # Preprocess: bandpass filter + spectral noise reduction
-                    audio = preprocess_audio(audio)
+                    t_pre = time.monotonic()
+                    audio = preprocess_audio(audio_raw)
+                    _metrics.histogram("preprocess_ms").record((time.monotonic() - t_pre) * 1000)
+
+                    # SNR estimate: ratio of preprocessed RMS to raw RMS
+                    raw_rms = float(np.sqrt(np.mean(audio_raw ** 2)))
+                    clean_rms = float(np.sqrt(np.mean(audio ** 2)))
+                    if raw_rms > 1e-10:
+                        _metrics.gauge("snr_ratio").set(round(clean_rms / raw_rms, 3))
 
                     # Run BirdNET inference with overlapping 3s windows
                     # Timeout prevents pipeline stall if model hangs
+                    t_inf_start = time.monotonic()
                     try:
                         recording = RecordingBuffer(
                             analyzer, audio, SAMPLE_RATE,
@@ -585,18 +600,20 @@ def run(test_mode=False):
                         t_inf.start()
                         t_inf.join(timeout=30)  # 30s max for inference
                         if not inference_result[0]:
-                            log.error("Inference timed out (30s), skipping chunk. "
-                                      "Orphaned thread will be cleaned up by daemon flag.")
-                            # Note: daemon thread will be reaped on process exit.
-                            # If this happens repeatedly, the model is likely broken.
+                            log.error("Inference timed out (30s), skipping chunk")
+                            _metrics.counter("inference_timeouts").inc()
                             continue
                     except Exception as e:
                         log.error("Inference error: %s", e)
+                        _metrics.counter("inference_errors").inc()
                         continue
+
+                    _metrics.histogram("inference_ms").record((time.monotonic() - t_inf_start) * 1000)
 
                     now_time = time.time()
 
                     # Per-slice dedup: keep only highest-confidence species per time slice
+                    _metrics.counter("raw_detections").inc(len(recording.detections))
                     best_per_slice = {}
                     for det in recording.detections:
                         species = det["common_name"]
@@ -605,8 +622,10 @@ def run(test_mode=False):
                         # Apply dynamic threshold or base threshold
                         if dyn_thresh:
                             if not dyn_thresh.should_accept(species, conf):
+                                _metrics.counter("rejected_threshold").inc()
                                 continue
                         elif conf < MIN_CONFIDENCE:
+                            _metrics.counter("rejected_threshold").inc()
                             continue
 
                         slice_key = det.get("start_time", 0)
@@ -624,6 +643,7 @@ def run(test_mode=False):
                                 species, conf, det, now_time
                             )
                             if not accepted:
+                                _metrics.counter("rejected_accumulator").inc()
                                 continue
                             det = best_det
                             conf = det["confidence"]
@@ -635,6 +655,7 @@ def run(test_mode=False):
                                 date=datetime.datetime.now()
                             )
                             if not validation["valid"]:
+                                _metrics.counter("rejected_range").inc()
                                 log.info(
                                     "Range filter rejected: %s (%.0f%%) — %s",
                                     species, conf * 100, validation["reason"],
@@ -659,7 +680,11 @@ def run(test_mode=False):
                         except Exception as e:
                             log.warning("Failed to save clip: %s", e)
                             clip_name = ""
+                        t_db = time.monotonic()
                         insert_detection(det, clip_name)
+                        _metrics.histogram("db_write_ms").record((time.monotonic() - t_db) * 1000)
+                        _metrics.counter("accepted").inc()
+                        _metrics.histogram("accepted_confidence").record(conf)
                         total_detections += 1
                         extra = ""
                         if dyn_thresh:
@@ -712,6 +737,44 @@ def run(test_mode=False):
             reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
 
 
+# ── Metrics HTTP Server ───────────────────────────────────────────────────
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+METRICS_PORT = int(os.environ.get("BIRDNET_METRICS_PORT", "8098"))
+
+
+class _MetricsHandler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_GET(self):
+        if self.path == '/metrics':
+            data = json.dumps(_metrics.snapshot()).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+        else:
+            self.send_error(404)
+
+
+def _start_metrics_server():
+    """Start a background HTTP server for metrics on port 8098."""
+    try:
+        srv = HTTPServer(("0.0.0.0", METRICS_PORT), _MetricsHandler)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        log.info("Metrics server on port %d", METRICS_PORT)
+    except Exception as e:
+        log.warning("Could not start metrics server: %s", e)
+
+
 # ── Signal Handling ────────────────────────────────────────────────────────
 def _handle_signal(signum, frame):
     log.info("Received signal %d, shutting down...", signum)
@@ -721,6 +784,7 @@ def _handle_signal(signum, frame):
 def main():
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
+    _start_metrics_server()
 
     test_mode = "--test" in sys.argv
 

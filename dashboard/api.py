@@ -364,36 +364,33 @@ def _fetch_service(url, name):
         }
 
 
-def _check_audio_analyzer():
-    """Check audio_analyzer via its local SQLite DB — last detection time + process alive."""
+def _check_audio_analyzer_health():
+    """Check audio_analyzer via metrics endpoint + DB for detection counts."""
+    # Try metrics endpoint first (includes full metrics data)
+    metrics = _fetch_service("http://localhost:8098/metrics", "Audio Analyzer")
+
+    # Augment with DB detection counts
     db_path = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
-    result = {"status": "unknown"}
     try:
-        if not db_path.exists():
-            return {"status": "error", "detail": "Database not found"}
-        conn = _sqlite3.connect(str(db_path), timeout=2)
-        conn.execute("PRAGMA journal_mode=WAL")
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*), MAX(date || ' ' || time) FROM notes WHERE date = ?",
-                    (datetime.now().strftime("%Y-%m-%d"),))
-        row = cur.fetchone()
-        conn.close()
-        today_count = row[0] or 0
-        last_det = row[1] or "none"
-        # Check if process is alive via PID file or process list
-        import subprocess
-        ps = subprocess.run(["pgrep", "-f", "audio_analyzer.py"], capture_output=True, timeout=2)
-        alive = ps.returncode == 0
-        result = {
-            "status": "ok" if alive else "warn",
-            "detail": f"{'Running' if alive else 'NOT RUNNING'}, {today_count} detections today, last: {last_det}",
-            "detections_today": today_count,
-            "last_detection": last_det,
-            "process_alive": alive,
-        }
-    except Exception as e:
-        result = {"status": "error", "detail": str(e)}
-    return result
+        if db_path.exists():
+            conn = _sqlite3.connect(str(db_path), timeout=2)
+            conn.execute("PRAGMA journal_mode=WAL")
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*), MAX(date || ' ' || time) FROM notes WHERE date = ?",
+                        (datetime.now().strftime("%Y-%m-%d"),))
+            row = cur.fetchone()
+            conn.close()
+            metrics["detections_today"] = row[0] or 0
+            metrics["last_detection"] = row[1] or "none"
+    except Exception:
+        pass
+
+    # Build detail string
+    if metrics.get("status") == "ok":
+        today = metrics.get("detections_today", 0)
+        last = metrics.get("last_detection", "none")
+        metrics["detail"] = f"Running, {today} detections today, last: {last}"
+    return metrics
 
 
 def _check_nas():
@@ -439,8 +436,8 @@ def system_health():
                 "species_count": len(_idx_by_species),
             },
             "live_detector": _fetch_service("http://localhost:8097/metrics", "Live Detector"),
-            "enhanced_audio": _fetch_service("http://localhost:8096/health", "Enhanced Audio"),
-            "audio_analyzer": _check_audio_analyzer(),
+            "enhanced_audio": _fetch_service("http://localhost:8096/metrics", "Enhanced Audio"),
+            "audio_analyzer": _check_audio_analyzer_health(),
             "nas": _check_nas(),
         },
     }
@@ -1486,3 +1483,123 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
         "failed": failed,
         "message": msg,
     }
+
+
+# ── Food Log ──────────────────────────────────────────────────────────────
+# Tracks what food is in the feeder for species-food correlation analysis.
+
+_FOOD_DB = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
+
+FOOD_TYPES = [
+    "sunflower", "mixed_songbird", "suet", "nyjer", "peanut",
+    "safflower", "mealworm", "fruit", "nectar", "empty",
+]
+
+
+def _init_food_log():
+    """Create the food_log table if it doesn't exist."""
+    try:
+        conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS food_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                food_type TEXT NOT NULL,
+                feeder TEXT DEFAULT 'main',
+                notes TEXT DEFAULT ''
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        import logging
+        logging.warning("Could not init food_log table: %s", e)
+
+
+# Init on import
+_init_food_log()
+
+
+from pydantic import BaseModel
+
+
+class FoodLogEntry(BaseModel):
+    food_type: str
+    feeder: str = "main"
+    notes: str = ""
+
+
+@app.post("/api/food-log")
+def add_food_log(entry: FoodLogEntry):
+    """Log a food change in the feeder."""
+    if entry.food_type not in FOOD_TYPES and not entry.food_type.startswith("custom:"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Unknown food type. Use one of: {', '.join(FOOD_TYPES)} or custom:name"}
+        )
+    ts = datetime.now().isoformat()
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        conn.execute(
+            "INSERT INTO food_log (timestamp, food_type, feeder, notes) VALUES (?, ?, ?, ?)",
+            (ts, entry.food_type, entry.feeder, entry.notes),
+        )
+        conn.commit()
+        row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
+        conn.close()
+    return {"id": row_id, "timestamp": ts, "food_type": entry.food_type, "feeder": entry.feeder}
+
+
+@app.get("/api/food-log")
+def get_food_log():
+    """List all food log entries, newest first."""
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC")
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"id": r[0], "timestamp": r[1], "food_type": r[2], "feeder": r[3], "notes": r[4]}
+        for r in rows
+    ]
+
+
+@app.get("/api/food-log/current")
+def get_current_food():
+    """Get the most recent food entry (what's currently in the feeder)."""
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC LIMIT 1")
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"food_type": "unknown", "timestamp": None, "detail": "No food logged yet"}
+    return {"id": row[0], "timestamp": row[1], "food_type": row[2], "feeder": row[3], "notes": row[4]}
+
+
+@app.delete("/api/food-log/{entry_id}")
+def delete_food_log(entry_id: int):
+    """Delete a food log entry."""
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM food_log WHERE id = ?", (entry_id,))
+        conn.commit()
+        deleted = cur.rowcount
+    finally:
+        conn.close()
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"deleted": entry_id}
+
+
+@app.get("/api/food-types")
+def list_food_types():
+    """List available food types."""
+    return {"food_types": FOOD_TYPES}
