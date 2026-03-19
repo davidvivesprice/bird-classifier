@@ -15,7 +15,7 @@ import re
 import shutil
 import time as _time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta as _timedelta
 from pathlib import Path
 
 from typing import Optional
@@ -1603,3 +1603,316 @@ def delete_food_log(entry_id: int):
 def list_food_types():
     """List available food types."""
     return {"food_types": FOOD_TYPES}
+
+
+# ── Activity Analytics ────────────────────────────────────────────────────
+
+def _get_food_at_time(conn, timestamp_str):
+    """Find what food was in the feeder at a given ISO timestamp."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT food_type FROM food_log WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
+        (timestamp_str,),
+    )
+    row = cur.fetchone()
+    return row[0] if row else "unknown"
+
+
+def _get_food_periods(conn):
+    """Get all food periods as (start, end, food_type) tuples."""
+    cur = conn.cursor()
+    cur.execute("SELECT timestamp, food_type FROM food_log ORDER BY timestamp ASC")
+    rows = cur.fetchall()
+    if not rows:
+        return []
+    periods = []
+    for i, (ts, food) in enumerate(rows):
+        end = rows[i + 1][0] if i + 1 < len(rows) else datetime.now().isoformat()
+        periods.append((ts, end, food))
+    return periods
+
+
+def _hours_between(iso_start, iso_end):
+    """Calculate hours between two ISO timestamps."""
+    try:
+        from datetime import datetime as dt_cls
+        s = dt_cls.fromisoformat(iso_start)
+        e = dt_cls.fromisoformat(iso_end)
+        return max(0, (e - s).total_seconds() / 3600)
+    except Exception:
+        return 0
+
+
+@app.get("/api/activity/species/{species_name}")
+def get_species_activity(species_name: str):
+    """Activity analysis for a single species: hourly pattern, food preferences, cameras."""
+    species_name = normalize_species(species_name)
+
+    # Gather detections from both camera (JSONL) and audio (SQLite)
+    entries = load_classifications()
+    camera_dets = []
+    for e in entries:
+        pred = e.get("top_prediction", {})
+        if normalize_species(pred.get("common_name", "")) == species_name:
+            ts = e.get("source_timestamp", "")
+            camera = e.get("camera", "unknown")
+            camera_dets.append({"timestamp": ts, "camera": camera, "source": "camera"})
+
+    audio_dets = []
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT date, time, confidence FROM notes WHERE common_name = ? ORDER BY date, time",
+            (species_name,),
+        )
+        for date, time_str, conf in cur.fetchall():
+            audio_dets.append({
+                "timestamp": f"{date} {time_str}",
+                "source": "audio",
+                "confidence": conf,
+            })
+    except Exception:
+        pass
+
+    # Hourly distribution (0-23)
+    by_hour = [0] * 24
+    all_timestamps = []
+    for d in camera_dets + audio_dets:
+        ts = d["timestamp"]
+        all_timestamps.append(ts)
+        try:
+            hour = int(ts.split(" ")[1].split(":")[0]) if " " in ts else int(ts.split("T")[1].split(":")[0])
+            by_hour[hour] += 1
+        except Exception:
+            pass
+
+    # Day of week distribution (0=Mon, 6=Sun)
+    by_dow = [0] * 7
+    for ts in all_timestamps:
+        try:
+            date_str = ts.split(" ")[0] if " " in ts else ts.split("T")[0]
+            from datetime import date as date_cls
+            parts = date_str.split("-")
+            d = date_cls(int(parts[0]), int(parts[1]), int(parts[2]))
+            by_dow[d.weekday()] += 1
+        except Exception:
+            pass
+
+    # Camera breakdown
+    cameras = {}
+    for d in camera_dets:
+        cam = d.get("camera", "unknown")
+        cameras[cam] = cameras.get(cam, 0) + 1
+
+    # Food preferences
+    by_food = {}
+    food_periods = _get_food_periods(conn)
+    for d in camera_dets + audio_dets:
+        food = _get_food_at_time(conn, d["timestamp"])
+        if food not in by_food:
+            by_food[food] = 0
+        by_food[food] += 1
+
+    # Calculate rate per hour for each food
+    food_hours = {}
+    for start, end, food in food_periods:
+        h = _hours_between(start, end)
+        food_hours[food] = food_hours.get(food, 0) + h
+
+    food_prefs = {}
+    for food, count in by_food.items():
+        hours = food_hours.get(food, 1)
+        food_prefs[food] = {
+            "detections": count,
+            "hours_available": round(hours, 1),
+            "rate_per_hour": round(count / max(hours, 0.1), 2),
+        }
+
+    conn.close()
+
+    # Peak hour
+    peak_hour = by_hour.index(max(by_hour)) if max(by_hour) > 0 else -1
+    total = len(camera_dets) + len(audio_dets)
+
+    # First/last seen
+    sorted_ts = sorted(all_timestamps)
+    first_seen = sorted_ts[0].split(" ")[0] if sorted_ts else None
+    last_seen = sorted_ts[-1].split(" ")[0] if sorted_ts else None
+
+    # Preferred food
+    preferred = max(food_prefs.items(), key=lambda x: x[1]["rate_per_hour"])[0] if food_prefs else "unknown"
+
+    return {
+        "species": species_name,
+        "total_detections": total,
+        "camera_detections": len(camera_dets),
+        "audio_detections": len(audio_dets),
+        "by_hour": by_hour,
+        "peak_hour": peak_hour,
+        "peak_description": f"Most active {peak_hour}:00-{(peak_hour+1) % 24}:00" if peak_hour >= 0 else "No data",
+        "by_day_of_week": by_dow,
+        "by_food": food_prefs,
+        "preferred_food": preferred,
+        "cameras": cameras,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+    }
+
+
+@app.get("/api/activity/food/{food_type}")
+def get_food_activity(food_type: str):
+    """What species does this food attract? Rates per hour for comparison."""
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+
+    # Get periods for this food
+    food_periods = _get_food_periods(conn)
+    matching_periods = [(s, e) for s, e, f in food_periods if f == food_type]
+
+    total_hours = sum(_hours_between(s, e) for s, e in matching_periods)
+
+    if total_hours == 0:
+        conn.close()
+        return {
+            "food_type": food_type,
+            "total_hours": 0,
+            "species_attracted": [],
+            "detail": "No logged periods for this food type",
+        }
+
+    # Count detections per species during this food's periods
+    species_counts = {}
+
+    # Camera detections
+    entries = load_classifications()
+    for entry in entries:
+        pred = entry.get("top_prediction", {})
+        name = normalize_species(pred.get("common_name", ""))
+        if not name:
+            continue
+        ts = entry.get("source_timestamp", "")
+        food = _get_food_at_time(conn, ts)
+        if food == food_type:
+            species_counts[name] = species_counts.get(name, 0) + 1
+
+    # Audio detections
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT date, time, common_name FROM notes ORDER BY date, time")
+        for date, time_str, name in cur.fetchall():
+            name = normalize_species(name)
+            ts = f"{date} {time_str}"
+            food = _get_food_at_time(conn, ts)
+            if food == food_type:
+                species_counts[name] = species_counts.get(name, 0) + 1
+    except Exception:
+        pass
+
+    conn.close()
+
+    # Build ranked list
+    species_list = []
+    for sp, count in sorted(species_counts.items(), key=lambda x: -x[1]):
+        species_list.append({
+            "species": sp,
+            "detections": count,
+            "rate_per_hour": round(count / max(total_hours, 0.1), 2),
+        })
+
+    return {
+        "food_type": food_type,
+        "total_hours": round(total_hours, 1),
+        "periods": [{"start": s, "end": e} for s, e in matching_periods],
+        "species_attracted": species_list[:30],  # top 30
+        "total_species": len(species_list),
+    }
+
+
+@app.get("/api/activity/heatmap")
+def get_activity_heatmap(species: str = "all", days: int = 7):
+    """Hour × species detection heatmap for the last N days."""
+    cutoff_date = (datetime.now() - _timedelta(days=days)).strftime("%Y-%m-%d")
+
+    # Collect hourly counts per species from audio DB
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    heatmap = {}  # species → [hour0, hour1, ..., hour23]
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT common_name, time FROM notes WHERE date >= ?",
+            (cutoff_date,),
+        )
+        for name, time_str in cur.fetchall():
+            name = normalize_species(name)
+            if species != "all" and name != normalize_species(species):
+                continue
+            try:
+                hour = int(time_str.split(":")[0])
+            except Exception:
+                continue
+            if name not in heatmap:
+                heatmap[name] = [0] * 24
+            heatmap[name][hour] += 1
+    except Exception:
+        pass
+    conn.close()
+
+    # Also add camera detections
+    entries = load_classifications()
+    for entry in entries:
+        ts = entry.get("source_timestamp", "")
+        date_part = ts[:10] if len(ts) >= 10 else ""
+        if date_part < cutoff_date:
+            continue
+        pred = entry.get("top_prediction", {})
+        name = normalize_species(pred.get("common_name", ""))
+        if not name:
+            continue
+        if species != "all" and name != normalize_species(species):
+            continue
+        try:
+            time_part = ts.split(" ")[1] if " " in ts else ts.split("T")[1]
+            hour = int(time_part.split(":")[0])
+        except Exception:
+            continue
+        if name not in heatmap:
+            heatmap[name] = [0] * 24
+        heatmap[name][hour] += 1
+
+    # Sort by total detections
+    sorted_species = sorted(heatmap.keys(), key=lambda s: -sum(heatmap[s]))
+
+    return {
+        "days": days,
+        "cutoff_date": cutoff_date,
+        "species": sorted_species[:25],  # top 25
+        "heatmap": {s: heatmap[s] for s in sorted_species[:25]},
+        "total_detections": sum(sum(v) for v in heatmap.values()),
+    }
+
+
+@app.get("/api/activity/species-list")
+def get_species_list():
+    """List all detected species with total counts, for autocomplete."""
+    entries = load_classifications()
+    counts = {}
+    for entry in entries:
+        pred = entry.get("top_prediction", {})
+        name = normalize_species(pred.get("common_name", ""))
+        if name and name not in ("background", "unidentified bird", "unidentified"):
+            counts[name] = counts.get(name, 0) + 1
+
+    # Also add audio species
+    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT common_name, COUNT(*) FROM notes GROUP BY common_name")
+        for name, count in cur.fetchall():
+            name = normalize_species(name)
+            counts[name] = counts.get(name, 0) + count
+    except Exception:
+        pass
+    conn.close()
+
+    sorted_species = sorted(counts.items(), key=lambda x: -x[1])
+    return {"species": [{"name": s, "count": c} for s, c in sorted_species]}
