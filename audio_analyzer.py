@@ -84,6 +84,58 @@ RECONNECT_BASE = 5   # initial seconds before retrying on RTSP failure
 RECONNECT_MAX = 30   # max backoff delay
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
+# ── Nighttime Pause ──────────────────────────────────────────────────────
+# No birds call in the dark. Skip inference from sunset+30min to sunrise
+# to save CPU. Uses the same NOAA solar algorithm as classify.py.
+NIGHT_OFFSET_MINUTES = 30  # minutes after sunset to keep analyzing
+
+import math
+from datetime import date, timezone
+
+def _solar_times(lat, lon, dt=None):
+    """Sunrise/sunset hours (UTC) via NOAA simplified algorithm."""
+    if dt is None:
+        dt = date.today()
+    doy = dt.timetuple().tm_yday
+    lat_rad = math.radians(lat)
+    gamma = 2 * math.pi / 365 * (doy - 1)
+    eqtime = 229.18 * (
+        0.000075 + 0.001868 * math.cos(gamma)
+        - 0.032077 * math.sin(gamma)
+        - 0.014615 * math.cos(2 * gamma)
+        - 0.040849 * math.sin(2 * gamma)
+    )
+    decl = (
+        0.006918 - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2 * gamma)
+        + 0.000907 * math.sin(2 * gamma)
+        - 0.002697 * math.cos(3 * gamma)
+        + 0.00148 * math.sin(3 * gamma)
+    )
+    cos_ha = math.cos(math.radians(90.833)) / (
+        math.cos(lat_rad) * math.cos(decl)
+    ) - math.tan(lat_rad) * math.tan(decl)
+    cos_ha = max(-1.0, min(1.0, cos_ha))
+    ha = math.degrees(math.acos(cos_ha))
+    noon_utc = 720 - 4 * lon - eqtime
+    sunrise_utc = (noon_utc - ha * 4) / 60
+    sunset_utc = (noon_utc + ha * 4) / 60
+    return sunrise_utc, sunset_utc
+
+def is_nighttime():
+    """True if it's dark — past sunset+offset or before sunrise."""
+    now = datetime.datetime.now()
+    today = now.date()
+    sunrise_utc, sunset_utc = _solar_times(LAT, LON, today)
+    local_dt = datetime.datetime.now(timezone.utc).astimezone()
+    offset = int(local_dt.utcoffset().total_seconds() / 3600)
+    sunrise_local = sunrise_utc + offset
+    sunset_local = sunset_utc + offset
+    current_hours = now.hour + now.minute / 60.0
+    sunset_cutoff = sunset_local + NIGHT_OFFSET_MINUTES / 60.0
+    return current_hours >= sunset_cutoff or current_hours < sunrise_local
+
 # ── Audio Preprocessing ───────────────────────────────────────────────────
 # Two-stage noise reduction pipeline + RMS normalization:
 #   1. Bandpass filter (300Hz–15kHz) — removes sub-bass rumble and ultrasonic noise
@@ -471,6 +523,15 @@ def run(test_mode=False):
     reconnect_delay = RECONNECT_BASE
 
     while not _shutdown.is_set():
+        # Sleep during nighttime — no birds calling, save CPU
+        if is_nighttime():
+            log.info("Nighttime — pausing analysis until sunrise")
+            while is_nighttime() and not _shutdown.is_set():
+                _shutdown.wait(60)  # check every minute
+            if _shutdown.is_set():
+                break
+            log.info("Sunrise — resuming analysis")
+
         container = None
         try:
             container, audio_stream = open_rtsp_audio()
@@ -481,6 +542,8 @@ def run(test_mode=False):
             for frame in container.decode(audio_stream):
                 if _shutdown.is_set():
                     break
+                if is_nighttime():
+                    break  # exit decode loop → outer loop will sleep
 
                 # Decode to numpy, take channel 0 (stereo channels are identical),
                 # convert to s16le bytes — no resampler needed, avoids frame-boundary artifacts

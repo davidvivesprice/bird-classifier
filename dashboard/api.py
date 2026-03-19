@@ -335,6 +335,121 @@ def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
+# ── System Health Aggregator ──────────────────────────────────────────────
+import ssl
+import sqlite3 as _sqlite3
+import urllib.request as _urllib_request
+
+_health_cache = {"data": None, "time": 0}
+_HEALTH_CACHE_TTL = 10  # seconds
+_HEALTH_TIMEOUT = 3     # per-service timeout
+
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
+
+
+def _fetch_service(url, name):
+    """Fetch a service's /metrics or /health endpoint. Returns parsed JSON or error dict."""
+    try:
+        req = _urllib_request.Request(url)
+        with _urllib_request.urlopen(req, timeout=_HEALTH_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+            return {"status": "ok", **data}
+    except Exception as e:
+        return {
+            "status": "error",
+            "detail": f"{name} unreachable ({e})",
+            "error": str(e),
+        }
+
+
+def _check_audio_analyzer():
+    """Check audio_analyzer via its local SQLite DB — last detection time + process alive."""
+    db_path = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
+    result = {"status": "unknown"}
+    try:
+        if not db_path.exists():
+            return {"status": "error", "detail": "Database not found"}
+        conn = _sqlite3.connect(str(db_path), timeout=2)
+        conn.execute("PRAGMA journal_mode=WAL")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*), MAX(date || ' ' || time) FROM notes WHERE date = ?",
+                    (datetime.now().strftime("%Y-%m-%d"),))
+        row = cur.fetchone()
+        conn.close()
+        today_count = row[0] or 0
+        last_det = row[1] or "none"
+        # Check if process is alive via PID file or process list
+        import subprocess
+        ps = subprocess.run(["pgrep", "-f", "audio_analyzer.py"], capture_output=True, timeout=2)
+        alive = ps.returncode == 0
+        result = {
+            "status": "ok" if alive else "warn",
+            "detail": f"{'Running' if alive else 'NOT RUNNING'}, {today_count} detections today, last: {last_det}",
+            "detections_today": today_count,
+            "last_detection": last_det,
+            "process_alive": alive,
+        }
+    except Exception as e:
+        result = {"status": "error", "detail": str(e)}
+    return result
+
+
+def _check_nas():
+    """Check NAS reachability via /healthz endpoint."""
+    try:
+        url = "https://192.168.5.92:9444/healthz"
+        req = _urllib_request.Request(url, headers={"Host": "birds.vivessyn.duckdns.org"})
+        with _urllib_request.urlopen(req, timeout=_HEALTH_TIMEOUT, context=_SSL_CTX) as resp:
+            body = resp.read().decode()
+            if resp.status == 200:
+                return {"status": "ok", "detail": "NAS proxy healthy"}
+            return {"status": "warn", "detail": f"NAS returned {resp.status}: {body}"}
+    except Exception as e:
+        err = str(e)
+        detail = f"NAS unreachable ({err})"
+        if "502" in err:
+            detail += ". Likely: Docker container IP changed. Fix: ssh NAS, docker restart birds-share"
+        return {"status": "error", "detail": detail, "error": err}
+
+
+@app.get("/api/system-health")
+def system_health():
+    """Aggregated health status of all services. Cached for 10 seconds."""
+    now = _time.time()
+    if _health_cache["data"] and (now - _health_cache["time"]) < _HEALTH_CACHE_TTL:
+        return _health_cache["data"]
+
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "api": {
+                "status": "ok",
+                "detail": f"{len(_classifications_cache)} entries, {len(_idx_by_species)} species",
+                "jsonl_entries": len(_classifications_cache),
+                "species_count": len(_idx_by_species),
+            },
+            "live_detector": _fetch_service("http://localhost:8097/metrics", "Live Detector"),
+            "enhanced_audio": _fetch_service("http://localhost:8096/health", "Enhanced Audio"),
+            "audio_analyzer": _check_audio_analyzer(),
+            "nas": _check_nas(),
+        },
+    }
+
+    # Add disk free
+    try:
+        usage = shutil.disk_usage("/")
+        result["disk_free_gb"] = round(usage.free / (1024**3), 1)
+        result["disk_total_gb"] = round(usage.total / (1024**3), 1)
+    except Exception:
+        pass
+
+    _health_cache["data"] = result
+    _health_cache["time"] = now
+    return result
+
+
 @app.get("/api/cameras")
 def cameras_list():
     """List cameras with detection counts and last seen times."""

@@ -114,6 +114,43 @@
   .sse-status.connected { color: var(--accent-green); }
   .sse-status.disconnected { color: var(--accent-red); }
 
+  /* Status dots (topbar health indicators) */
+  .status-dots {
+    display: flex; align-items: center; gap: 2px;
+    margin-left: auto; margin-right: 12px; cursor: pointer;
+    padding: 4px 8px; border-radius: 6px;
+    transition: background 0.2s;
+  }
+  .status-dots:hover { background: rgba(255,255,255,0.08); }
+  .sdot {
+    font-size: 0.6rem; margin: 0 1px;
+    color: var(--text-muted); transition: color 0.3s;
+  }
+  .sdot.ok { color: var(--accent-green); }
+  .sdot.warn { color: #f0ad4e; }
+  .sdot.error { color: var(--accent-red); }
+  .sdot-label { font-size: 0.65rem; color: var(--text-muted); margin-right: 6px; }
+  @keyframes pulse-error { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .sdot.error { animation: pulse-error 1.5s ease-in-out infinite; }
+
+  .status-dropdown {
+    position: absolute; top: 46px; right: 10px; z-index: 1000;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px; min-width: 380px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    font-size: 0.85rem; line-height: 1.6;
+  }
+  .status-dropdown-header {
+    font-weight: 600; margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .status-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .status-row .sdot { font-size: 0.7rem; }
+  .status-row-name { font-weight: 500; min-width: 110px; }
+  .status-row-detail { color: var(--text-muted); font-size: 0.8rem; flex: 1; }
+  .status-row-fix { color: var(--accent-red); font-size: 0.75rem; font-family: monospace; margin-top: 2px; }
+  .status-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--text-muted); }
+
   .tab-nav {
     display: flex;
     gap: 4px;
@@ -1751,10 +1788,20 @@
       <span>Loading stats...</span>
     </div>
   </div>
+  <div class="status-dots" id="status-dots" onclick="toggleStatusDropdown(event)">
+    <span class="sdot" id="sdot-api" title="API">●</span><span class="sdot-label">API</span>
+    <span class="sdot" id="sdot-cams" title="Cameras">●</span><span class="sdot-label">Cams</span>
+    <span class="sdot" id="sdot-audio" title="Audio">●</span><span class="sdot-label">Audio</span>
+    <span class="sdot" id="sdot-nas" title="NAS">●</span><span class="sdot-label">NAS</span>
+  </div>
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="review">Review</button>
   </div>
+</div>
+<div class="status-dropdown" id="status-dropdown" style="display:none">
+  <div class="status-dropdown-header">System Status <span id="status-last-check" style="float:right;opacity:0.6;font-size:0.8em"></span></div>
+  <div id="status-dropdown-body">Loading...</div>
 </div>
 
 <!-- Main Content -->
@@ -5043,9 +5090,146 @@
     }
   });
 
+  // ── System Health Status Bar ──
+  var _lastHealthData = null;
+
+  function pollSystemHealth() {
+    fetch('/bird-api/system-health')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _lastHealthData = data;
+        renderStatusDots(data);
+      })
+      .catch(function() {
+        // API itself is down — set all dots to unknown
+        ['api','cams','audio','nas'].forEach(function(id) {
+          var dot = document.getElementById('sdot-' + id);
+          if (dot) { dot.className = 'sdot error'; dot.title = 'Cannot reach API'; }
+        });
+      });
+  }
+
+  function renderStatusDots(data) {
+    var svc = data.services || {};
+
+    // API dot
+    _setDot('api', svc.api);
+
+    // Cams dot — aggregate from live_detector
+    var ld = svc.live_detector || {};
+    if (ld.status === 'ok') {
+      // Check if in nighttime pause
+      var nightSkips = ((ld.counters || {}).frames_skipped_night || 0);
+      var framesProcessed = ((ld.counters || {}).frames_processed || 0);
+      if (nightSkips > 0 && framesProcessed === 0) {
+        _setDot('cams', {status: 'ok', detail: 'Nighttime pause (saving CPU)'});
+      } else {
+        var funnel = (ld.funnels || {}).detection || [];
+        var frameCount = funnel.length > 0 ? funnel[0].count : 0;
+        var broadcastCount = funnel.length > 4 ? funnel[4].count : 0;
+        _setDot('cams', {status: 'ok', detail: frameCount + ' frames, ' + broadcastCount + ' detections'});
+      }
+    } else {
+      _setDot('cams', ld);
+    }
+
+    // Audio dot — combine enhanced audio + audio analyzer
+    var ea = svc.enhanced_audio || {};
+    var aa = svc.audio_analyzer || {};
+    if (ea.status === 'ok' && (aa.status === 'ok' || aa.status === 'warn')) {
+      _setDot('audio', {status: aa.status === 'warn' ? 'warn' : 'ok', detail: (aa.detail || '') + (ea.stream_ready ? ' | Stream ready' : '')});
+    } else if (ea.status !== 'ok') {
+      _setDot('audio', ea);
+    } else {
+      _setDot('audio', aa);
+    }
+
+    // NAS dot
+    _setDot('nas', svc.nas);
+
+    // Update dropdown if visible
+    var dd = document.getElementById('status-dropdown');
+    if (dd && dd.style.display !== 'none') {
+      renderStatusDropdown(data);
+    }
+  }
+
+  function _setDot(id, svcData) {
+    var dot = document.getElementById('sdot-' + id);
+    if (!dot || !svcData) return;
+    var status = svcData.status || 'unknown';
+    dot.className = 'sdot ' + (status === 'ok' ? 'ok' : status === 'warn' ? 'warn' : 'error');
+    dot.title = svcData.detail || status;
+  }
+
+  function toggleStatusDropdown(e) {
+    e.stopPropagation();
+    var dd = document.getElementById('status-dropdown');
+    if (!dd) return;
+    if (dd.style.display === 'none') {
+      dd.style.display = 'block';
+      if (_lastHealthData) renderStatusDropdown(_lastHealthData);
+      // Close on outside click
+      setTimeout(function() {
+        document.addEventListener('click', _closeStatusDropdown, {once: true});
+      }, 0);
+    } else {
+      dd.style.display = 'none';
+    }
+  }
+  function _closeStatusDropdown() {
+    var dd = document.getElementById('status-dropdown');
+    if (dd) dd.style.display = 'none';
+  }
+
+  function renderStatusDropdown(data) {
+    var body = document.getElementById('status-dropdown-body');
+    var ts = document.getElementById('status-last-check');
+    if (!body) return;
+    if (ts) ts.textContent = 'Checked: ' + new Date(data.timestamp).toLocaleTimeString();
+
+    var svc = data.services || {};
+    var html = '';
+
+    // Render each service row
+    var services = [
+      {key: 'api', name: 'Dashboard API', icon: '📡'},
+      {key: 'live_detector', name: 'Live Detector', icon: '📷'},
+      {key: 'enhanced_audio', name: 'Audio Stream', icon: '🔊'},
+      {key: 'audio_analyzer', name: 'Audio Analyzer', icon: '🎙️'},
+      {key: 'nas', name: 'NAS Proxy', icon: '🌐'},
+    ];
+
+    services.forEach(function(s) {
+      var d = svc[s.key] || {status: 'unknown', detail: 'No data'};
+      var cls = d.status === 'ok' ? 'ok' : d.status === 'warn' ? 'warn' : 'error';
+      html += '<div class="status-row">';
+      html += '<span class="sdot ' + cls + '">●</span>';
+      html += '<span class="status-row-name">' + s.icon + ' ' + escHtml(s.name) + '</span>';
+      html += '<span class="status-row-detail">' + escHtml(d.detail || d.status) + '</span>';
+      html += '</div>';
+      if (d.error) {
+        html += '<div class="status-row-fix">⚠ ' + escHtml(d.error) + '</div>';
+      }
+    });
+
+    // Summary
+    html += '<div class="status-summary">';
+    if (data.disk_free_gb) {
+      html += 'Disk: ' + data.disk_free_gb + ' GB free of ' + data.disk_total_gb + ' GB';
+    }
+    html += '</div>';
+
+    body.innerHTML = html;
+  }
+
+  // Poll every 30 seconds + on page load
+  setInterval(pollSystemHealth, 30000);
+
   // ── Init & Refresh ──
   async function init() {
     initLiveFeed();
+    pollSystemHealth();  // initial health check
     connectBirdnetSSE();
     connectLiveDetectionSSE();
     renderDetectionOverlay(); // start overlay rendering loop
