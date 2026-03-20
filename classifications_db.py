@@ -193,7 +193,8 @@ def _row_to_entry(row):
     """Reconstruct the original dict from a SQLite row.
 
     This produces the same shape that the JSONL-based code returned,
-    so API response formats stay identical.
+    so API response formats stay identical.  Applies species normalization
+    to nested structures (birds, top3) just like the old _normalize_entry().
     """
     d = {
         "file": row["file"],
@@ -211,12 +212,23 @@ def _row_to_entry(row):
         d["best_detection"] = json.loads(row["best_detection_json"])
     if row["top_prediction_json"]:
         d["top_prediction"] = json.loads(row["top_prediction_json"])
+        if "common_name" in d["top_prediction"]:
+            d["top_prediction"]["common_name"] = normalize_species(d["top_prediction"]["common_name"])
     if row["top3_json"]:
         d["top3"] = json.loads(row["top3_json"])
+        for t in d["top3"]:
+            if "common_name" in t:
+                t["common_name"] = normalize_species(t["common_name"])
     if row["raw_top3_json"]:
         d["raw_top3"] = json.loads(row["raw_top3_json"])
     if row["birds_json"]:
         d["birds"] = json.loads(row["birds_json"])
+        for b in d["birds"]:
+            if "common_name" in b:
+                b["common_name"] = normalize_species(b["common_name"])
+            for t in b.get("top3", []):
+                if "common_name" in t:
+                    t["common_name"] = normalize_species(t["common_name"])
 
     if row["range_filter_applied"]:
         d["range_filter_applied"] = True
@@ -447,3 +459,173 @@ def file_exists(filename):
     conn = get_conn(readonly=True)
     row = conn.execute("SELECT 1 FROM classifications WHERE file=?", (filename,)).fetchone()
     return row is not None
+
+
+# ── Phase 2: Direct-query functions for api.py (replaces in-memory cache) ──
+
+def count_species():
+    """Count distinct classified species."""
+    conn = get_conn(readonly=True)
+    return conn.execute(
+        "SELECT COUNT(DISTINCT common_name) FROM classifications "
+        "WHERE action='classified' AND common_name IS NOT NULL"
+    ).fetchone()[0]
+
+
+def get_last_timestamp():
+    """Return the most recent timestamp across all entries."""
+    conn = get_conn(readonly=True)
+    row = conn.execute("SELECT MAX(timestamp) FROM classifications").fetchone()
+    return row[0] if row else None
+
+
+def get_species_detail(name, limit=200):
+    """Return full species detail for /api/species/{name}.
+
+    Returns {common_name, scientific_name, count, detections: [{file, timestamp,
+    confidence, raw_score, top3, birds}]} or None if species not found.
+    """
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT * FROM classifications WHERE common_name=? AND action='classified' "
+        "ORDER BY timestamp DESC LIMIT ?",
+        (name, limit)
+    ).fetchall()
+    if not rows:
+        return None
+
+    detections = []
+    for row in rows:
+        e = _row_to_entry(row)
+        detections.append({
+            "file": e["file"],
+            "timestamp": e.get("source_timestamp") or e["timestamp"],
+            "confidence": e.get("best_detection", {}).get("confidence", 0),
+            "raw_score": e.get("top_prediction", {}).get("raw_score", 0),
+            "top3": e.get("top3", []),
+            "birds": e.get("birds", []),
+        })
+
+    return {
+        "common_name": name,
+        "scientific_name": (
+            detections[0].get("top3", [{}])[0].get("scientific_name", "")
+            if detections else ""
+        ),
+        "count": len(detections),
+        "detections": detections,
+    }
+
+
+def get_entries_by_files(filenames):
+    """Batch lookup: returns {filename: entry_dict} for given filenames.
+
+    SQLite limits ~999 variables per query, so we batch at 500.
+    """
+    if not filenames:
+        return {}
+    conn = get_conn(readonly=True)
+    result = {}
+    fnames = list(filenames)
+    batch_size = 500
+    for i in range(0, len(fnames), batch_size):
+        batch = fnames[i:i + batch_size]
+        placeholders = ",".join("?" * len(batch))
+        rows = conn.execute(
+            f"SELECT * FROM classifications WHERE file IN ({placeholders})",
+            batch
+        ).fetchall()
+        for row in rows:
+            result[row["file"]] = _row_to_entry(row)
+    return result
+
+
+def get_classified_for_pending():
+    """Return all classified entries pre-shaped for the review/pending endpoint.
+
+    Returns list of dicts with: file, source_timestamp, timestamp, species,
+    confidence, raw_score, top3, raw_top3, birds.
+    Only parses the JSON fields actually needed — lighter than full _row_to_entry().
+    """
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT file, source_timestamp, timestamp, common_name, "
+        "best_detection_json, top_prediction_json, top3_json, raw_top3_json, birds_json "
+        "FROM classifications WHERE action='classified' ORDER BY timestamp"
+    ).fetchall()
+    results = []
+    for r in rows:
+        tp = json.loads(r["top_prediction_json"]) if r["top_prediction_json"] else {}
+        bd = json.loads(r["best_detection_json"]) if r["best_detection_json"] else {}
+        birds = json.loads(r["birds_json"]) if r["birds_json"] else []
+        results.append({
+            "file": r["file"],
+            "source_timestamp": r["source_timestamp"],
+            "timestamp": r["timestamp"],
+            "species": normalize_species(tp.get("common_name", "unknown")),
+            "confidence": bd.get("confidence", 0),
+            "raw_score": tp.get("raw_score", 0),
+            "top3": json.loads(r["top3_json"]) if r["top3_json"] else [],
+            "raw_top3": json.loads(r["raw_top3_json"]) if r["raw_top3_json"] else [],
+            "birds": birds,
+        })
+    return results
+
+
+def get_species_timestamps(species_name):
+    """Return [{timestamp, camera}] for a species (for activity endpoint)."""
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT source_timestamp, camera FROM classifications "
+        "WHERE common_name=? AND action='classified'",
+        (species_name,)
+    ).fetchall()
+    return [{"timestamp": r["source_timestamp"], "camera": r["camera"]} for r in rows]
+
+
+def get_all_classified_brief():
+    """Return [(source_timestamp, common_name)] for all classified entries.
+
+    Lightweight query for activity endpoints that don't need full entry data.
+    """
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT source_timestamp, common_name FROM classifications "
+        "WHERE action='classified' AND common_name IS NOT NULL"
+    ).fetchall()
+    return [(r["source_timestamp"], r["common_name"]) for r in rows]
+
+
+def get_classified_since_brief(cutoff_date, species=None):
+    """Return [(source_timestamp, common_name)] since cutoff_date.
+
+    Optional species filter. For activity/heatmap endpoint.
+    """
+    conn = get_conn(readonly=True)
+    if species and species != "all":
+        rows = conn.execute(
+            "SELECT source_timestamp, common_name FROM classifications "
+            "WHERE action='classified' AND source_date >= ? AND common_name=?",
+            (cutoff_date, normalize_species(species))
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT source_timestamp, common_name FROM classifications "
+            "WHERE action='classified' AND source_date >= ? AND common_name IS NOT NULL",
+            (cutoff_date,)
+        ).fetchall()
+    return [(r["source_timestamp"], r["common_name"]) for r in rows]
+
+
+def get_species_counts_for_activity():
+    """Return [{name, count}] for all classified species.
+
+    For /api/activity/species-list endpoint (camera detections only).
+    """
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT common_name, COUNT(*) as count FROM classifications "
+        "WHERE action='classified' AND common_name IS NOT NULL "
+        "GROUP BY common_name ORDER BY count DESC"
+    ).fetchall()
+    return [{"name": normalize_species(r["common_name"]), "count": r["count"]} for r in rows]
