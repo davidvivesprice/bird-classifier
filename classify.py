@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
+from motion_gate import MotionGate
 from PIL import Image, ImageDraw, ImageFont
 
 # Range filtering for geographic validation
@@ -70,6 +71,11 @@ CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of b
 # IR frame detection (auto-trash grayscale/infrared frames during twilight)
 IR_SATURATION_THRESHOLD = float(os.environ.get('IR_SATURATION_THRESHOLD', '0.08'))
 IR_WINDOW_MINUTES = int(os.environ.get('IR_WINDOW_MINUTES', '90'))
+
+# Motion gate — skip frames where nothing changed since the last frame.
+# Threshold 1.5% = at least 1.5% of pixels must change to count as motion.
+# Fail-open: if the gate errors, the frame passes through.
+_motion_gate = MotionGate(threshold_pct=1.5, resize_width=320)
 
 # Watch mode
 WATCH_INTERVAL = 10  # seconds
@@ -979,10 +985,23 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
         return 0
 
     results = []
+    motion_skipped = 0
     for fpath in files:
+        camera = extract_camera(fpath.name)
+        if not _motion_gate.has_motion(str(fpath), camera=camera):
+            # No meaningful change since last frame from this camera — skip YOLO entirely.
+            # Move the file to skipped/ so it doesn't pile up in incoming/.
+            SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(fpath), str(SKIPPED_DIR / fpath.name))
+            motion_skipped += 1
+            continue
         r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath, regional_species, range_filter)
         if r:
             results.append(r)
+
+    if motion_skipped:
+        logging.info("Motion gate: skipped %d static frames (%.0f%% skip rate)",
+                     motion_skipped, _motion_gate.skip_rate)
 
     if results:
         classified = [r for r in results if r["action"] == "classified"]
