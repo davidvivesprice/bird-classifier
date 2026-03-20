@@ -54,7 +54,7 @@ app = FastAPI(title="Bird Dashboard API", version="1.0")
 
 @app.on_event("startup")
 def warm_cache():
-    """Pre-load JSONL caches on startup so the first request is fast."""
+    """Pre-load classification caches on startup so the first request is fast."""
     import logging
     t0 = _time.time()
     entries = load_classifications()
@@ -138,12 +138,106 @@ def _index_entry(e: dict):
 
 
 def load_classifications():
-    """Load classification entries from JSONL with incremental append caching.
+    """Load classification entries from SQLite into in-memory caches.
 
-    Only reads bytes added since the last load.  Indexes are updated
-    incrementally — endpoints use indexes for O(1) lookups instead of
-    iterating the full list.
+    Uses the SQLite DB as the primary source (fast, deduplicated).
+    Falls back to JSONL if the DB doesn't exist yet.
+
+    Incremental: tracks DB row count and only reloads when rows are added.
+    Full reload takes ~2s for 116K rows (vs 30-40s for JSONL).
     """
+    global _classifications_cache, _classifications_size
+    global _idx_classified, _idx_by_species, _idx_by_date, _idx_by_file
+    global _idx_species_set, _idx_cameras
+
+    import sqlite3 as _sqlite3
+
+    DB_PATH = BASE_DIR / "logs" / "classifications.db"
+
+    # ── Fallback to JSONL if no DB yet ──
+    if not DB_PATH.exists():
+        return _load_classifications_jsonl()
+
+    try:
+        conn = _sqlite3.connect(str(DB_PATH), timeout=5)
+        conn.row_factory = _sqlite3.Row
+    except _sqlite3.Error as exc:
+        logging.warning("SQLite open failed, falling back to JSONL: %s", exc)
+        return _load_classifications_jsonl()
+
+    try:
+        current_count = conn.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
+    except _sqlite3.Error as exc:
+        logging.warning("SQLite query failed, falling back to JSONL: %s", exc)
+        conn.close()
+        return _load_classifications_jsonl()
+
+    # No change — return cached data
+    if current_count == _classifications_size and _classifications_cache:
+        conn.close()
+        return _classifications_cache
+
+    # Full reload from SQLite (fast — ~2s for 116K rows)
+    t0 = _time.time()
+    _classifications_cache = []
+    _idx_classified = []
+    _idx_by_species = defaultdict(list)
+    _idx_by_date = defaultdict(list)
+    _idx_by_file = {}
+    _idx_species_set = set()
+    _idx_cameras = {}
+
+    rows = conn.execute("SELECT * FROM classifications ORDER BY timestamp").fetchall()
+    conn.close()
+
+    for row in rows:
+        e = _sqlite_row_to_entry(row)
+        e = _normalize_entry(e)
+        _classifications_cache.append(e)
+        _index_entry(e)
+
+    _classifications_size = current_count
+    elapsed = _time.time() - t0
+    logging.info("Loaded %d entries from SQLite in %.1fs", len(_classifications_cache), elapsed)
+    return _classifications_cache
+
+
+def _sqlite_row_to_entry(row):
+    """Convert a SQLite Row to the same dict format the JSONL code produced."""
+    d = {
+        "file": row["file"],
+        "camera": row["camera"],
+        "timestamp": row["timestamp"],
+        "source_timestamp": row["source_timestamp"],
+        "action": row["action"],
+        "detect_ms": row["detect_ms"],
+        "classify_ms": row["classify_ms"],
+        "total_ms": row["total_ms"],
+        "detections": row["detections"],
+    }
+    if row["best_detection_json"]:
+        d["best_detection"] = json.loads(row["best_detection_json"])
+    if row["top_prediction_json"]:
+        d["top_prediction"] = json.loads(row["top_prediction_json"])
+    if row["top3_json"]:
+        d["top3"] = json.loads(row["top3_json"])
+    if row["raw_top3_json"]:
+        d["raw_top3"] = json.loads(row["raw_top3_json"])
+    if row["birds_json"]:
+        d["birds"] = json.loads(row["birds_json"])
+    if row["range_filter_applied"]:
+        d["range_filter_applied"] = True
+        if row["original_species"]:
+            d["original_species"] = row["original_species"]
+        if row["filter_reason"]:
+            d["filter_reason"] = row["filter_reason"]
+    if row["extra_json"]:
+        d.update(json.loads(row["extra_json"]))
+    return d
+
+
+def _load_classifications_jsonl():
+    """Legacy JSONL loader — fallback if SQLite DB doesn't exist."""
     global _classifications_cache, _classifications_size
     global _idx_classified, _idx_by_species, _idx_by_date, _idx_by_file
     global _idx_species_set, _idx_cameras
@@ -155,11 +249,9 @@ def load_classifications():
     st = JSONL_PATH.stat()
     current_size = st.st_size
 
-    # No change
     if current_size == _classifications_size:
         return _classifications_cache
 
-    # File shrunk or replaced — full reload + rebuild indexes
     if current_size < _classifications_size:
         _classifications_cache = []
         _classifications_size = 0
@@ -170,7 +262,6 @@ def load_classifications():
         _idx_species_set = set()
         _idx_cameras = {}
 
-    # Read only new bytes
     new_count = 0
     corrupt = 0
     with open(JSONL_PATH, "rb") as f:
@@ -335,6 +426,16 @@ def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
+@app.get("/api/test")
+def serve_test_page():
+    """Serve the API smoke test page."""
+    test_path = Path(__file__).parent / "test.html"
+    if not test_path.exists():
+        raise HTTPException(status_code=404, detail="test.html not found")
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=test_path.read_text(), status_code=200)
+
+
 # ── System Health Aggregator ──────────────────────────────────────────────
 import ssl
 import sqlite3 as _sqlite3
@@ -432,8 +533,9 @@ def system_health():
             "api": {
                 "status": "ok",
                 "detail": f"{len(_classifications_cache)} entries, {len(_idx_by_species)} species",
-                "jsonl_entries": len(_classifications_cache),
+                "entries": len(_classifications_cache),
                 "species_count": len(_idx_by_species),
+                "backend": "sqlite" if (BASE_DIR / "logs" / "classifications.db").exists() else "jsonl",
             },
             "live_detector": _fetch_service("http://localhost:8097/metrics", "Live Detector"),
             "enhanced_audio": _fetch_service("http://localhost:8096/metrics", "Enhanced Audio"),
@@ -592,6 +694,46 @@ def get_image_raw(filename: str):
     if not path:
         raise HTTPException(status_code=404, detail="Raw image not found")
     return FileResponse(str(path), media_type="image/jpeg")
+
+
+@app.get("/api/image-crop/{filename}")
+def get_image_crop(filename: str, box: str = ""):
+    """Serve a cropped region from the raw image (bounding box area with padding)."""
+    import io
+    from PIL import Image as PILImage
+    path = _find_classified_file(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Raw image not found")
+    if not box:
+        # Try to find box from JSONL
+        load_classifications()
+        entry = _idx_by_file.get(os.path.basename(filename))
+        if entry and entry.get("best_detection"):
+            b = entry["best_detection"]["box"]
+            box = f"{b[0]},{b[1]},{b[2]},{b[3]}"
+    if not box:
+        # No box available, return the full raw image
+        return FileResponse(str(path), media_type="image/jpeg")
+    try:
+        coords = [int(x) for x in box.split(",")]
+        x1, y1, x2, y2 = coords[:4]
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Invalid box format. Use x1,y1,x2,y2")
+    img = PILImage.open(path)
+    w, h = img.size
+    # Add 15% padding
+    bw, bh = x2 - x1, y2 - y1
+    pad_x, pad_y = int(bw * 0.15), int(bh * 0.15)
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(w, x2 + pad_x)
+    y2 = min(h, y2 + pad_y)
+    cropped = img.crop((x1, y1, x2, y2))
+    buf = io.BytesIO()
+    cropped.save(buf, format="JPEG", quality=90)
+    buf.seek(0)
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(buf, media_type="image/jpeg")
 
 
 @app.get("/api/review/pending")
@@ -1528,6 +1670,7 @@ class FoodLogEntry(BaseModel):
     food_type: str
     feeder: str = "main"
     notes: str = ""
+    timestamp: str = ""  # optional ISO timestamp for backfilling
 
 
 @app.post("/api/food-log")
@@ -1538,7 +1681,7 @@ def add_food_log(entry: FoodLogEntry):
             status_code=400,
             content={"error": f"Unknown food type. Use one of: {', '.join(FOOD_TYPES)} or custom:name"}
         )
-    ts = datetime.now().isoformat()
+    ts = entry.timestamp if entry.timestamp else datetime.now().isoformat()
     conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
     try:
         conn.execute(

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bird Observatory — API Smoke Test</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+h1 { color: #fff; margin-bottom: 4px; font-size: 22px; }
+.subtitle { color: #888; margin-bottom: 20px; font-size: 13px; }
+.summary { display: flex; gap: 20px; margin-bottom: 20px; padding: 12px 16px; background: #16213e; border-radius: 8px; font-size: 14px; }
+.summary .pass { color: #4ade80; } .summary .fail { color: #f87171; } .summary .skip { color: #fbbf24; }
+.test { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 4px; background: #16213e; border-radius: 6px; font-size: 13px; }
+.test .icon { font-size: 16px; min-width: 22px; text-align: center; }
+.test .name { min-width: 260px; font-weight: 500; }
+.test .detail { color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.test .ms { color: #666; min-width: 60px; text-align: right; font-size: 12px; }
+.test.pass { border-left: 3px solid #4ade80; }
+.test.fail { border-left: 3px solid #f87171; }
+.test.running { border-left: 3px solid #60a5fa; opacity: 0.7; }
+.test.skip { border-left: 3px solid #fbbf24; }
+button { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+button:hover { background: #2563eb; }
+button:disabled { background: #555; cursor: default; }
+#results { max-height: 80vh; overflow-y: auto; }
+</style>
+</head>
+<body>
+<h1>Bird Observatory — API Smoke Test</h1>
+<p class="subtitle">Tests every API endpoint against real data. Validates response structure, not just HTTP 200.</p>
+<div class="summary">
+  <span>Total: <strong id="total">0</strong></span>
+  <span class="pass">Pass: <strong id="passed">0</strong></span>
+  <span class="fail">Fail: <strong id="failed">0</strong></span>
+  <span class="skip">Skip: <strong id="skipped">0</strong></span>
+  <span style="margin-left:auto"><button id="runBtn" onclick="runAll()">Run All Tests</button></span>
+</div>
+<div id="results"></div>
+
+<script>
+const BASE = window.location.origin;
+const API = BASE + '/bird-api';
+// When served directly from iMac:8099, no prefix needed
+const LOCAL_API = 'http://localhost:8099';
+
+let apiBase = API;
+let results = [];
+let passed = 0, failed = 0, skipped = 0;
+
+// Auto-detect: try relative path first (served by FastAPI), then NAS proxy, then direct iMac
+async function detectBase() {
+  // When served from /api/test or /bird-api/api/test, relative paths work
+  try {
+    const r = await fetch('/bird-api/api/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return '/bird-api';
+  } catch {}
+  try {
+    const r = await fetch('/api/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return '';
+  } catch {}
+  try {
+    const r = await fetch(API + '/api/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return API;
+  } catch {}
+  try {
+    const r = await fetch(LOCAL_API + '/api/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return LOCAL_API;
+  } catch {}
+  return '';
+}
+
+function addResult(name, status, detail, ms) {
+  const el = document.getElementById('r-' + name.replace(/[^a-z0-9]/gi, '_'));
+  if (el) {
+    el.className = 'test ' + status;
+    el.querySelector('.icon').textContent = status === 'pass' ? '✅' : status === 'fail' ? '❌' : '⏭️';
+    el.querySelector('.detail').textContent = detail;
+    el.querySelector('.ms').textContent = ms ? ms + 'ms' : '';
+  }
+  if (status === 'pass') passed++;
+  else if (status === 'fail') failed++;
+  else skipped++;
+  document.getElementById('total').textContent = passed + failed + skipped;
+  document.getElementById('passed').textContent = passed;
+  document.getElementById('failed').textContent = failed;
+  document.getElementById('skipped').textContent = skipped;
+}
+
+function renderTests(tests) {
+  const container = document.getElementById('results');
+  container.innerHTML = tests.map(t => {
+    const id = 'r-' + t.name.replace(/[^a-z0-9]/gi, '_');
+    return `<div id="${id}" class="test running">
+      <span class="icon">⏳</span>
+      <span class="name">${t.name}</span>
+      <span class="detail">waiting...</span>
+      <span class="ms"></span>
+    </div>`;
+  }).join('');
+}
+
+// ── Test Definitions ──
+const tests = [
+  {
+    name: 'GET /api/health',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/health');
+      const d = await r.json();
+      if (d.status !== 'ok') throw new Error('status is ' + d.status);
+      return 'status=ok';
+    }
+  },
+  {
+    name: 'GET /api/system-health',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/system-health');
+      const d = await r.json();
+      if (!d.services) throw new Error('missing services object');
+      if (!d.services.api) throw new Error('missing services.api');
+      const svcCount = Object.keys(d.services).length;
+      if (svcCount < 3) throw new Error('only ' + svcCount + ' services');
+      return svcCount + ' services, ' + d.services.api.jsonl_entries + ' entries';
+    }
+  },
+  {
+    name: 'GET /api/stats',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/stats');
+      const d = await r.json();
+      if (typeof d.total !== 'number') throw new Error('missing total (got ' + typeof d.total + ')');
+      if (typeof d.species_count !== 'number') throw new Error('missing species_count');
+      return d.total + ' total, ' + d.species_count + ' species';
+    }
+  },
+  {
+    name: 'GET /api/cameras',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/cameras');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      if (d.length === 0) throw new Error('no cameras');
+      if (!d[0].name) throw new Error('missing name field');
+      return d.length + ' cameras: ' + d.map(c => c.name).join(', ');
+    }
+  },
+  {
+    name: 'GET /api/species',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/species');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      if (d.length === 0) throw new Error('empty species list');
+      const first = d[0];
+      if (!first.common_name || typeof first.count !== 'number') throw new Error('bad species entry: ' + JSON.stringify(first));
+      return d.length + ' species, top: ' + first.common_name + ' (' + first.count + ')';
+    }
+  },
+  {
+    name: 'GET /api/recent',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/recent?limit=5');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      if (d.length === 0) throw new Error('no recent sightings');
+      const first = d[0];
+      if (!first.file || !first.timestamp) throw new Error('bad entry: ' + JSON.stringify(first));
+      return d.length + ' entries, latest: ' + (first.top_prediction?.common_name || first.file);
+    }
+  },
+  {
+    name: 'GET /api/dates',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/dates');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      if (d.length === 0) throw new Error('no dates');
+      return d.length + ' dates, latest: ' + d[0];
+    }
+  },
+  {
+    name: 'GET /api/regional-species',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/regional-species');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      return d.length + ' regional species';
+    }
+  },
+  {
+    name: 'GET /api/review/pending',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/review/pending');
+      const d = await r.json();
+      if (!Array.isArray(d.pending)) throw new Error('missing pending array');
+      if (typeof d.remaining !== 'number') throw new Error('missing remaining count');
+      return d.remaining + ' pending, ' + d.total_reviewed + ' reviewed of ' + d.total_classified + ' classified';
+    }
+  },
+  {
+    name: 'GET /api/review/goals',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/review/goals');
+      const d = await r.json();
+      if (!Array.isArray(d.goals)) throw new Error('missing goals array');
+      if (typeof d.threshold !== 'number') throw new Error('missing threshold');
+      return d.goals.length + ' species goals, ' + d.total_species_complete + ' complete (threshold=' + d.threshold + ')';
+    }
+  },
+  {
+    name: 'GET /api/birdnet-summary',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/birdnet-summary');
+      const d = await r.json();
+      if (!d.species && !d.detections && !Array.isArray(d)) throw new Error('unexpected format: ' + JSON.stringify(d).slice(0, 100));
+      const count = d.total_detections || d.detections?.length || Object.keys(d.species || {}).length || 0;
+      return 'birdnet data present (' + count + ' items)';
+    }
+  },
+  {
+    name: 'GET /api/birdnet-events (SSE)',
+    run: async () => {
+      // Just check the endpoint responds, don't hold SSE open
+      const r = await fetch(apiBase + '/api/birdnet-events', {
+        signal: AbortSignal.timeout(3000),
+        headers: { 'Accept': 'text/event-stream' }
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      r.body?.cancel();
+      return 'SSE endpoint responding (HTTP ' + r.status + ')';
+    }
+  },
+  {
+    name: 'GET /api/cull/config',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/cull/config');
+      const d = await r.json();
+      if (typeof d.default_max_keep !== 'number') throw new Error('missing default_max_keep');
+      return 'max_keep=' + d.default_max_keep + ', ' + (d.sufficient_species?.length || 0) + ' sufficient species';
+    }
+  },
+  {
+    name: 'GET /api/cull/inventory',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/cull/inventory');
+      const d = await r.json();
+      if (!Array.isArray(d.inventory)) throw new Error('missing inventory array');
+      return d.inventory.length + ' species in inventory';
+    }
+  },
+  {
+    name: 'GET /api/food-log',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/food-log');
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error('response is not an array');
+      return d.length + ' food log entries';
+    }
+  },
+  {
+    name: 'GET /api/food-log/current',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/food-log/current');
+      const d = await r.json();
+      if (!d.food_type) throw new Error('missing food_type field');
+      return 'current food: ' + d.food_type + (d.feeder ? ' in ' + d.feeder : '');
+    }
+  },
+  {
+    name: 'GET /api/food-types',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/food-types');
+      const d = await r.json();
+      if (!Array.isArray(d.food_types) && !Array.isArray(d)) throw new Error('unexpected format');
+      const types = d.food_types || d;
+      return types.length + ' food types';
+    }
+  },
+  {
+    name: 'GET /api/activity/heatmap',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/activity/heatmap');
+      const d = await r.json();
+      if (!d.data && !d.heatmap && !Array.isArray(d)) throw new Error('unexpected format');
+      return 'heatmap data present';
+    }
+  },
+  {
+    name: 'GET /api/activity/species-list',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/activity/species-list');
+      const d = await r.json();
+      if (!Array.isArray(d.species) && !Array.isArray(d)) throw new Error('unexpected format');
+      const list = d.species || d;
+      return list.length + ' species with activity data';
+    }
+  },
+  {
+    name: 'Metrics: live_detector format',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/system-health');
+      const d = await r.json();
+      const det = d.services?.live_detector;
+      if (!det) throw new Error('no live_detector in services');
+      if (typeof det.counters?.frames_processed !== 'number') throw new Error('counters.frames_processed is not a plain number (got: ' + JSON.stringify(det.counters?.frames_processed) + ')');
+      if (typeof det.counters?.broadcasts !== 'number') throw new Error('counters.broadcasts is not a number');
+      if (!det.histograms?.total_pipeline_ms?.p50) throw new Error('missing histograms.total_pipeline_ms.p50');
+      if (!Array.isArray(det.funnels?.detection)) throw new Error('funnels.detection is not an array');
+      const funnel = det.funnels.detection;
+      if (!funnel[0].stage || typeof funnel[0].count !== 'number') throw new Error('bad funnel format: ' + JSON.stringify(funnel[0]));
+      return 'frames=' + det.counters.frames_processed + ', broadcasts=' + det.counters.broadcasts + ', pipeline_p50=' + det.histograms.total_pipeline_ms.p50 + 'ms';
+    }
+  },
+  {
+    name: 'Metrics: detection funnel structure',
+    run: async () => {
+      const r = await fetch(apiBase + '/api/system-health');
+      const d = await r.json();
+      const funnel = d.services?.live_detector?.funnels?.detection;
+      if (!Array.isArray(funnel)) throw new Error('funnels.detection is not an array');
+      const stages = funnel.map(f => f.stage);
+      const expected = ['frames', 'yolo_hits', 'classified', 'voter_approved', 'broadcast'];
+      for (const s of expected) {
+        if (!stages.includes(s)) throw new Error('missing stage: ' + s);
+      }
+      return stages.join(' → ');
+    }
+  },
+];
+
+async function runAll() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  passed = 0; failed = 0; skipped = 0;
+
+  apiBase = await detectBase();
+  if (!apiBase && apiBase !== '') {
+    alert('Cannot reach API on NAS proxy or localhost:8099');
+    btn.disabled = false;
+    btn.textContent = 'Run All Tests';
+    return;
+  }
+
+  renderTests(tests);
+
+  for (const test of tests) {
+    const t0 = performance.now();
+    try {
+      const detail = await test.run();
+      const ms = Math.round(performance.now() - t0);
+      addResult(test.name, 'pass', detail, ms);
+    } catch (err) {
+      const ms = Math.round(performance.now() - t0);
+      addResult(test.name, 'fail', err.message, ms);
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run Again';
+}
+
+// Auto-run on load
+window.addEventListener('load', () => setTimeout(runAll, 300));
+</script>
+</body>
+</html>

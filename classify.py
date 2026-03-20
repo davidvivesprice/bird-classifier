@@ -119,14 +119,17 @@ def _solar_times(lat, lon, dt=None):
 
 
 def _utc_offset_for_date(dt):
-    """Return UTC offset using the system's local timezone.
+    """Return UTC offset for a specific date using the system's local timezone.
 
-    Uses timezone-aware datetime to get the correct offset, including
-    during DST transitions (which happen at 2:00 AM, not midnight).
+    Uses noon on the given date to query the OS timezone database, which
+    correctly handles DST transitions (which happen at 2:00 AM, not noon).
+    Previously this ignored the dt parameter and always used the current time,
+    causing sunrise/sunset to be off by 1 hour on dates across DST boundaries.
     """
-    # Get the actual UTC offset from the OS timezone database
-    local_dt = datetime.now(timezone.utc).astimezone()
-    return int(local_dt.utcoffset().total_seconds() / 3600)
+    # Create a datetime at noon on the given date and get its local UTC offset
+    # Using noon avoids the 2 AM DST transition edge case
+    noon = datetime(dt.year, dt.month, dt.day, 12, 0, 0).astimezone()
+    return int(noon.utcoffset().total_seconds() / 3600)
 
 
 def is_nighttime():
@@ -670,8 +673,15 @@ def extract_timestamp(filename):
 
 
 def append_result(result):
-    """Append result to JSONL log with exclusive file locking."""
+    """Append result to JSONL log AND SQLite (dual-write).
+
+    JSONL remains the backup/fallback.  SQLite is the primary store
+    for the API.  If the SQLite write fails, we log a warning but
+    do NOT block the pipeline — the JSONL write is the critical path.
+    """
     import fcntl
+
+    # 1. JSONL write (critical path — must succeed)
     log_file = LOG_DIR / "classifications.jsonl"
     line = json.dumps(result) + "\n"
     with open(log_file, "a") as f:
@@ -680,6 +690,13 @@ def append_result(result):
         f.flush()
         os.fsync(f.fileno())
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    # 2. SQLite write (best-effort — don't block pipeline on failure)
+    try:
+        from classifications_db import insert_classification
+        insert_classification(result)
+    except Exception as exc:
+        logging.warning("SQLite write failed for %s: %s", result.get("file", "?"), exc)
 
 
 def sanitize_dirname(name):
@@ -690,6 +707,21 @@ def sanitize_dirname(name):
 def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path, regional_species=None, range_filter=None):
     """Full pipeline: detect birds → classify species → move file."""
     fname = os.path.basename(image_path)
+
+    # Race guard: check JPEG is complete before processing.
+    # sync_snapshots.sh may grab a file while the camera is still writing it.
+    # A valid JPEG ends with the EOF marker 0xFF 0xD9.  If it's missing,
+    # skip this file — it will be retried on the next classify cycle.
+    try:
+        with open(image_path, "rb") as _f:
+            _f.seek(-2, 2)
+            if _f.read() != b"\xff\xd9":
+                logging.warning("Partial JPEG (no EOF marker), skipping for retry: %s", fname)
+                return None
+    except OSError:
+        # File too small to seek — definitely incomplete
+        logging.warning("Partial JPEG (too small), skipping for retry: %s", fname)
+        return None
 
     try:
         img = Image.open(image_path).convert("RGB")
@@ -874,22 +906,27 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     if range_filter_info:
         result.update(range_filter_info)
 
-    # Auto-cull check: if species is marked sufficient and over cap, trash instead
-    cull_cfg = load_cull_config()
-    species_name = top["common_name"]
-    if species_name in cull_cfg.get("sufficient_species", []):
-        cap = cull_cfg.get("species_caps", {}).get(species_name, cull_cfg["default_max_keep"])
-        existing = len(list(species_dir.glob("*.jpg")))
-        if existing >= cap:
-            TRASH_DIR.mkdir(parents=True, exist_ok=True)
-            result["action"] = "trashed:overcap"
-            append_result(result)
-            try:
-                shutil.move(str(image_path), str(TRASH_DIR / fname))
-            except Exception as exc:
-                logging.warning("Failed to trash %s: %s", fname, exc)
-            logging.info("CULL %s — %s over cap (%d/%d)", fname, species_name, existing, cap)
-            return
+    # Auto-cull check: if species is marked sufficient and over cap, trash instead.
+    # Wrapped in try/except so a cull failure never crashes the classifier —
+    # the image still gets classified and saved normally if culling fails.
+    try:
+        cull_cfg = load_cull_config()
+        species_name = top["common_name"]
+        if species_name in cull_cfg.get("sufficient_species", []):
+            cap = cull_cfg.get("species_caps", {}).get(species_name, cull_cfg["default_max_keep"])
+            existing = len(list(species_dir.glob("*.jpg")))
+            if existing >= cap:
+                TRASH_DIR.mkdir(parents=True, exist_ok=True)
+                result["action"] = "trashed:overcap"
+                append_result(result)
+                try:
+                    shutil.move(str(image_path), str(TRASH_DIR / fname))
+                except Exception as exc:
+                    logging.warning("Failed to trash %s: %s", fname, exc)
+                logging.info("CULL %s — %s over cap (%d/%d)", fname, species_name, existing, cap)
+                return
+    except Exception as exc:
+        logging.warning("Auto-cull check failed for %s, continuing with normal classification: %s", fname, exc)
 
     append_result(result)
 
