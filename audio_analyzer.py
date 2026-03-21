@@ -34,9 +34,13 @@ from metrics import MetricsRegistry
 _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
-RTSP_URL = os.environ.get(
+_RTSP_URL_FALLBACK = os.environ.get(
     "BIRDNET_RTSP_URL",
     "rtsp://192.168.4.9:7447/VaeaRCXUbGgJsYSA",  # ground cam
+)
+RTSP_URLS_FILE = os.environ.get(
+    "RTSP_URLS_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "rtsp_urls.json"),
 )
 LAT = float(os.environ.get("BIRDNET_LAT", "41.35"))
 LON = float(os.environ.get("BIRDNET_LON", "-70.73"))
@@ -210,6 +214,21 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("audio_analyzer")
+
+
+def _get_rtsp_url(stream_name="ground"):
+    """Read current RTSP URL from local rtsp_urls.json, fall back to env var."""
+    try:
+        with open(RTSP_URLS_FILE) as f:
+            data = json.load(f)
+            url = data.get("streams", {}).get(stream_name)
+            if url:
+                log.info("Using RTSP URL from %s: %s", RTSP_URLS_FILE, url)
+                return url
+    except Exception as e:
+        log.warning("Could not read RTSP URL from %s: %s", RTSP_URLS_FILE, e)
+    return _RTSP_URL_FALLBACK
+
 
 # ── Globals ────────────────────────────────────────────────────────────────
 _shutdown = threading.Event()
@@ -386,7 +405,7 @@ def insert_detection(det, clip_name, source="ground"):
                 det["scientific_name"],
                 round(det["confidence"], 3),
                 clip_name,
-                RTSP_URL,
+                _get_rtsp_url("ground"),
             ),
         )
         _db_conn.commit()
@@ -450,8 +469,9 @@ def open_rtsp_audio():
     """
     import av
 
-    log.info("Opening RTSP stream: %s", RTSP_URL)
-    container = av.open(RTSP_URL, options={
+    rtsp_url = _get_rtsp_url("ground")
+    log.info("Opening RTSP stream: %s", rtsp_url)
+    container = av.open(rtsp_url, options={
         "rtsp_transport": "tcp",
         "stimeout": "10000000",     # 10s connection timeout (microseconds)
         "timeout": "10000000",      # 10s read timeout
@@ -789,7 +809,7 @@ def main():
     test_mode = "--test" in sys.argv
 
     log.info("Bird Audio Analyzer starting")
-    log.info("  RTSP: %s", RTSP_URL)
+    log.info("  RTSP: %s (dynamic, fallback: %s)", _get_rtsp_url("ground"), _RTSP_URL_FALLBACK)
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)

@@ -551,7 +551,7 @@ def get_classified_for_pending():
     rows = conn.execute(
         "SELECT file, source_timestamp, timestamp, common_name, "
         "best_detection_json, top_prediction_json, top3_json, raw_top3_json, birds_json "
-        "FROM classifications WHERE action='classified' ORDER BY timestamp"
+        "FROM classifications WHERE action='classified' ORDER BY timestamp DESC"
     ).fetchall()
     results = []
     for r in rows:

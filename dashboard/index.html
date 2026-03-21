@@ -553,8 +553,10 @@
   .goals-row .goals-species { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; color: var(--accent); }
   .goals-row .goals-species:hover { text-decoration: underline; }
   .goals-row .goals-bar-wrap { width: 100px; height: 10px; background: var(--bg-primary); border-radius: 5px; overflow: hidden; flex-shrink: 0; }
-  .goals-row .goals-bar-fill { height: 100%; border-radius: 5px; transition: width 0.3s; }
+  .goals-row .goals-bar-fill { display: block; height: 100%; border-radius: 5px; transition: width 0.3s; }
   .goals-row .goals-count { width: 48px; text-align: right; color: var(--text-muted); font-size: 0.78rem; flex-shrink: 0; }
+  .goals-row.goals-active { background: rgba(34, 197, 94, 0.08); border-radius: 4px; padding: 4px 6px; margin: 0 -6px; }
+  .goals-row.goals-active .goals-species { font-weight: 600; }
   .goals-show-complete { font-size: 0.78rem; color: var(--accent); cursor: pointer; margin-top: 6px; }
   .goals-show-complete:hover { text-decoration: underline; }
 
@@ -1606,6 +1608,7 @@
 
   .lightbox-tab:hover { color: var(--text-primary); }
   .lightbox-tab.active { color: var(--accent-green); border-bottom-color: var(--accent-green); }
+  .lightbox-tab kbd { font-size: 0.65rem; opacity: 0.5; margin-left: 2px; font-family: inherit; }
 
   .lightbox-body {
     flex: 1;
@@ -1993,8 +1996,9 @@
       <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
     </div>
     <div class="lightbox-tabs">
-      <button class="lightbox-tab active" data-lbtab="photo" onclick="switchLightboxTab('photo')">Photo</button>
-      <button class="lightbox-tab" data-lbtab="annotated" onclick="switchLightboxTab('annotated')">Annotated</button>
+      <button class="lightbox-tab" data-lbtab="photo" onclick="switchLightboxTab('photo')">Photo</button>
+      <button class="lightbox-tab active" data-lbtab="annotated" onclick="switchLightboxTab('annotated')">Annotated</button>
+      <button class="lightbox-tab" data-lbtab="crop" onclick="switchLightboxTab('crop')">Crop</button>
     </div>
     <div class="lightbox-body">
       <img class="lightbox-img" id="lightbox-img" alt="Bird photo">
@@ -2091,11 +2095,16 @@
     <div>
       <div class="panel" style="padding:16px; margin-bottom:16px;">
         <h3 style="margin:0 0 12px">Feeder Food Log</h3>
-        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
-          <select id="food-type-select" style="flex:1; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
+        <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+          <select id="food-type-select" style="flex:2; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
             <option value="">Select food...</option>
           </select>
-          <input type="text" id="food-notes-input" placeholder="Notes (optional)" style="flex:1; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
+          <input type="text" id="food-notes-input" placeholder="Notes (optional)" style="flex:2; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px;">
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
+          <label style="font-size:13px; opacity:0.7;">Date:</label>
+          <input type="datetime-local" id="food-date-input" style="flex:1; padding:8px; background:#1a1a2e; color:#e0e0e0; border:1px solid #444; border-radius:6px; font-size:13px;">
+          <span style="font-size:12px; opacity:0.5;">blank = now</span>
           <button onclick="logFoodChange()" style="padding:8px 16px; background:#48bb78; color:#fff; border:none; border-radius:6px; cursor:pointer;">Log</button>
         </div>
         <div id="current-food-display" style="padding:8px; background:#1a1a2e; border-radius:6px; font-size:14px;">Loading...</div>
@@ -2163,6 +2172,12 @@
   let _reviewHasMore = false;   // More items available on server
   const _REVIEW_PAGE_SIZE = 50; // Items per API request
   let selectedBirdIndex = 0;    // Which bird in multi-bird frames is being reviewed
+  let reviewImageTab = 'annotated'; // Persist selected image tab across review items
+  let _goalsDebounceTimer = null;
+  function loadGoalsDebounced() {
+    clearTimeout(_goalsDebounceTimer);
+    _goalsDebounceTimer = setTimeout(loadGoals, 400);
+  }
   let regionalSpecies = [];
   let availableDates = [];
   let reviewFilterSpecies = null; // Filter review to specific species
@@ -2854,11 +2869,14 @@
 
   window.switchLightboxTab = function(tab) {
     lightboxTab = tab;
-    document.querySelectorAll('.lightbox-tab').forEach(t => t.classList.toggle('active', t.dataset.lbtab === tab));
+    document.querySelectorAll('.lightbox-tab[data-lbtab]').forEach(t => t.classList.toggle('active', t.dataset.lbtab === tab));
     var img = document.getElementById('lightbox-img');
     if (tab === 'photo') {
       img.src = '/bird-api/image-raw/' + encodeURIComponent(lightboxFile);
       img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(lightboxFile); };
+    } else if (tab === 'crop') {
+      img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(lightboxFile); };
+      img.src = '/bird-api/image-crop/' + encodeURIComponent(lightboxFile);
     } else {
       img.onerror = null;
       img.src = '/bird-api/image/' + encodeURIComponent(lightboxFile);
@@ -2891,6 +2909,7 @@
       await fetch(url, { method: 'POST' });
       var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
+      loadGoalsDebounced(); // refresh goals after lightbox review
       // Auto-advance to next detection after a brief delay
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
@@ -2977,6 +2996,8 @@
 
   // Keyboard navigation
   document.addEventListener('keydown', function(e) {
+    // Don't intercept if typing in an input
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA')) return;
     if (e.key === 'Escape') {
       // Close topmost popup first
       if (document.getElementById('sp-overlay').classList.contains('visible')) {
@@ -2985,12 +3006,18 @@
         closeLightbox();
       }
     } else if (e.key === 'ArrowLeft' && document.getElementById('lightbox-overlay').classList.contains('visible')) {
-      // Don't navigate if typing in search box
-      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       lightboxNav(-1);
     } else if (e.key === 'ArrowRight' && document.getElementById('lightbox-overlay').classList.contains('visible')) {
-      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       lightboxNav(1);
+    } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+      // 1/2/3 switches image tabs in both review card and lightbox
+      var tabMap = { '1': 'photo', '2': 'annotated', '3': 'crop' };
+      var tab = tabMap[e.key];
+      if (document.getElementById('lightbox-overlay').classList.contains('visible')) {
+        switchLightboxTab(tab);
+      } else if (document.getElementById('review-image')) {
+        switchReviewImageTab(tab);
+      }
     }
   });
 
@@ -3350,10 +3377,12 @@
                       : cam ? '<span class="camera-badge camera-badge-unknown" title="' + cam + '">' + cam.charAt(0).toUpperCase() + '</span>'
                       : '';
       const liveClass = isLive ? ' live-sighting' : '';
-      return '<div class="recent-item' + liveClass + '" style="cursor:pointer" onclick="' + (isLive ? 'openSpeciesPopup(\'' + escAttr(name) + '\')' : 'openDetection(' + i + ')') + '">' +
+      // Always open detection lightbox on click; species popup only via small info icon
+      const clickAction = isLive ? 'openSpeciesPopup(\'' + escAttr(name) + '\')' : 'openDetection(' + i + ')';
+      return '<div class="recent-item' + liveClass + '" style="cursor:pointer" onclick="' + clickAction + '">' +
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
-          '<div class="recent-species">' + spLink(name) + '</div>' +
+          '<div class="recent-species">' + escHtml(name) + '</div>' +
           '<div class="recent-meta">' + timeAgo(ts) + '</div>' +
         '</div>' +
         camBadge +
@@ -3803,6 +3832,13 @@
     var select = document.getElementById('classify-species-filter');
     if (select) {
       select.value = species;
+      // Ensure goals panel stays open so user sees progress
+      var body = document.getElementById('goals-body');
+      if (body && !body.classList.contains('open')) {
+        body.classList.add('open');
+        var toggle = document.getElementById('goals-toggle-text');
+        if (toggle) toggle.textContent = '▾ hide';
+      }
       loadReviewData();
     }
   };
@@ -3823,14 +3859,19 @@
     var body = document.getElementById('goals-body');
     var incomplete = goals.filter(function(g) { return g.complete < 100; });
     var complete = goals.filter(function(g) { return g.complete >= 100; });
+    // Check if a species filter is active to highlight the row
+    var activeFilter = '';
+    var filterEl = document.getElementById('classify-species-filter');
+    if (filterEl) activeFilter = filterEl.value || '';
 
     var html = '';
     incomplete.forEach(function(g) {
       var color = g.complete < 25 ? '#ef4444' : g.complete < 60 ? '#f59e0b' : '#22c55e';
-      html += '<div class="goals-row">' +
+      var isActive = activeFilter === g.species;
+      html += '<div class="goals-row' + (isActive ? ' goals-active' : '') + '">' +
         '<span class="goals-species" onclick="filterToSpecies(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
         '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:' + g.complete + '%;background:' + color + ';"></span></span>' +
-        '<span class="goals-count">' + g.confirmed + '/' + g.target + '</span>' +
+        '<span class="goals-count">' + g.confirmed + '/' + g.target + ' (' + g.complete + '%)</span>' +
       '</div>';
     });
 
@@ -3839,7 +3880,8 @@
         (_goalsShowComplete ? '▾ Hide' : '▸ Show') + ' ' + complete.length + ' completed</div>';
       if (_goalsShowComplete) {
         complete.forEach(function(g) {
-          html += '<div class="goals-row">' +
+          var isActive = activeFilter === g.species;
+          html += '<div class="goals-row' + (isActive ? ' goals-active' : '') + '">' +
             '<span class="goals-species" onclick="filterToSpecies(\'' + escAttr(g.species) + '\')">' + escHtml(g.species) + '</span>' +
             '<span class="goals-bar-wrap"><span class="goals-bar-fill" style="width:100%;background:#22c55e;"></span></span>' +
             '<span class="goals-count" style="color:#22c55e;">✓ ' + g.confirmed + '</span>' +
@@ -4303,14 +4345,23 @@
     }
 
     var rawUrl = imgUrl.replace('/bird-api/image/', '/bird-api/image-raw/');
+    var cropUrl = imgUrl.replace('/bird-api/image/', '/bird-api/image-crop/');
+    // Format capture date/time for display
+    var captureTimeHtml = '';
+    if (itemTimestamp) {
+      var tsDisplay = itemTimestamp.replace('T', ' ').replace(/\.\d+$/, '');
+      captureTimeHtml = '<div style="color:var(--text-muted);font-size:0.8rem;padding:4px 12px;background:var(--bg-card);border-bottom:1px solid var(--border);">Captured: ' + escHtml(tsDisplay) + '</div>';
+    }
     area.innerHTML = '<div class="review-card">' +
       '<div class="lightbox-tabs" style="padding:0 12px;background:var(--bg-card);display:flex;align-items:center;">' +
-        '<button class="lightbox-tab" data-rvtab="photo" onclick="switchReviewImageTab(\'photo\')">Photo</button>' +
-        '<button class="lightbox-tab active" data-rvtab="annotated" onclick="switchReviewImageTab(\'annotated\')">Annotated</button>' +
+        '<button class="lightbox-tab' + (reviewImageTab === 'photo' ? ' active' : '') + '" data-rvtab="photo" onclick="switchReviewImageTab(\'photo\')">Photo <kbd>1</kbd></button>' +
+        '<button class="lightbox-tab' + (reviewImageTab === 'annotated' ? ' active' : '') + '" data-rvtab="annotated" onclick="switchReviewImageTab(\'annotated\')">Annotated <kbd>2</kbd></button>' +
+        '<button class="lightbox-tab' + (reviewImageTab === 'crop' ? ' active' : '') + '" data-rvtab="crop" onclick="switchReviewImageTab(\'crop\')">Crop <kbd>3</kbd></button>' +
         '<span style="margin-left:auto;color:var(--text-muted);font-size:12px;" id="review-position">' + (reviewIndex + 1) + ' / ' + reviewStats.remaining + '</span>' +
       '</div>' +
+      captureTimeHtml +
       '<div class="review-image-wrap">' +
-        (imgUrl ? '<img id="review-image" src="' + imgUrl + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '">' : '<div style="color:var(--text-muted)">No image available</div>') +
+        (imgUrl ? '<img id="review-image" src="' + (reviewImageTab === 'photo' ? rawUrl : reviewImageTab === 'crop' ? cropUrl : imgUrl) + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '" data-crop="' + cropUrl + '">' : '<div style="color:var(--text-muted)">No image available</div>') +
       '</div>' +
       '<div class="review-actions" style="padding:8px 24px;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">' +
         '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">Correct</button>' +
@@ -4360,6 +4411,7 @@
   };
 
   window.switchReviewImageTab = function(tab) {
+    reviewImageTab = tab; // persist across review items
     var img = document.getElementById('review-image');
     if (!img) return;
     document.querySelectorAll('.lightbox-tab[data-rvtab]').forEach(function(t) {
@@ -4368,6 +4420,9 @@
     if (tab === 'photo') {
       img.src = img.dataset.original;
       img.onerror = function() { img.src = img.dataset.annotated; };
+    } else if (tab === 'crop') {
+      img.onerror = function() { img.src = img.dataset.annotated; };
+      img.src = img.dataset.crop;
     } else {
       img.onerror = null;
       img.src = img.dataset.annotated;
@@ -4438,6 +4493,7 @@
         fetchMoreReviewItems();
       }
       renderReviewItem();
+      loadGoalsDebounced(); // refresh goals after each review
       showToast(verdict === 'correct' ? 'Marked correct' : correctSpecies === 'not_a_bird' ? 'Marked: Not a Bird' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted', 'success');
     } catch (e) {
       showToast('Failed to submit review', 'error');
@@ -4466,6 +4522,7 @@
         fetchMoreReviewItems();
       }
       renderReviewItem();
+      loadGoalsDebounced(); // refresh goals after correction
       showToast('Correction submitted: ' + species, 'success');
     } catch (e) {
       showToast('Failed to submit correction', 'error');
@@ -5426,14 +5483,18 @@
   async function logFoodChange() {
     var food = document.getElementById('food-type-select').value;
     var notes = document.getElementById('food-notes-input').value.trim();
+    var dateInput = document.getElementById('food-date-input').value;
     if (!food) { showToast('Select a food type'); return; }
+    var body = { food_type: food, notes: notes };
+    if (dateInput) body.timestamp = dateInput;
     try {
       await fetch('/bird-api/food-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ food_type: food, notes: notes }),
+        body: JSON.stringify(body),
       });
       document.getElementById('food-notes-input').value = '';
+      document.getElementById('food-date-input').value = '';
       showToast('Food logged: ' + food.replace(/_/g,' '));
       loadFoodUI();
     } catch(e) { showToast('Error logging food'); }
@@ -5480,38 +5541,36 @@
       var resp = await fetch('/bird-api/system-health');
       var d = await resp.json();
       var det = d.services.live_detector || {};
-      var metrics = det.metrics || {};
-      var counters = metrics.counters || {};
-      var histograms = metrics.histograms || {};
+      var counters = det.counters || {};
+      var histograms = det.histograms || {};
 
-      var frames = (counters.frames_processed || {}).value || 0;
-      var broadcasts = (counters.broadcast || {}).value || 0;
+      var frames = counters.frames_processed || 0;
+      var broadcasts = counters.broadcasts || 0;
       var yolo = histograms.yolo_ms || {};
       var classify = histograms.classify_ms || {};
 
-      document.getElementById('metric-yolo-p50').textContent = yolo.p50 ? Math.round(yolo.p50) : '—';
-      document.getElementById('metric-classify-p50').textContent = classify.p50 ? Math.round(classify.p50) : '—';
+      document.getElementById('metric-yolo-p50').textContent = yolo.p50 ? Math.round(yolo.p50) + 'ms' : '—';
+      document.getElementById('metric-classify-p50').textContent = classify.p50 ? Math.round(classify.p50) + 'ms' : '—';
       document.getElementById('metric-reject-rate').textContent = frames > 0 ? (broadcasts / frames * 100).toFixed(1) + '%' : '—';
 
       // Cost: rough CPU-seconds per detection
-      var totalMs = (histograms.total_ms || {}).mean || 0;
+      var totalMs = (histograms.total_pipeline_ms || {}).mean || 0;
       var costPerDet = broadcasts > 0 ? ((totalMs * frames / 1000) / broadcasts).toFixed(1) : '—';
       document.getElementById('metric-cost').textContent = costPerDet;
 
       // Funnel
-      var funnel = metrics.funnels || {};
-      var detFunnel = funnel.detection || {};
+      var detFunnel = (det.funnels || {}).detection || [];
       var funnelEl = document.getElementById('metrics-funnel');
-      if (funnelEl && detFunnel.stages) {
-        var stages = detFunnel.stages;
+      if (funnelEl && detFunnel.length > 0) {
         var fhtml = '<strong>Detection Funnel:</strong> ';
-        stages.forEach(function(s, i) {
-          fhtml += escHtml(s.name) + ': ' + s.count;
-          if (i < stages.length - 1) fhtml += ' → ';
+        detFunnel.forEach(function(s, i) {
+          fhtml += escHtml(s.stage) + ': ' + s.count;
+          if (s.drop_pct > 0) fhtml += ' <span style="opacity:0.5;">(-' + s.drop_pct + '%)</span>';
+          if (i < detFunnel.length - 1) fhtml += ' → ';
         });
         funnelEl.innerHTML = fhtml;
       }
-    } catch(e) {}
+    } catch(e) { console.warn('Metrics cards failed:', e); }
   }
 
   function loadActivityTab() {

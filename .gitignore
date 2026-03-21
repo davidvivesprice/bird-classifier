@@ -1,7 +1,18 @@
 venv/
 venv-coral/
+wildlife-venv/
 dashboard/species_images_backup/
 models/
 !models/*.txt
 __pycache__/
 *.pyc
+.DS_Store
+.fuse_hidden*
+dashboard/.fuse_hidden*
+dataset/
+dataset_negatives/
+dataset.zip
+Google Collab/
+pretty shots/
+unknown birds/
+rtsp_urls.json

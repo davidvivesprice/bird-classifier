@@ -28,9 +28,13 @@ from metrics import MetricsRegistry
 _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
-RTSP_URL = os.environ.get(
+_RTSP_URL_FALLBACK = os.environ.get(
     "RTSP_URL",
     "rtsp://192.168.4.9:7447/VaeaRCXUbGgJsYSA",
+)
+RTSP_URLS_FILE = os.environ.get(
+    "RTSP_URLS_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "rtsp_urls.json"),
 )
 SAMPLE_RATE = 48000
 CHANNELS = 1
@@ -64,6 +68,22 @@ logging.basicConfig(
 )
 log = logging.getLogger("enhanced_audio")
 
+
+def _get_rtsp_url(stream_name="birds"):
+    """Read current RTSP URL from local rtsp_urls.json, fall back to env var."""
+    try:
+        import json
+        with open(RTSP_URLS_FILE) as f:
+            data = json.load(f)
+            url = data.get("streams", {}).get(stream_name)
+            if url:
+                log.info("Using RTSP URL from %s: %s", RTSP_URLS_FILE, url)
+                return url
+    except Exception as e:
+        log.warning("Could not read RTSP URL from %s: %s", RTSP_URLS_FILE, e)
+    return _RTSP_URL_FALLBACK
+
+
 # ── Globals ────────────────────────────────────────────────────────────────
 _shutdown = threading.Event()
 
@@ -83,9 +103,10 @@ def _rtsp_reader():
 
     while not _shutdown.is_set():
         container = None
+        rtsp_url = _get_rtsp_url("birds")
         try:
-            log.info("Opening RTSP stream: %s", RTSP_URL)
-            container = av.open(RTSP_URL, options={
+            log.info("Opening RTSP stream: %s", rtsp_url)
+            container = av.open(rtsp_url, options={
                 "rtsp_transport": "tcp",
                 "stimeout": "5000000",
             })
@@ -335,7 +356,7 @@ class ThreadedHTTPServer(HTTPServer):
 
 def main():
     log.info("Enhanced audio stream server starting on port %d", HTTP_PORT)
-    log.info("  RTSP: %s", RTSP_URL)
+    log.info("  RTSP: %s (dynamic, fallback: %s)", _get_rtsp_url("birds"), _RTSP_URL_FALLBACK)
     log.info("  MP3 bitrate: %s", MP3_BITRATE)
     log.info("  Filter: bandpass %d-%d Hz", BANDPASS_LOW, BANDPASS_HIGH)
     log.info("  Chunk: %.1fs, Ring: %d chunks", CHUNK_SECONDS, RING_SIZE)
