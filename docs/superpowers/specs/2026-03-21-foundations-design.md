@@ -1,7 +1,7 @@
 # Bird Observatory — Complete System Spec & Roadmap
 
 **Date:** 2026-03-21
-**Status:** Draft
+**Status:** Phases 0–2 COMPLETE (March 22, 2026). Phase 3+ in progress.
 **Scope:** Everything — foundations, backlog, audit findings, operational gaps, future work. Single source of truth.
 
 ---
@@ -37,7 +37,7 @@ Organized by priority tier, with every item from the backlog audit, code audit, 
 
 Without this, we can't verify anything else.
 
-### F0. Mock RTSP Test Feeds
+### F0. Mock RTSP Test Feeds — COMPLETE (March 22, 2026)
 
 **Problem:** Can't test pipeline changes without live birds. Can't benchmark at night. Can't compare before/after on same input.
 
@@ -68,7 +68,7 @@ test-feeder:
 
 These are structural changes that make everything else easier.
 
-### F1. Shared Inference Library (`bird_inference.py`)
+### F1. Shared Inference Library (`bird_inference.py`) — COMPLETE (March 22, 2026)
 
 **Problem:** classify.py and live_detector.py share ~170 lines of functionally identical code (~410 lines total across diverged implementations). The code has already diverged in harmful ways:
 - Detection confidence: 0.3 (classify.py:67) vs 0.35 (live_detector.py:83)
@@ -109,7 +109,7 @@ def parse_label(label_str) -> tuple[str, str]: ...
 
 ---
 
-### F2. Reviews → SQLite
+### F2. Reviews → SQLite — COMPLETE (March 22, 2026)
 
 **Problem:** `review/pending` calls `get_classified_for_pending()` which loads all ~30K classified entries from SQLite into Python dicts, then iterates to cross-reference against ~950 reviews in JSONL. The memory spike (~50-100MB) comes from loading the classified entries, not the reviews themselves.
 
@@ -511,11 +511,11 @@ Use time-of-day as Bayesian prior for classification. Species X feeds at dawn, s
 ## Implementation Order
 
 ```
-Phase 0:   Quick Wins (OPS1-3, Q-SQL3, OPS7-8, B9)     ← immediate, low risk
-Phase 0.5: Mock RTSP Test Feeds (F0)                     ← enables testing for all phases
-Phase 1:   Shared Inference Library (F1)                  ← unblocks motion gate, bug fixes
-Phase 2:   Reviews → SQLite (F2)                         ← proven migration pattern
-Phase 3:   Visit-Based Event Model (F3)                  ← highest complexity, highest payoff
+Phase 0:   Quick Wins (OPS1-3, Q-SQL3, OPS7-8, B9)     ← DONE (March 22, 2026)
+Phase 0.5: Mock RTSP Test Feeds (F0)                     ← DONE (March 22, 2026)
+Phase 1:   Shared Inference Library (F1)                  ← DONE (March 22, 2026)
+Phase 2:   Reviews → SQLite (F2)                         ← DONE (March 22, 2026)
+Phase 3:   Visit-Based Event Model (F3)                  ← next — highest complexity, highest payoff
 Phase 4:   UI/Display Fixes (B1, B4-B8)                  ← user-facing, benefits from visits
 Phase 5:   Multi-Bird Review Rework (B12-B14, B16)       ← benefits from reviews SQLite
 Phase 6:   SQL Optimizations (Q-SQL1-2, Q-SQL4-5)        ← performance tuning
@@ -534,9 +534,9 @@ Each phase gets:
 
 ## Success Criteria
 
-1. **Mock RTSP**: Can loop test video as RTSP, run full pipeline, get deterministic results.
-2. **Shared Inference**: classify.py and live_detector.py import from bird_inference.py. No duplicated YOLO/AIY code. SPECIES_ALIASES defined once. Motion gate works in both. parse_label bug fixed.
-3. **Reviews SQLite**: `review/pending` uses SQL JOIN, `get_classified_for_pending()` eliminated. No memory spike. JSONL backup continues.
-4. **Visits**: Dashboard shows visit-based counts. Daily visit count 10-20x lower than detection count. Duration/co-occurrence queries work.
-5. **Quick Wins**: Logs rotate. Health checks automated. Indexes added. Stale configs removed.
-6. **Tests**: Each foundation has unit + integration tests. Mock RTSP for end-to-end verification.
+1. **Mock RTSP**: Can loop test video as RTSP, run full pipeline, get deterministic results. — **DONE**: test_clips/ with serve_test_feed.sh and README.
+2. **Shared Inference**: classify.py and live_detector.py import from bird_inference.py. No duplicated YOLO/AIY code. SPECIES_ALIASES defined once. Motion gate works in both. parse_label bug fixed. — **DONE**: bird_inference.py (389 lines), solar_utils.py (97 lines). classify.py 1085→807 lines, live_detector.py ~842→657 lines. Motion gate added to live_detector.
+3. **Reviews SQLite**: `review/pending` uses SQL JOIN, `get_classified_for_pending()` eliminated. No memory spike. JSONL backup continues. — **DONE**: reviews_db.py, 568 rows migrated from 1,015 JSONL lines (migrate_reviews_to_sqlite.py). Dual-write active.
+4. **Visits**: Dashboard shows visit-based counts. Daily visit count 10-20x lower than detection count. Duration/co-occurrence queries work. — **NOT YET** (Phase 3).
+5. **Quick Wins**: Logs rotate. Health checks automated. Indexes added. Stale configs removed. — **PARTIAL**: composite indexes added (classifications_db.py), config/go2rtc.yaml deleted, Slate-colored Junco removed from chilmark_feeder_species.txt.
+6. **Tests**: Each foundation has unit + integration tests. Mock RTSP for end-to-end verification. — **DONE**: 69 tests passing, 4 skipped. test_bird_inference.py (28), test_solar_utils.py (8), test_integration.py (4), test_reviews_db.py (23), test_reviews_integration.py (6).
