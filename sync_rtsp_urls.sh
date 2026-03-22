@@ -7,12 +7,12 @@ set -eu
 REMOTE_HOST="vives@192.168.5.92"
 REMOTE_PORT=2000
 SSH_KEY="/Users/vives/.ssh/id_ed25519"
-SSH_OPTS="-p ${REMOTE_PORT} -i ${SSH_KEY} -o ConnectTimeout=10 -o BatchMode=yes"
+SSH_OPTS="-i ${SSH_KEY} -o ConnectTimeout=10 -o BatchMode=yes"
 REMOTE_FILE="/volume1/docker/birds-hls/rtsp_urls.json"
 LOCAL_FILE="/Users/vives/bird-classifier/rtsp_urls.json"
 
-# Fetch the file
-scp ${SSH_OPTS} "${REMOTE_HOST}:${REMOTE_FILE}" "${LOCAL_FILE}.tmp" 2>/dev/null || {
+# Fetch the file (scp uses -P for port, not -p)
+scp -P ${REMOTE_PORT} ${SSH_OPTS} "${REMOTE_HOST}:${REMOTE_FILE}" "${LOCAL_FILE}.tmp" 2>/dev/null || {
     echo "$(date '+%Y-%m-%d %H:%M:%S') Failed to fetch rtsp_urls.json from NAS"
     exit 1
 }
