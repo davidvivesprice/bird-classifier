@@ -7,6 +7,7 @@ JSONL backup still written for reviews during transition.
 
 Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 """
+from __future__ import annotations
 
 
 import json
@@ -217,16 +218,13 @@ def _check_audio_analyzer_health():
     metrics = _fetch_service("http://localhost:8098/metrics", "Audio Analyzer")
 
     # Augment with DB detection counts
-    db_path = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
     try:
-        if db_path.exists():
-            conn = _sqlite3.connect(str(db_path), timeout=2)
-            conn.execute("PRAGMA journal_mode=WAL")
+        conn = _get_birdnet_conn()
+        if conn:
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*), MAX(date || ' ' || time) FROM notes WHERE date = ?",
                         (datetime.now().strftime("%Y-%m-%d"),))
             row = cur.fetchone()
-            conn.close()
             metrics["detections_today"] = row[0] or 0
             metrics["last_detection"] = row[1] or "none"
     except Exception:
@@ -914,6 +912,32 @@ import threading
 
 BIRDNET_DB_PATH = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
 BIRDNET_CLIPS_DIR = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"))
+_FOOD_DB = BIRDNET_DB_PATH  # food_log table lives in the same DB as birdnet notes
+
+# --- Thread-local connection pools for food_log and birdnet DBs ---
+_food_db_local = threading.local()
+_birdnet_db_local = threading.local()
+
+
+def _get_food_conn():
+    """Thread-local pooled connection to the food/birdnet DB (same file)."""
+    if not hasattr(_food_db_local, 'conn') or _food_db_local.conn is None:
+        _food_db_local.conn = sqlite3.connect(str(_FOOD_DB), timeout=5)
+        _food_db_local.conn.execute("PRAGMA journal_mode=WAL")
+        _food_db_local.conn.row_factory = sqlite3.Row
+    return _food_db_local.conn
+
+
+def _get_birdnet_conn():
+    """Thread-local pooled connection to the BirdNET database."""
+    if not BIRDNET_DB_PATH.exists():
+        return None
+    if not hasattr(_birdnet_db_local, 'conn') or _birdnet_db_local.conn is None:
+        _birdnet_db_local.conn = sqlite3.connect(str(BIRDNET_DB_PATH), timeout=5)
+        _birdnet_db_local.conn.execute("PRAGMA journal_mode=WAL")
+        _birdnet_db_local.conn.row_factory = sqlite3.Row
+    return _birdnet_db_local.conn
+
 
 # Cache for birdnet summary (regenerated when DB changes)
 _birdnet_summary_cache = None
@@ -922,13 +946,8 @@ _birdnet_last_id = 0  # for SSE polling
 
 
 def _birdnet_db():
-    """Get a read-only SQLite connection to the BirdNET database."""
-    if not BIRDNET_DB_PATH.exists():
-        return None
-    conn = sqlite3.connect(str(BIRDNET_DB_PATH), timeout=5)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get a thread-local pooled connection to the BirdNET database."""
+    return _get_birdnet_conn()
 
 
 def _birdnet_tz_offset():
@@ -1040,8 +1059,8 @@ def birdnet_summary():
         _birdnet_summary_mtime = now
         return result
 
-    finally:
-        conn.close()
+    except Exception:
+        raise
 
 
 from starlette.responses import StreamingResponse
@@ -1060,13 +1079,10 @@ async def birdnet_events():
     if _birdnet_last_id == 0:
         conn = _birdnet_db()
         if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT MAX(id) FROM notes")
-                row = cur.fetchone()
-                _birdnet_last_id = row[0] or 0
-            finally:
-                conn.close()
+            cur = conn.cursor()
+            cur.execute("SELECT MAX(id) FROM notes")
+            row = cur.fetchone()
+            _birdnet_last_id = row[0] or 0
 
     async def event_stream():
         global _birdnet_last_id
@@ -1127,8 +1143,6 @@ async def birdnet_events():
 
             except Exception as exc:
                 logging.warning("[BirdNET SSE] DB poll error: %s", exc)
-            finally:
-                conn.close()
 
     return StreamingResponse(
         event_stream(),
@@ -1268,16 +1282,28 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
         raise HTTPException(status_code=400, detail="sort_by must be 'date' or 'confidence'")
 
     if sort_by == "confidence":
-        # Batch lookup for score-based sorting
-        files = list(src_dir.glob("*.jpg"))
-        file_entries = cdb.get_entries_by_files([f.name for f in files])
-        files.sort(
-            key=lambda f: (
-                file_entries.get(f.name, {}).get("top_prediction", {}).get("raw_score", 0),
-                f.stat().st_mtime,
-            ),
-            reverse=True,
-        )
+        # Use SQL ORDER BY to get files ranked by raw_score (highest first)
+        sp_name = safe_dir.replace("_", " ")
+        cdb_conn = cdb.get_conn(readonly=True)
+        ranked_rows = cdb_conn.execute(
+            "SELECT file, raw_score FROM classifications "
+            "WHERE common_name = ? AND action = 'classified' "
+            "ORDER BY raw_score DESC",
+            (sp_name,),
+        ).fetchall()
+        # Build ordered file list from SQL, only including files that exist on disk
+        ranked_names = [row["file"] for row in ranked_rows]
+        ranked_set = set(ranked_names)
+        # Files in SQL order first, then any on-disk files not in DB (by mtime)
+        files_on_disk = {f.name: f for f in src_dir.glob("*.jpg")}
+        files = []
+        for name in ranked_names:
+            if name in files_on_disk:
+                files.append(files_on_disk[name])
+        # Append any files not in DB (sorted by mtime, newest first)
+        remaining = [f for name, f in files_on_disk.items() if name not in ranked_set]
+        remaining.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        files.extend(remaining)
         sort_label = "highest confidence"
     else:
         # Sort by modification time (newest first)
@@ -1319,8 +1345,6 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
 # ── Food Log ──────────────────────────────────────────────────────────────
 # Tracks what food is in the feeder for species-food correlation analysis.
 
-_FOOD_DB = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
-
 FOOD_TYPES = [
     "sunflower", "mixed_songbird", "suet", "nyjer", "peanut",
     "safflower", "mealworm", "fruit", "nectar", "empty",
@@ -1330,8 +1354,7 @@ FOOD_TYPES = [
 def _init_food_log():
     """Create the food_log table if it doesn't exist."""
     try:
-        conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = _get_food_conn()
         conn.execute("""
             CREATE TABLE IF NOT EXISTS food_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1342,7 +1365,6 @@ def _init_food_log():
             )
         """)
         conn.commit()
-        conn.close()
     except Exception as e:
         import logging
         logging.warning("Could not init food_log table: %s", e)
@@ -1371,31 +1393,26 @@ def add_food_log(entry: FoodLogEntry):
             content={"error": f"Unknown food type. Use one of: {', '.join(FOOD_TYPES)} or custom:name"}
         )
     ts = entry.timestamp if entry.timestamp else datetime.now().isoformat()
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-    try:
-        conn.execute(
-            "INSERT INTO food_log (timestamp, food_type, feeder, notes) VALUES (?, ?, ?, ?)",
-            (ts, entry.food_type, entry.feeder, entry.notes),
-        )
-        conn.commit()
-        row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    finally:
-        conn.close()
+    conn = _get_food_conn()
+    conn.execute(
+        "INSERT INTO food_log (timestamp, food_type, feeder, notes) VALUES (?, ?, ?, ?)",
+        (ts, entry.food_type, entry.feeder, entry.notes),
+    )
+    conn.commit()
+    row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"id": row_id, "timestamp": ts, "food_type": entry.food_type, "feeder": entry.feeder}
 
 
 @app.get("/api/food-log")
 def get_food_log():
     """List all food log entries, newest first."""
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC")
-        rows = cur.fetchall()
-    finally:
-        conn.close()
+    conn = _get_food_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC")
+    rows = cur.fetchall()
     return [
-        {"id": r[0], "timestamp": r[1], "food_type": r[2], "feeder": r[3], "notes": r[4]}
+        {"id": r["id"], "timestamp": r["timestamp"], "food_type": r["food_type"],
+         "feeder": r["feeder"], "notes": r["notes"]}
         for r in rows
     ]
 
@@ -1403,29 +1420,24 @@ def get_food_log():
 @app.get("/api/food-log/current")
 def get_current_food():
     """Get the most recent food entry (what's currently in the feeder)."""
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC LIMIT 1")
-        row = cur.fetchone()
-    finally:
-        conn.close()
+    conn = _get_food_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, timestamp, food_type, feeder, notes FROM food_log ORDER BY timestamp DESC LIMIT 1")
+    row = cur.fetchone()
     if not row:
         return {"food_type": "unknown", "timestamp": None, "detail": "No food logged yet"}
-    return {"id": row[0], "timestamp": row[1], "food_type": row[2], "feeder": row[3], "notes": row[4]}
+    return {"id": row["id"], "timestamp": row["timestamp"], "food_type": row["food_type"],
+            "feeder": row["feeder"], "notes": row["notes"]}
 
 
 @app.delete("/api/food-log/{entry_id}")
 def delete_food_log(entry_id: int):
     """Delete a food log entry."""
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-    try:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM food_log WHERE id = ?", (entry_id,))
-        conn.commit()
-        deleted = cur.rowcount
-    finally:
-        conn.close()
+    conn = _get_food_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM food_log WHERE id = ?", (entry_id,))
+    conn.commit()
+    deleted = cur.rowcount
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"deleted": entry_id}
@@ -1447,19 +1459,27 @@ def _get_food_at_time(conn, timestamp_str):
         (timestamp_str,),
     )
     row = cur.fetchone()
-    return row[0] if row else "unknown"
+    return (row[0] if isinstance(row, tuple) else row["food_type"]) if row else "unknown"
 
 
-def _get_food_periods(conn):
+def _get_food_periods(conn=None):
     """Get all food periods as (start, end, food_type) tuples."""
+    if conn is None:
+        conn = _get_food_conn()
     cur = conn.cursor()
     cur.execute("SELECT timestamp, food_type FROM food_log ORDER BY timestamp ASC")
     rows = cur.fetchall()
     if not rows:
         return []
     periods = []
-    for i, (ts, food) in enumerate(rows):
-        end = rows[i + 1][0] if i + 1 < len(rows) else datetime.now().isoformat()
+    for i, row in enumerate(rows):
+        ts = row[0] if isinstance(row, tuple) else row["timestamp"]
+        food = row[1] if isinstance(row, tuple) else row["food_type"]
+        if i + 1 < len(rows):
+            next_row = rows[i + 1]
+            end = next_row[0] if isinstance(next_row, tuple) else next_row["timestamp"]
+        else:
+            end = datetime.now().isoformat()
         periods.append((ts, end, food))
     return periods
 
@@ -1480,65 +1500,107 @@ def get_species_activity(species_name: str):
     """Activity analysis for a single species: hourly pattern, food preferences, cameras."""
     species_name = normalize_species(species_name)
 
-    # Gather detections from both camera (SQLite) and audio (BirdNET SQLite)
-    sp_rows = cdb.get_species_timestamps(species_name)
-    camera_dets = [{"timestamp": r["timestamp"], "camera": r["camera"], "source": "camera"} for r in sp_rows]
+    # --- Hourly distribution via SQL (camera) ---
+    cdb_conn = cdb.get_conn(readonly=True)
+    by_hour = [0] * 24
+    cam_hour_rows = cdb_conn.execute(
+        "SELECT CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+        "FROM classifications WHERE common_name = ? AND action = 'classified' "
+        "GROUP BY hour",
+        (species_name,),
+    ).fetchall()
+    camera_count = 0
+    for row in cam_hour_rows:
+        h = row["hour"]
+        if 0 <= h <= 23:
+            by_hour[h] += row["cnt"]
+            camera_count += row["cnt"]
 
-    audio_dets = []
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    # --- Hourly distribution via SQL (audio) ---
+    conn = _get_food_conn()
+    audio_count = 0
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT date, time, confidence FROM notes WHERE common_name = ? ORDER BY date, time",
+            "SELECT CAST(SUBSTR(time, 1, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+            "FROM notes WHERE common_name = ? GROUP BY hour",
             (species_name,),
         )
-        for date, time_str, conf in cur.fetchall():
-            audio_dets.append({
-                "timestamp": f"{date} {time_str}",
-                "source": "audio",
-                "confidence": conf,
-            })
+        for row in cur.fetchall():
+            h = row[0] if isinstance(row, tuple) else row["hour"]
+            cnt = row[1] if isinstance(row, tuple) else row["cnt"]
+            if 0 <= h <= 23:
+                by_hour[h] += cnt
+                audio_count += cnt
     except Exception:
         pass
 
-    # Hourly distribution (0-23)
-    by_hour = [0] * 24
-    all_timestamps = []
-    for d in camera_dets + audio_dets:
-        ts = d["timestamp"]
-        all_timestamps.append(ts)
-        try:
-            hour = int(ts.split(" ")[1].split(":")[0]) if " " in ts else int(ts.split("T")[1].split(":")[0])
-            by_hour[hour] += 1
-        except Exception:
-            pass
-
-    # Day of week distribution (0=Mon, 6=Sun)
+    # --- Day of week distribution via SQL (camera: SQLite strftime %w = 0=Sun..6=Sat → convert to 0=Mon..6=Sun) ---
     by_dow = [0] * 7
-    for ts in all_timestamps:
-        try:
-            date_str = ts.split(" ")[0] if " " in ts else ts.split("T")[0]
-            from datetime import date as date_cls
-            parts = date_str.split("-")
-            d = date_cls(int(parts[0]), int(parts[1]), int(parts[2]))
-            by_dow[d.weekday()] += 1
-        except Exception:
-            pass
+    dow_rows = cdb_conn.execute(
+        "SELECT CAST(strftime('%%w', source_timestamp) AS INTEGER) as dow, COUNT(*) as cnt "
+        "FROM classifications WHERE common_name = ? AND action = 'classified' "
+        "GROUP BY dow",
+        (species_name,),
+    ).fetchall()
+    for row in dow_rows:
+        sqlite_dow = row["dow"]  # 0=Sun, 1=Mon, ..., 6=Sat
+        py_dow = (sqlite_dow - 1) % 7  # convert to 0=Mon, ..., 6=Sun
+        by_dow[py_dow] += row["cnt"]
 
-    # Camera breakdown
+    # Audio day of week
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT CAST(strftime('%%w', date) AS INTEGER) as dow, COUNT(*) as cnt "
+            "FROM notes WHERE common_name = ? GROUP BY dow",
+            (species_name,),
+        )
+        for row in cur.fetchall():
+            sqlite_dow = row[0] if isinstance(row, tuple) else row["dow"]
+            cnt = row[1] if isinstance(row, tuple) else row["cnt"]
+            py_dow = (sqlite_dow - 1) % 7
+            by_dow[py_dow] += cnt
+    except Exception:
+        pass
+
+    # --- Camera breakdown via SQL ---
     cameras = {}
-    for d in camera_dets:
-        cam = d.get("camera", "unknown")
-        cameras[cam] = cameras.get(cam, 0) + 1
+    cam_rows = cdb_conn.execute(
+        "SELECT camera, COUNT(*) as cnt FROM classifications "
+        "WHERE common_name = ? AND action = 'classified' GROUP BY camera",
+        (species_name,),
+    ).fetchall()
+    for row in cam_rows:
+        cameras[row["camera"] or "unknown"] = row["cnt"]
 
-    # Food preferences
-    by_food = {}
+    # --- Food preferences via SQL: get all timestamps, match against food periods ---
     food_periods = _get_food_periods(conn)
-    for d in camera_dets + audio_dets:
-        food = _get_food_at_time(conn, d["timestamp"])
-        if food not in by_food:
-            by_food[food] = 0
-        by_food[food] += 1
+    by_food = {}
+
+    # Camera timestamps for food matching
+    cam_ts_rows = cdb_conn.execute(
+        "SELECT source_timestamp FROM classifications "
+        "WHERE common_name = ? AND action = 'classified'",
+        (species_name,),
+    ).fetchall()
+    for row in cam_ts_rows:
+        food = _get_food_at_time(conn, row["source_timestamp"])
+        by_food[food] = by_food.get(food, 0) + 1
+
+    # Audio timestamps for food matching
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT date || ' ' || time as ts FROM notes WHERE common_name = ?",
+            (species_name,),
+        )
+        for row in cur.fetchall():
+            ts = row[0] if isinstance(row, tuple) else row["ts"]
+            food = _get_food_at_time(conn, ts)
+            by_food[food] = by_food.get(food, 0) + 1
+    except Exception:
+        pass
 
     # Calculate rate per hour for each food
     food_hours = {}
@@ -1555,16 +1617,35 @@ def get_species_activity(species_name: str):
             "rate_per_hour": round(count / max(hours, 0.1), 2),
         }
 
-    conn.close()
-
     # Peak hour
     peak_hour = by_hour.index(max(by_hour)) if max(by_hour) > 0 else -1
-    total = len(camera_dets) + len(audio_dets)
+    total = camera_count + audio_count
 
-    # First/last seen
-    sorted_ts = sorted(all_timestamps)
-    first_seen = sorted_ts[0].split(" ")[0] if sorted_ts else None
-    last_seen = sorted_ts[-1].split(" ")[0] if sorted_ts else None
+    # First/last seen via SQL
+    first_seen = None
+    last_seen = None
+    fl_row = cdb_conn.execute(
+        "SELECT MIN(source_date) as first_d, MAX(source_date) as last_d "
+        "FROM classifications WHERE common_name = ? AND action = 'classified'",
+        (species_name,),
+    ).fetchone()
+    if fl_row and fl_row["first_d"]:
+        first_seen = fl_row["first_d"]
+        last_seen = fl_row["last_d"]
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT MIN(date) as first_d, MAX(date) as last_d FROM notes WHERE common_name = ?",
+                    (species_name,))
+        a_row = cur.fetchone()
+        if a_row:
+            a_first = a_row[0] if isinstance(a_row, tuple) else a_row["first_d"]
+            a_last = a_row[1] if isinstance(a_row, tuple) else a_row["last_d"]
+            if a_first:
+                first_seen = min(first_seen, a_first) if first_seen else a_first
+            if a_last:
+                last_seen = max(last_seen, a_last) if last_seen else a_last
+    except Exception:
+        pass
 
     # Preferred food
     preferred = max(food_prefs.items(), key=lambda x: x[1]["rate_per_hour"])[0] if food_prefs else "unknown"
@@ -1572,8 +1653,8 @@ def get_species_activity(species_name: str):
     return {
         "species": species_name,
         "total_detections": total,
-        "camera_detections": len(camera_dets),
-        "audio_detections": len(audio_dets),
+        "camera_detections": camera_count,
+        "audio_detections": audio_count,
         "by_hour": by_hour,
         "peak_hour": peak_hour,
         "peak_description": f"Most active {peak_hour}:00-{(peak_hour+1) % 24}:00" if peak_hour >= 0 else "No data",
@@ -1589,7 +1670,7 @@ def get_species_activity(species_name: str):
 @app.get("/api/activity/food/{food_type}")
 def get_food_activity(food_type: str):
     """What species does this food attract? Rates per hour for comparison."""
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    conn = _get_food_conn()
 
     # Get periods for this food
     food_periods = _get_food_periods(conn)
@@ -1598,7 +1679,6 @@ def get_food_activity(food_type: str):
     total_hours = sum(_hours_between(s, e) for s, e in matching_periods)
 
     if total_hours == 0:
-        conn.close()
         return {
             "food_type": food_type,
             "total_hours": 0,
@@ -1606,32 +1686,52 @@ def get_food_activity(food_type: str):
             "detail": "No logged periods for this food type",
         }
 
-    # Count detections per species during this food's periods
+    # Count detections per species during this food's periods using SQL
+    # Build a UNION of period ranges for efficient matching
     species_counts = {}
 
-    # Camera detections (from classification SQLite)
-    for ts, name in cdb.get_all_classified_brief():
-        name = normalize_species(name)
-        if not name:
-            continue
-        food = _get_food_at_time(conn, ts)
-        if food == food_type:
-            species_counts[name] = species_counts.get(name, 0) + 1
+    if matching_periods:
+        # Camera detections: use SQL with period-based WHERE clauses
+        cdb_conn = cdb.get_conn(readonly=True)
+        period_clauses = " OR ".join(
+            ["(source_timestamp >= ? AND source_timestamp < ?)"] * len(matching_periods)
+        )
+        period_params = []
+        for s, e in matching_periods:
+            period_params.extend([s, e])
 
-    # Audio detections
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT date, time, common_name FROM notes ORDER BY date, time")
-        for date, time_str, name in cur.fetchall():
-            name = normalize_species(name)
-            ts = f"{date} {time_str}"
-            food = _get_food_at_time(conn, ts)
-            if food == food_type:
-                species_counts[name] = species_counts.get(name, 0) + 1
-    except Exception:
-        pass
+        cam_rows = cdb_conn.execute(
+            f"SELECT common_name, COUNT(*) as cnt FROM classifications "
+            f"WHERE action = 'classified' AND common_name IS NOT NULL "
+            f"AND ({period_clauses}) "
+            f"GROUP BY common_name",
+            period_params,
+        ).fetchall()
+        for row in cam_rows:
+            name = normalize_species(row["common_name"])
+            if name:
+                species_counts[name] = species_counts.get(name, 0) + row["cnt"]
 
-    conn.close()
+        # Audio detections: same approach on notes table
+        try:
+            cur = conn.cursor()
+            audio_clauses = " OR ".join(
+                ["(date || ' ' || time >= ? AND date || ' ' || time < ?)"] * len(matching_periods)
+            )
+            cur.execute(
+                f"SELECT common_name, COUNT(*) as cnt FROM notes "
+                f"WHERE ({audio_clauses}) "
+                f"GROUP BY common_name",
+                period_params,
+            )
+            for row in cur.fetchall():
+                name_val = row[0] if isinstance(row, tuple) else row["common_name"]
+                cnt_val = row[1] if isinstance(row, tuple) else row["cnt"]
+                name = normalize_species(name_val)
+                if name:
+                    species_counts[name] = species_counts.get(name, 0) + cnt_val
+        except Exception:
+            pass
 
     # Build ranked list
     species_list = []
@@ -1653,46 +1753,66 @@ def get_food_activity(food_type: str):
 
 @app.get("/api/activity/heatmap")
 def get_activity_heatmap(species: str = "all", days: int = 7):
-    """Hour × species detection heatmap for the last N days."""
+    """Hour x species detection heatmap for the last N days."""
     cutoff_date = (datetime.now() - _timedelta(days=days)).strftime("%Y-%m-%d")
 
-    # Collect hourly counts per species from audio DB
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
-    heatmap = {}  # species → [hour0, hour1, ..., hour23]
+    heatmap = {}  # species -> [hour0, hour1, ..., hour23]
+
+    # Audio detections: SQL GROUP BY for hourly counts per species
+    conn = _get_food_conn()
     try:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT common_name, time FROM notes WHERE date >= ?",
-            (cutoff_date,),
-        )
-        for name, time_str in cur.fetchall():
-            name = normalize_species(name)
-            if species != "all" and name != normalize_species(species):
-                continue
-            try:
-                hour = int(time_str.split(":")[0])
-            except Exception:
-                continue
-            if name not in heatmap:
-                heatmap[name] = [0] * 24
-            heatmap[name][hour] += 1
+        if species != "all":
+            norm_sp = normalize_species(species)
+            cur.execute(
+                "SELECT common_name, CAST(SUBSTR(time, 1, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+                "FROM notes WHERE date >= ? AND common_name = ? GROUP BY common_name, hour",
+                (cutoff_date, norm_sp),
+            )
+        else:
+            cur.execute(
+                "SELECT common_name, CAST(SUBSTR(time, 1, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+                "FROM notes WHERE date >= ? GROUP BY common_name, hour",
+                (cutoff_date,),
+            )
+        for row in cur.fetchall():
+            name_val = row[0] if isinstance(row, tuple) else row["common_name"]
+            hour_val = row[1] if isinstance(row, tuple) else row["hour"]
+            cnt_val = row[2] if isinstance(row, tuple) else row["cnt"]
+            name = normalize_species(name_val)
+            if 0 <= hour_val <= 23:
+                if name not in heatmap:
+                    heatmap[name] = [0] * 24
+                heatmap[name][hour_val] += cnt_val
     except Exception:
         pass
-    conn.close()
 
-    # Also add camera detections (from classification SQLite)
-    for ts, name in cdb.get_classified_since_brief(cutoff_date, species if species != "all" else None):
-        name = normalize_species(name)
-        if not name or not ts:
-            continue
-        try:
-            time_part = ts.split(" ")[1] if " " in ts else ts.split("T")[1]
-            hour = int(time_part.split(":")[0])
-        except Exception:
-            continue
-        if name not in heatmap:
-            heatmap[name] = [0] * 24
-        heatmap[name][hour] += 1
+    # Camera detections: SQL GROUP BY for hourly counts per species
+    cdb_conn = cdb.get_conn(readonly=True)
+    if species != "all":
+        norm_sp = normalize_species(species)
+        cam_rows = cdb_conn.execute(
+            "SELECT common_name, CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+            "FROM classifications "
+            "WHERE action = 'classified' AND source_date >= ? AND common_name = ? "
+            "GROUP BY common_name, hour",
+            (cutoff_date, norm_sp),
+        ).fetchall()
+    else:
+        cam_rows = cdb_conn.execute(
+            "SELECT common_name, CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+            "FROM classifications "
+            "WHERE action = 'classified' AND source_date >= ? AND common_name IS NOT NULL "
+            "GROUP BY common_name, hour",
+            (cutoff_date,),
+        ).fetchall()
+    for row in cam_rows:
+        name = normalize_species(row["common_name"])
+        hour_val = row["hour"]
+        if name and 0 <= hour_val <= 23:
+            if name not in heatmap:
+                heatmap[name] = [0] * 24
+            heatmap[name][hour_val] += row["cnt"]
 
     # Sort by total detections
     sorted_species = sorted(heatmap.keys(), key=lambda s: -sum(heatmap[s]))
@@ -1717,16 +1837,17 @@ def get_species_list():
             counts[name] = counts.get(name, 0) + item["count"]
 
     # Also add audio species from BirdNET DB
-    conn = _sqlite3.connect(str(_FOOD_DB), timeout=5)
+    conn = _get_food_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT common_name, COUNT(*) FROM notes GROUP BY common_name")
-        for name, count in cur.fetchall():
-            name = normalize_species(name)
-            counts[name] = counts.get(name, 0) + count
+        cur.execute("SELECT common_name, COUNT(*) as cnt FROM notes GROUP BY common_name")
+        for row in cur.fetchall():
+            name_val = row[0] if isinstance(row, tuple) else row["common_name"]
+            cnt_val = row[1] if isinstance(row, tuple) else row["cnt"]
+            name = normalize_species(name_val)
+            counts[name] = counts.get(name, 0) + cnt_val
     except Exception:
         pass
-    conn.close()
 
     sorted_species = sorted(counts.items(), key=lambda x: -x[1])
     return {"species": [{"name": s, "count": c} for s, c in sorted_species]}
