@@ -182,3 +182,53 @@ class TestYOLODetector:
         det_low = YOLODetector(yolo_model_path, confidence=0.1).detect(test_bird_image_pil)
         det_high = YOLODetector(yolo_model_path, confidence=0.9).detect(test_bird_image_pil)
         assert len(det_low) >= len(det_high)
+
+
+# ── SpeciesClassifier ─────────────────────────────────────────────────────
+
+class TestSpeciesClassifier:
+    def test_init(self, species_model_path, labels_path):
+        from bird_inference import SpeciesClassifier
+        classifier = SpeciesClassifier(species_model_path, labels_path)
+        assert classifier is not None
+        assert len(classifier.labels) > 900
+
+    def test_classify_returns_tuple(self, species_model_path, labels_path, regional_species,
+                                     yolo_model_path, test_bird_image_pil):
+        from bird_inference import SpeciesClassifier, YOLODetector, crop_bird
+        detector = YOLODetector(yolo_model_path)
+        classifier = SpeciesClassifier(species_model_path, labels_path, regional_species)
+        detections = detector.detect(test_bird_image_pil)
+        if not detections:
+            pytest.skip("No birds detected in test image")
+        crop = crop_bird(test_bird_image_pil, detections[0]["box"])
+        filtered, raw = classifier.classify(crop)
+        assert isinstance(filtered, list)
+        assert isinstance(raw, list)
+        assert len(raw) > 0
+
+    def test_prediction_has_fields(self, species_model_path, labels_path, regional_species,
+                                    yolo_model_path, test_bird_image_pil):
+        from bird_inference import SpeciesClassifier, YOLODetector, crop_bird
+        detector = YOLODetector(yolo_model_path)
+        classifier = SpeciesClassifier(species_model_path, labels_path, regional_species)
+        detections = detector.detect(test_bird_image_pil)
+        if not detections:
+            pytest.skip("No birds detected in test image")
+        crop = crop_bird(test_bird_image_pil, detections[0]["box"])
+        filtered, raw = classifier.classify(crop)
+        if filtered:
+            pred = filtered[0]
+            assert "common_name" in pred
+            assert "scientific_name" in pred
+            assert "raw_score" in pred
+            assert "index" in pred  # Errata E5
+            assert "label" in pred  # Errata E5
+
+    def test_classify_uses_uint8_input(self, species_model_path, labels_path):
+        import numpy as np
+        from bird_inference import SpeciesClassifier
+        classifier = SpeciesClassifier(species_model_path, labels_path)
+        dummy = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+        filtered, raw = classifier.classify(dummy)
+        assert isinstance(raw, list)

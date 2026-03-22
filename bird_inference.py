@@ -177,7 +177,7 @@ class YOLODetector:
         arr = arr.transpose(2, 0, 1)[np.newaxis]  # NCHW
         return arr, scale, pad_x, pad_y
 
-    # ── public API ────────────────────────────────────────────────────
+    # ── public API ────────────────────────────────────────────────────────
 
     def detect(self, pil_image):
         """Run detection on a PIL Image.
@@ -238,3 +238,152 @@ class YOLODetector:
             })
 
         return detections
+
+
+# ── Species Classification ────────────────────────────────────────────────
+
+_SPECIES_INPUT_SIZE = (224, 224)
+
+
+class SpeciesClassifier:
+    """AIY Birds V1 species classifier.
+
+    Tries Coral TPU first (if tpu_model_path provided and pycoral is available),
+    then falls back to ONNX.  Input images are resized to 224x224 and fed as
+    uint8 (0-255) — NOT normalised floats.
+
+    Parameters
+    ----------
+    model_path : str or Path
+        Path to the AIY Birds V1 ONNX model.
+    labels_path : str or Path
+        Path to the iNaturalist bird labels text file (one label per line).
+    regional_species : set or None
+        If provided, ``classify()`` returns a filtered list containing only
+        species in this set.  If None, filtered == raw.
+    providers : list or None
+        ONNX Runtime execution providers.  Defaults to ``get_providers()``.
+    tpu_model_path : str, Path, or None
+        Path to a Coral Edge TPU ``.tflite`` model.  If the file exists and
+        pycoral is importable with a TPU attached, the TPU path is used.
+    """
+
+    def __init__(self, model_path, labels_path, regional_species=None,
+                 providers=None, tpu_model_path=None):
+        with open(labels_path) as f:
+            self.labels = [line.strip() for line in f]
+
+        self.regional_species = regional_species
+        self._backend = "onnx"  # default
+
+        # --- Try Coral TPU first ------------------------------------------------
+        if tpu_model_path is not None:
+            from pathlib import Path as _Path
+            tpu_path = _Path(tpu_model_path)
+            if tpu_path.exists():
+                try:
+                    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
+                    from pycoral.adapters import common as coral_common
+                    if list_edge_tpus():
+                        interp = make_interpreter(str(tpu_path))
+                        interp.allocate_tensors()
+                        self._session = interp
+                        self._coral_common = coral_common
+                        self._backend = "coral"
+                        self._input_name = None
+                        return
+                except ImportError:
+                    pass
+                except Exception:
+                    pass
+
+        # --- Fallback: ONNX + CoreML -------------------------------------------
+        import onnxruntime as ort
+
+        if providers is None:
+            providers = get_providers()
+        self._session = ort.InferenceSession(str(model_path), providers=providers)
+        self._input_name = self._session.get_inputs()[0].name
+
+    def classify(self, crop):
+        """Classify a bird crop image.
+
+        Parameters
+        ----------
+        crop : PIL.Image.Image or numpy.ndarray
+            A cropped bird image (any size — will be resized to 224x224).
+
+        Returns
+        -------
+        (filtered_predictions, raw_predictions) : tuple[list, list]
+            Each prediction is a dict with keys: index, label,
+            scientific_name, common_name, raw_score.
+            If ``regional_species`` is None, filtered == raw.
+        """
+        import numpy as np
+        from PIL import Image as PILImage
+
+        # Accept both PIL and numpy inputs
+        if isinstance(crop, np.ndarray):
+            crop = PILImage.fromarray(crop)
+
+        resized = crop.resize(_SPECIES_INPUT_SIZE)
+        arr = np.array(resized, dtype=np.uint8)[np.newaxis]  # (1, 224, 224, 3) uint8
+
+        if self._backend == "coral":
+            self._coral_common.set_input(self._session, arr[0])
+            self._session.invoke()
+            scores = np.array(
+                self._coral_common.output_tensor(self._session, 0), dtype=np.float32
+            )
+            if scores.ndim == 2:
+                scores = scores[0]
+        else:
+            scores = self._session.run(None, {self._input_name: arr})[0][0]
+
+        # Raw top 3
+        top3_idx = np.argsort(scores)[-3:][::-1]
+        raw_predictions = []
+        for idx in top3_idx:
+            idx = int(idx)
+            scientific, common = parse_label(self.labels[idx])
+            common = normalize_species(common)
+            raw_predictions.append({
+                "index": idx,
+                "label": self.labels[idx],
+                "scientific_name": scientific,
+                "common_name": common,
+                "raw_score": int(scores[idx]),
+            })
+
+        if self.regional_species is None:
+            return raw_predictions, raw_predictions
+
+        # Filtered: walk all scores descending, pick top 3 regional matches
+        all_idx = np.argsort(scores)[::-1]
+        filtered = []
+        for idx in all_idx:
+            idx = int(idx)
+            scientific, common = parse_label(self.labels[idx])
+            common = normalize_species(common)
+            if common in self.regional_species:
+                filtered.append({
+                    "index": idx,
+                    "label": self.labels[idx],
+                    "scientific_name": scientific,
+                    "common_name": common,
+                    "raw_score": int(scores[idx]),
+                })
+                if len(filtered) >= 3:
+                    break
+
+        if not filtered:
+            filtered = [{
+                "index": -1,
+                "label": "unidentified",
+                "scientific_name": "unknown",
+                "common_name": "unidentified bird",
+                "raw_score": 0,
+            }]
+
+        return filtered, raw_predictions
