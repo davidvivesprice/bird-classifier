@@ -41,6 +41,9 @@ from bird_inference import (
     parse_label, crop_bird, get_providers,
 )
 
+# Visit tracking
+import visits_db as vdb
+
 # --- Configuration ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
 INCOMING_DIR = BASE_DIR / "incoming"
@@ -347,6 +350,63 @@ def append_result(result):
         logging.warning("SQLite write failed for %s: %s", result.get("file", "?"), exc)
 
 
+def _track_visit(result):
+    """Create or extend a visit for this detection.
+
+    Handles multi-bird frames: if result has a 'birds' array with multiple
+    species, each species gets its own visit tracked separately.
+    """
+    camera = result.get("camera", "feeder")
+    timestamp = result.get("source_timestamp") or result.get("timestamp", "")
+    source_date = timestamp[:10] if len(timestamp) >= 10 else ""
+
+    # Collect species to track: use the birds array if available for multi-bird support
+    birds = result.get("birds", [])
+    if birds and len(birds) > 1:
+        # Multi-bird frame: track each species separately
+        seen_species = set()
+        for bird in birds:
+            species = bird.get("species", "")
+            if not species or species in seen_species:
+                continue
+            seen_species.add(species)
+            confidence = bird.get("detection", {}).get("confidence", 0)
+            score = bird.get("raw_score", 0)
+            scientific = bird.get("scientific_name", "")
+            snapshot = result.get("file", "")
+
+            active = vdb.get_active_visit(camera, species, timestamp)
+            if active:
+                vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot)
+            else:
+                vdb.start_visit(
+                    camera=camera, species=species, scientific_name=scientific,
+                    timestamp=timestamp, source_date=source_date,
+                    confidence=confidence, score=score, snapshot=snapshot,
+                    bird_count=len(birds),
+                )
+    else:
+        # Single bird (or no birds array): use top_prediction
+        pred = result["top_prediction"]
+        species = pred["common_name"]
+        confidence = result.get("best_detection", {}).get("confidence", 0)
+        score = pred.get("raw_score", 0)
+        snapshot = result.get("file", "")
+        scientific = pred.get("scientific_name", "")
+        bird_count = result.get("detections", 1)
+
+        active = vdb.get_active_visit(camera, species, timestamp)
+        if active:
+            vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot)
+        else:
+            vdb.start_visit(
+                camera=camera, species=species, scientific_name=scientific,
+                timestamp=timestamp, source_date=source_date,
+                confidence=confidence, score=score, snapshot=snapshot,
+                bird_count=bird_count,
+            )
+
+
 def sanitize_dirname(name):
     """Convert a species name to a safe directory name."""
     return name.replace(" ", "_").replace("'", "").replace("/", "-")
@@ -576,6 +636,13 @@ def process_file(image_path, range_filter=None):
 
     append_result(result)
 
+    # Visit tracking
+    if result.get("action") == "classified" and result.get("top_prediction"):
+        try:
+            _track_visit(result)
+        except Exception as e:
+            logging.warning("Visit tracking failed for %s: %s", result.get("file", "?"), e)
+
     # Save annotated image with bounding box + labels for ALL birds
     annotated = annotate_image(img, detections, all_predictions, best_idx)
     ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
@@ -790,6 +857,13 @@ def main():
     except Exception as e:
         logging.warning("Could not load range filter: %s — geographic filtering disabled", e)
         range_filter = None
+
+    # Crash recovery: end any stale active visits from a previous run
+    try:
+        vdb.end_stale_visits()
+        logging.info("Ended any stale active visits from previous run")
+    except Exception as e:
+        logging.warning("Could not end stale visits: %s", e)
 
     if args.reprocess:
         reprocess(range_filter)
