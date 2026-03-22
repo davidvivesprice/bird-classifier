@@ -1883,6 +1883,9 @@
     </div>
 
     <!-- Row 3: Species Grid -->
+    <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; padding:8px 16px; color:var(--text-muted); font-size:0.9rem;">
+      <span id="species-grid-heading">Species &mdash; Today</span>
+    </div>
     <div id="species-grid" class="species-grid">
       <div class="loading-msg" style="grid-column: 1/-1;">Loading species data...</div>
     </div>
@@ -2414,6 +2417,25 @@
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
     if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
     return new Date(t).toLocaleDateString();
+  }
+
+  function formatTimestamp(ts) {
+    if (!ts) return '';
+    var t = parseTimestamp(ts);
+    if (isNaN(t)) return '';
+    var d = new Date(t);
+    var now = new Date();
+    var h = d.getHours(), m = d.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    var h12 = h % 12 || 12;
+    var timeStr = h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+    var sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    if (sameDay) return timeStr;
+    var yd = new Date(now); yd.setDate(yd.getDate() - 1);
+    var isYesterday = d.getFullYear() === yd.getFullYear() && d.getMonth() === yd.getMonth() && d.getDate() === yd.getDate();
+    if (isYesterday) return 'Yesterday ' + timeStr;
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[d.getMonth()] + ' ' + d.getDate() + ', ' + timeStr;
   }
 
   function confClass(val) {
@@ -3160,8 +3182,9 @@
       audioList.innerHTML = '';
     }
 
-    // Footer — attribution only
+    // Footer — attribution + navigate to grid
     var footerParts = [];
+    footerParts.push('<a href="#" onclick="event.preventDefault();scrollToSpeciesCard(\'' + escAttr(name) + '\');closeSpeciesPopup();" style="cursor:pointer;">📷 View in species grid</a>');
     if (data.image_url) footerParts.push('Photo: Macaulay Library / Wikimedia');
     if (data.audio && data.audio.length > 0) footerParts.push('Audio: xeno-canto.org (CC BY-NC-SA)');
     document.getElementById('sp-footer').innerHTML = footerParts.join('<span style="color:var(--border)"> | </span>');
@@ -3170,6 +3193,23 @@
   window.closeSpeciesPopup = function() {
     document.getElementById('sp-overlay').classList.remove('visible');
     document.querySelectorAll('#sp-audio-list audio').forEach(function(a) { a.pause(); });
+  };
+
+  window.scrollToSpeciesCard = function(name) {
+    // Switch to dashboard tab if not already there
+    var dashTab = document.querySelector('[data-tab="dashboard"]');
+    if (dashTab && !dashTab.classList.contains('active')) dashTab.click();
+    // Find and scroll to the species card
+    var card = document.querySelector('.species-card[data-species="' + CSS.escape(name) + '"]');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.style.outline = '2px solid var(--accent-blue)';
+      card.style.outlineOffset = '2px';
+      setTimeout(function() {
+        card.style.outline = '';
+        card.style.outlineOffset = '';
+      }, 2000);
+    }
   };
 
   // ── Species gallery navigation ──
@@ -3295,7 +3335,22 @@
     if (list.length === 0) {
       el.innerHTML = '🎙️ <span style="color:var(--text-muted)">Yard quiet</span>';
     } else {
-      el.innerHTML = '🎙️ <b style="color:var(--accent-amber)">' + list.length + '</b> in yard';
+      var yardText = '🎙️ <b style="color:var(--accent-amber)">' + list.length + '</b> in yard';
+      // On desktop, show species names
+      if (window.innerWidth >= 768 && list.length > 0) {
+        var names = [];
+        var seen = {};
+        for (var ni = 0; ni < list.length; ni++) {
+          var sp = list[ni].species;
+          if (!seen[sp]) { seen[sp] = true; names.push(sp); }
+        }
+        if (names.length <= 3) {
+          yardText += ' &mdash; <span class="yard-species" onclick="event.stopPropagation();document.getElementById(\'yard-panel\').scrollIntoView({behavior:\'smooth\'})">' + escHtml(names.join(', ')) + '</span>';
+        } else {
+          yardText += ' &mdash; <span class="yard-species" onclick="event.stopPropagation();document.getElementById(\'yard-panel\').scrollIntoView({behavior:\'smooth\'})">' + escHtml(names.slice(0, 2).join(', ')) + ' +' + (names.length - 2) + ' more</span>';
+        }
+      }
+      el.innerHTML = yardText;
     }
   }
 
@@ -3383,7 +3438,7 @@
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
           '<div class="recent-species">' + escHtml(name) + '</div>' +
-          '<div class="recent-meta">' + timeAgo(ts) + '</div>' +
+          '<div class="recent-meta" title="' + escAttr(timeAgo(ts)) + '">' + formatTimestamp(ts) + ' (' + timeAgo(ts) + ')</div>' +
         '</div>' +
         camBadge +
         '<span class="confidence-badge ' + confClass(conf) + '">' + confLabel(conf) + '</span>' +
@@ -3712,6 +3767,15 @@
 
   function renderSpeciesGrid() {
     const grid = document.getElementById('species-grid');
+    // Update species grid heading based on selected date
+    var headingEl = document.getElementById('species-grid-heading');
+    if (headingEl) {
+      var today = todayStr(), yesterday = yesterdayStr();
+      if (selectedDate === today) headingEl.innerHTML = 'Species &mdash; Today';
+      else if (selectedDate === yesterday) headingEl.innerHTML = 'Species &mdash; Yesterday';
+      else if (selectedDate === 'all') headingEl.innerHTML = 'Species &mdash; All Time';
+      else headingEl.innerHTML = 'Species &mdash; ' + escHtml(formatDateLabel(selectedDate));
+    }
     if (!visualSpecies.length) {
       grid.innerHTML = '<div class="loading-msg" style="grid-column:1/-1;">No species data available</div>';
       return;
@@ -3738,7 +3802,7 @@
       const thumbDet = daytimeDets.length > 0 ? daytimeDets[0] : (dets.length > 0 ? dets[0] : null);
       const thumbFile = thumbDet ? thumbDet.file : null;
       const thumbUrl = thumbFile ? '/bird-api/image/' + encodeURIComponent(thumbFile) : '';
-      const lastSeen = sp.last_seen ? timeAgo(sp.last_seen) : 'unknown';
+      const lastSeen = sp.last_seen ? formatTimestamp(sp.last_seen) + ' (' + timeAgo(sp.last_seen) + ')' : 'unknown';
 
       const thumbLbi = thumbFile ? regLB(thumbFile, sp.common_name, sp.scientific_name || '', 0, '') : -1;
 
@@ -3778,15 +3842,8 @@
       reviewStats.remaining = data.remaining || 0;
       reviewIndex = 0;
 
-      // Populate species filter dropdown
-      if (!speciesFilter && data.species_list) {
-        var sel = document.getElementById('classify-species-filter');
-        var opts = '<option value="">All Species</option>';
-        data.species_list.forEach(function(sp) {
-          opts += '<option value="' + escAttr(sp) + '">' + escHtml(sp) + '</option>';
-        });
-        sel.innerHTML = opts;
-      }
+      // Store species_list for dropdown population after regional species load
+      var _pendingSpeciesList = data.species_list || [];
     } catch (e) {
       area.innerHTML = '<div class="error-msg">Could not load review queue</div>';
       return;
@@ -3796,6 +3853,24 @@
       regionalSpecies = await apiFetch('/bird-api/regional-species');
     } catch (e) {
       regionalSpecies = [];
+    }
+
+    // Populate species filter dropdown with full regional species list
+    if (!speciesFilter) {
+      var sel = document.getElementById('classify-species-filter');
+      var opts = '<option value="">All Species</option>';
+      var detected = new Set(_pendingSpeciesList);
+      if (regionalSpecies && regionalSpecies.length > 0) {
+        regionalSpecies.forEach(function(sp) {
+          var marker = detected.has(sp) ? '' : ' (not yet detected)';
+          opts += '<option value="' + escAttr(sp) + '">' + escHtml(sp) + marker + '</option>';
+        });
+      } else {
+        _pendingSpeciesList.forEach(function(sp) {
+          opts += '<option value="' + escAttr(sp) + '">' + escHtml(sp) + '</option>';
+        });
+      }
+      sel.innerHTML = opts;
     }
 
     // Ensure BirdNET summary is loaded (for audio context in review)
@@ -4494,6 +4569,20 @@
       }
       renderReviewItem();
       loadGoalsDebounced(); // refresh goals after each review
+      // Auto-collapse goals panel if all goals are now complete
+      if (verdict === 'correct') {
+        setTimeout(function() {
+          var body = document.getElementById('goals-body');
+          if (body && body.classList.contains('open')) {
+            var incomplete = body.querySelectorAll('.goals-row:not(.goals-complete)');
+            if (incomplete.length === 0) {
+              body.classList.remove('open');
+              var toggle = document.getElementById('goals-toggle-text');
+              if (toggle) toggle.textContent = '▸ show';
+            }
+          }
+        }, 600);
+      }
       showToast(verdict === 'correct' ? 'Marked correct' : correctSpecies === 'not_a_bird' ? 'Marked: Not a Bird' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted', 'success');
     } catch (e) {
       showToast('Failed to submit review', 'error');
@@ -4689,7 +4778,7 @@
           '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">' + escHtml(speciesDisplay) + '</span>' +
           '<div style="display:flex;justify-content:space-between;width:100%;align-items:center;">' +
             '<span style="font-size:0.75rem;font-weight:600;' + verdictClass + ';">' + verdictLabel + '</span>' +
-            '<span class="skipped-card-time">' + escHtml(dateStr) + ' ' + escHtml(timeStr) + '</span>' +
+            '<span class="skipped-card-time">' + escHtml(formatTimestamp(ts)) + '</span>' +
           '</div>' +
         '</div>' +
       '</div>';
