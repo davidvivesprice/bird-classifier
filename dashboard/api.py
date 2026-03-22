@@ -581,6 +581,22 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
         if src.exists():
             shutil.move(str(src), str(TRASH_DIR / review["file"]))
 
+    # Move corrected images to the correct species directory
+    if verdict == "wrong" and review.get("correct_species"):
+        corrected = review["correct_species"]
+        safe_name = corrected.replace(" ", "_").replace("'", "").replace("/", "-")
+        dst_dir = CLASSIFIED_DIR / safe_name
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        fname = review["file"]
+        # Find the file in any species subdirectory
+        for species_dir in CLASSIFIED_DIR.iterdir():
+            if species_dir.is_dir():
+                src = species_dir / fname
+                if src.exists():
+                    shutil.move(str(src), str(dst_dir / fname))
+                    logging.info("Correction: moved %s from %s → %s", fname, species_dir.name, safe_name)
+                    break
+
     return {"status": "ok", "review": review}
 
 
