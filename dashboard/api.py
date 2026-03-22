@@ -8,7 +8,7 @@ JSONL backup still written for reviews during transition.
 Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 """
 
-import fcntl
+
 import json
 import logging
 import os
@@ -34,13 +34,11 @@ from bird_inference import SPECIES_ALIASES, normalize_species
 
 # --- Paths ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
-JSONL_PATH = BASE_DIR / "logs" / "classifications.jsonl"
 CLASSIFIED_DIR = BASE_DIR / "classified"
 ANNOTATED_DIR = BASE_DIR / "annotated"
 SKIPPED_DIR = BASE_DIR / "skipped"
 TRASH_DIR = BASE_DIR / "trash"
 BACKGROUND_DIR = BASE_DIR / "classified" / "background"
-REVIEWS_PATH = Path("/Users/vives/bird-classifier/dashboard/reviews.jsonl")
 REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/chilmark_feeder_species.txt")
 SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
 SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
@@ -74,24 +72,13 @@ app.add_middleware(
 
 # ── Atomic JSONL writer ──
 
-def _append_jsonl(path: Path, entry: dict):
-    """Append a JSON entry to a JSONL file with exclusive locking."""
-    line = json.dumps(entry) + "\n"
-    with open(path, "a") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        f.write(line)
-        f.flush()
-        os.fsync(f.fileno())
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
-
-# ── Classification data: Phase 2 — all queries go directly to SQLite via cdb ──
+# ── Classification data: all queries go directly to SQLite via cdb ──
 # No in-memory cache. RAM usage drops from ~1.2GB to near zero.
 # See classifications_db.py for all query functions.
 
 
-# ── Reviews: now served from SQLite via reviews_db (rdb) ──
-# JSONL backup still written via _append_jsonl for transition safety.
+# ── Reviews: served from SQLite via reviews_db (rdb) ──
+# JSONL retired March 22, 2026. Historical files preserved as archive.
 
 
 # ── Result cache with TTL ──
@@ -541,7 +528,6 @@ def rerun_missed():
             "timestamp": datetime.now().isoformat(),
         }
         rdb.insert_review(requeue_entry)
-        _append_jsonl(REVIEWS_PATH, requeue_entry)
 
     return {
         "moved": moved,
@@ -586,7 +572,6 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     """Submit a review verdict for a classification."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
     rdb.insert_review(review)
-    _append_jsonl(REVIEWS_PATH, review)  # JSONL backup during transition
     invalidate_cache("stats:", "species:", "goals:")
 
     # Move trashed images out of annotated dir
@@ -656,7 +641,6 @@ def update_review(filename: str, verdict: str, correct_species: str = "", missed
     """Update an existing review verdict (INSERT OR REPLACE in SQLite)."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
     rdb.insert_review(review)
-    _append_jsonl(REVIEWS_PATH, review)  # JSONL backup during transition
     invalidate_cache("stats:", "species:", "goals:")
     return {"status": "ok", "review": review}
 

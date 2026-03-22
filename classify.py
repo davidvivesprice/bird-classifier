@@ -324,30 +324,14 @@ def extract_timestamp(filename):
 
 
 def append_result(result):
-    """Append result to JSONL log AND SQLite (dual-write).
+    """Write classification result to SQLite.
 
-    JSONL remains the backup/fallback.  SQLite is the primary store
-    for the API.  If the SQLite write fails, we log a warning but
-    do NOT block the pipeline — the JSONL write is the critical path.
+    SQLite is the sole data store. JSONL dual-write retired March 22, 2026
+    after 3 days of stable SQLite operation. Historical JSONL preserved on
+    disk as archive (not deleted).
     """
-    import fcntl
-
-    # 1. JSONL write (critical path — must succeed)
-    log_file = LOG_DIR / "classifications.jsonl"
-    line = json.dumps(result) + "\n"
-    with open(log_file, "a") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        f.write(line)
-        f.flush()
-        os.fsync(f.fileno())
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
-    # 2. SQLite write (best-effort — don't block pipeline on failure)
-    try:
-        from classifications_db import insert_classification
-        insert_classification(result)
-    except Exception as exc:
-        logging.warning("SQLite write failed for %s: %s", result.get("file", "?"), exc)
+    from classifications_db import insert_classification
+    insert_classification(result)
 
 
 def _track_visit(result):
