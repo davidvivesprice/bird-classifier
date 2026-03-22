@@ -125,16 +125,17 @@ def start_visit(camera, species, scientific_name, timestamp, source_date,
     return cur.lastrowid
 
 
-def extend_visit(visit_id, timestamp, confidence, score, snapshot):
+def extend_visit(visit_id, timestamp, confidence, score, snapshot, bird_count=1):
     """Add a frame to an existing visit.
 
     Increments frame_count, updates end_time.
     Updates best_confidence/best_score/best_snapshot if this frame is better.
+    Updates bird_count to peak (max seen in any single frame — e.g. 5 doves).
     Recalculates avg_confidence.
     """
     conn = get_conn(readonly=False)
     row = conn.execute(
-        "SELECT frame_count, best_confidence, best_score, avg_confidence "
+        "SELECT frame_count, best_confidence, best_score, avg_confidence, bird_count "
         "FROM visits WHERE id=?",
         (visit_id,),
     ).fetchone()
@@ -145,9 +146,12 @@ def extend_visit(visit_id, timestamp, confidence, score, snapshot):
     old_best_conf = row["best_confidence"]
     old_best_score = row["best_score"]
     old_avg = row["avg_confidence"] or 0.0
+    old_bird_count = row["bird_count"] or 1
 
     new_count = old_count + 1
     new_avg = (old_avg * old_count + (confidence or 0.0)) / new_count
+    # Track peak bird count (most individuals seen in a single frame)
+    new_bird_count = max(old_bird_count, bird_count or 1)
 
     # Update best if this frame has higher confidence
     new_best_conf = old_best_conf
@@ -160,17 +164,17 @@ def extend_visit(visit_id, timestamp, confidence, score, snapshot):
 
     if new_snapshot is not None:
         conn.execute(
-            "UPDATE visits SET end_time=?, frame_count=?, "
+            "UPDATE visits SET end_time=?, frame_count=?, bird_count=?, "
             "best_confidence=?, best_score=?, best_snapshot=?, avg_confidence=? "
             "WHERE id=?",
-            (timestamp, new_count, new_best_conf, new_best_score, new_snapshot,
-             new_avg, visit_id),
+            (timestamp, new_count, new_bird_count, new_best_conf, new_best_score,
+             new_snapshot, new_avg, visit_id),
         )
     else:
         conn.execute(
-            "UPDATE visits SET end_time=?, frame_count=?, avg_confidence=? "
+            "UPDATE visits SET end_time=?, frame_count=?, bird_count=?, avg_confidence=? "
             "WHERE id=?",
-            (timestamp, new_count, new_avg, visit_id),
+            (timestamp, new_count, new_bird_count, new_avg, visit_id),
         )
     conn.commit()
 

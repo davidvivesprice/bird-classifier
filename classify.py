@@ -377,7 +377,8 @@ def _track_visit(result):
 
             active = vdb.get_active_visit(camera, species, timestamp)
             if active:
-                vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot)
+                vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot,
+                                 bird_count=len(birds))
             else:
                 vdb.start_visit(
                     camera=camera, species=species, scientific_name=scientific,
@@ -397,7 +398,8 @@ def _track_visit(result):
 
         active = vdb.get_active_visit(camera, species, timestamp)
         if active:
-            vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot)
+            vdb.extend_visit(active["id"], timestamp, confidence, score, snapshot,
+                             bird_count=bird_count)
         else:
             vdb.start_visit(
                 camera=camera, species=species, scientific_name=scientific,

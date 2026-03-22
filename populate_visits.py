@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS visits (
     best_confidence REAL,
     avg_confidence  REAL,
     best_file       TEXT,
-    source_date     TEXT
+    source_date     TEXT,
+    bird_count      INTEGER DEFAULT 1
 )
 """
 
@@ -52,15 +53,15 @@ def main():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
 
-    # Create visits table if it doesn't exist
+    # Drop and recreate visits table (idempotent rebuild)
+    if not filter_date:
+        conn.execute("DROP TABLE IF EXISTS visits")
     conn.execute(CREATE_VISITS_SQL)
     conn.commit()
 
-    # Clear existing visits (idempotent)
+    # Clear existing visits for date if filtering
     if filter_date:
         conn.execute("DELETE FROM visits WHERE source_date = ?", (filter_date,))
-    else:
-        conn.execute("DELETE FROM visits")
     conn.commit()
 
     print("Populating visits from classifications...")
@@ -77,7 +78,8 @@ def main():
 
     query = f"""
         SELECT file, camera, common_name, scientific_name,
-               source_timestamp, source_date, confidence, raw_score
+               source_timestamp, source_date, confidence, raw_score,
+               detections
         FROM classifications
         {where_clause}
         ORDER BY camera, common_name, source_timestamp
@@ -113,6 +115,7 @@ def main():
             "avg_confidence": v["sum_confidence"] / v["frame_count"],
             "best_file": v["best_file"],
             "source_date": v["source_date"],
+            "bird_count": v["bird_count"],
         })
 
     # Track per-species stats for summary
@@ -126,6 +129,7 @@ def main():
         src_date = row["source_date"]
         confidence = row["confidence"] or 0.0
         filename = row["file"]
+        det_count = row["detections"] or 1  # number of birds detected in this frame
 
         if not ts_str:
             continue
@@ -151,6 +155,7 @@ def main():
                 v["end_ts"] = ts
                 v["frame_count"] += 1
                 v["sum_confidence"] += confidence
+                v["bird_count"] = max(v["bird_count"], det_count)  # peak birds in any frame
                 if confidence > v["best_confidence"]:
                     v["best_confidence"] = confidence
                     v["best_file"] = filename
@@ -170,6 +175,7 @@ def main():
                     "sum_confidence": confidence,
                     "best_file": filename,
                     "source_date": src_date,
+                    "bird_count": det_count,
                 }
         else:
             # Start a new visit
@@ -184,6 +190,7 @@ def main():
                 "sum_confidence": confidence,
                 "best_file": filename,
                 "source_date": src_date,
+                "bird_count": det_count,
             }
 
     # Close all remaining active visits
@@ -197,11 +204,11 @@ def main():
         INSERT INTO visits
             (camera, species, scientific_name, start_time, end_time,
              duration_sec, frame_count, best_confidence, avg_confidence,
-             best_file, source_date)
+             best_file, source_date, bird_count)
         VALUES
             (:camera, :species, :scientific_name, :start_time, :end_time,
              :duration_sec, :frame_count, :best_confidence, :avg_confidence,
-             :best_file, :source_date)
+             :best_file, :source_date, :bird_count)
     """, visits_to_insert)
     conn.commit()
 
