@@ -34,6 +34,9 @@ from PIL import Image, ImageDraw, ImageFont
 # Range filtering for geographic validation
 from range_filter import RangeFilter
 
+# Shared solar calculations
+from solar_utils import solar_times, is_nighttime, is_twilight_window
+
 # Coral Edge TPU — optional, falls back to ONNX+CoreML if unavailable
 _CORAL_OK = False
 try:
@@ -90,79 +93,6 @@ NIGHT_OFFSET_MINUTES = 30  # keep running this many minutes after sunset
 YOLO_INPUT_SIZE = 640
 # Species classifier input
 SPECIES_INPUT_SIZE = (224, 224)
-
-
-def _solar_times(lat, lon, dt=None):
-    """Calculate sunrise and sunset hours (UTC) using NOAA simplified algorithm."""
-    if dt is None:
-        dt = date.today()
-    doy = dt.timetuple().tm_yday
-    lat_rad = math.radians(lat)
-    gamma = 2 * math.pi / 365 * (doy - 1)
-    eqtime = 229.18 * (
-        0.000075 + 0.001868 * math.cos(gamma)
-        - 0.032077 * math.sin(gamma)
-        - 0.014615 * math.cos(2 * gamma)
-        - 0.040849 * math.sin(2 * gamma)
-    )
-    decl = (
-        0.006918 - 0.399912 * math.cos(gamma)
-        + 0.070257 * math.sin(gamma)
-        - 0.006758 * math.cos(2 * gamma)
-        + 0.000907 * math.sin(2 * gamma)
-        - 0.002697 * math.cos(3 * gamma)
-        + 0.00148 * math.sin(3 * gamma)
-    )
-    cos_ha = math.cos(math.radians(90.833)) / (
-        math.cos(lat_rad) * math.cos(decl)
-    ) - math.tan(lat_rad) * math.tan(decl)
-    cos_ha = max(-1.0, min(1.0, cos_ha))
-    ha = math.degrees(math.acos(cos_ha))
-    noon_utc = 720 - 4 * lon - eqtime
-    sunrise_utc = (noon_utc - ha * 4) / 60  # hours
-    sunset_utc = (noon_utc + ha * 4) / 60   # hours
-    return sunrise_utc, sunset_utc
-
-
-def _utc_offset_for_date(dt):
-    """Return UTC offset for a specific date using the system's local timezone.
-
-    Uses noon on the given date to query the OS timezone database, which
-    correctly handles DST transitions (which happen at 2:00 AM, not noon).
-    Previously this ignored the dt parameter and always used the current time,
-    causing sunrise/sunset to be off by 1 hour on dates across DST boundaries.
-    """
-    # Create a datetime at noon on the given date and get its local UTC offset
-    # Using noon avoids the 2 AM DST transition edge case
-    noon = datetime(dt.year, dt.month, dt.day, 12, 0, 0).astimezone()
-    return int(noon.utcoffset().total_seconds() / 3600)
-
-
-def is_nighttime():
-    """Check if it's past sunset+offset or before sunrise for Cape Cod, MA."""
-    now = datetime.now()
-    today = now.date()
-    sunrise_utc, sunset_utc = _solar_times(LATITUDE, LONGITUDE, today)
-    offset = _utc_offset_for_date(today)
-    sunrise_local = sunrise_utc + offset
-    sunset_local = sunset_utc + offset
-    current_hours = now.hour + now.minute / 60.0
-    sunset_cutoff = sunset_local + NIGHT_OFFSET_MINUTES / 60.0
-    return current_hours >= sunset_cutoff or current_hours < sunrise_local
-
-
-def is_twilight_window():
-    """Check if current time is within IR_WINDOW_MINUTES of sunrise or sunset."""
-    now = datetime.now()
-    today = now.date()
-    offset = _utc_offset_for_date(today)
-    sunrise_utc, sunset_utc = _solar_times(LATITUDE, LONGITUDE, today)
-    sunrise_local = sunrise_utc + offset
-    sunset_local = sunset_utc + offset
-    current_hours = now.hour + now.minute / 60.0
-    window_hours = IR_WINDOW_MINUTES / 60.0
-    return (abs(current_hours - sunrise_local) < window_hours or
-            abs(current_hours - sunset_local) < window_hours)
 
 
 def is_infrared_frame(img):
