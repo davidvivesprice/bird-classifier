@@ -43,18 +43,20 @@ from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
 from PIL import Image
 
-from bird_inference import SPECIES_ALIASES, normalize_species, parse_label, crop_bird, get_providers
+from bird_inference import (
+    YOLODetector, SpeciesClassifier, normalize_species,
+    parse_label, crop_bird, get_providers,
+)
+from motion_gate import MotionGate
 
 # Coral Edge TPU — disabled by default to avoid stealing TPU from classify.py
 # Enable with LIVE_DETECT_CORAL=1 if running without the batch classifier
 _CORAL_OK = False
 if os.environ.get("LIVE_DETECT_CORAL", "0") == "1":
     try:
-        from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
-        from pycoral.adapters import common as _coral_common
+        from pycoral.utils.edgetpu import list_edge_tpus
         _CORAL_OK = bool(list_edge_tpus())
     except ImportError:
         pass
@@ -84,8 +86,6 @@ CAMERA_STREAMS = {
 BIRD_CLASS_ID = 0
 DETECTION_CONFIDENCE = 0.35
 NMS_IOU_THRESHOLD = 0.45
-CROP_PAD_RATIO = 0.15
-
 # Temporal voting: require consistent species ID before reporting
 # A detection at a given position must get the same species N times
 # out of the last M frames before we broadcast it.
@@ -96,7 +96,6 @@ VOTE_COOLDOWN_SEC = 5.0     # don't re-report same species at same position with
 
 # YOLO input
 YOLO_INPUT_SIZE = 640
-SPECIES_INPUT_SIZE = (224, 224)
 
 # SSE server
 SSE_PORT = int(os.environ.get("LIVE_DETECT_PORT", "8097"))
@@ -227,190 +226,47 @@ signal.signal(signal.SIGINT, handle_signal)
 
 
 # ──────────────────────────────────────────────────
-# Model loading + inference
+# Model loading (delegates to bird_inference.py)
 # ──────────────────────────────────────────────────
 
-def _get_providers():
-    available = ort.get_available_providers()
-    providers = []
-    if "CoreMLExecutionProvider" in available:
-        providers.append("CoreMLExecutionProvider")
-    providers.append("CPUExecutionProvider")
-    return providers
+_detector = None       # type: YOLODetector
+_classifier = None     # type: SpeciesClassifier
+_motion_gates = {}     # per-camera MotionGate instances
 
 
-_species_backend = "onnx"  # set by load_models()
+def _load_regional_species():
+    """Load regional species filter from disk, if available."""
+    if REGIONAL_SPECIES_PATH.exists():
+        with open(REGIONAL_SPECIES_PATH) as f:
+            species = {line.strip() for line in f if line.strip()}
+        logging.info("Regional filter: %d species", len(species))
+        return species
+    return None
 
 
 def load_models():
-    """Load YOLO + species models."""
-    global _species_backend
-    providers = _get_providers()
-    logging.info("Loading YOLO: %s (providers=%s)", YOLO_MODEL_PATH, providers)
-    yolo = ort.InferenceSession(str(YOLO_MODEL_PATH), providers=providers)
-    yolo_input = yolo.get_inputs()[0].name
-    logging.info("YOLO loaded: providers=%s", yolo.get_providers())
+    """Load YOLO + species models via bird_inference.py."""
+    global _detector, _classifier
 
-    with open(LABELS_PATH) as f:
-        labels = [line.strip() for line in f]
+    _detector = YOLODetector(
+        str(YOLO_MODEL_PATH),
+        confidence=DETECTION_CONFIDENCE,
+        iou_threshold=NMS_IOU_THRESHOLD,
+        class_id=BIRD_CLASS_ID,
+        input_size=YOLO_INPUT_SIZE,
+    )
+    logging.info("YOLO loaded via bird_inference.py: %s", YOLO_MODEL_PATH)
 
-    # Try Coral TPU for species classification
-    if _CORAL_OK and SPECIES_TPU_PATH.exists():
-        try:
-            species = make_interpreter(str(SPECIES_TPU_PATH))
-            species.allocate_tensors()
-            species_input = None
-            _species_backend = "coral"
-            logging.info("Species model loaded on CORAL TPU: %s (%d labels)",
-                         SPECIES_TPU_PATH.name, len(labels))
-        except Exception as e:
-            logging.warning("Coral TPU failed (%s), falling back to ONNX", e)
-            _species_backend = "onnx"
-            species = ort.InferenceSession(str(SPECIES_MODEL_PATH), providers=providers)
-            species_input = species.get_inputs()[0].name
-            logging.info("Species model loaded: %d labels, providers=%s", len(labels), species.get_providers())
-    else:
-        _species_backend = "onnx"
-        logging.info("Loading species classifier: %s", SPECIES_MODEL_PATH)
-        species = ort.InferenceSession(str(SPECIES_MODEL_PATH), providers=providers)
-        species_input = species.get_inputs()[0].name
-        logging.info("Species model loaded: %d labels, providers=%s", len(labels), species.get_providers())
+    regional = _load_regional_species()
 
-    regional = None
-    if REGIONAL_SPECIES_PATH.exists():
-        with open(REGIONAL_SPECIES_PATH) as f:
-            regional = {line.strip() for line in f if line.strip()}
-        logging.info("Regional filter: %d species", len(regional))
-
-    return yolo, yolo_input, species, species_input, labels, regional
-
-
-def preprocess_yolo(pil_image, target_size=YOLO_INPUT_SIZE):
-    """Preprocess PIL image for YOLOv8."""
-    orig_w, orig_h = pil_image.size
-    scale = min(target_size / orig_w, target_size / orig_h)
-    new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-    resized = pil_image.resize((new_w, new_h), Image.BILINEAR)
-
-    pad_x = (target_size - new_w) // 2
-    pad_y = (target_size - new_h) // 2
-    padded = Image.new("RGB", (target_size, target_size), (114, 114, 114))
-    padded.paste(resized, (pad_x, pad_y))
-
-    arr = np.array(padded, dtype=np.float32) / 255.0
-    arr = arr.transpose(2, 0, 1)[np.newaxis]
-    return arr, scale, pad_x, pad_y
-
-
-def nms_numpy(boxes, scores, iou_threshold):
-    if len(boxes) == 0:
-        return []
-    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    areas = (x2 - x1) * (y2 - y1)
-    order = scores.argsort()[::-1]
-    keep = []
-    while len(order) > 0:
-        i = order[0]
-        keep.append(i)
-        if len(order) == 1:
-            break
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
-        inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
-        iou = inter / (areas[i] + areas[order[1:]] - inter)
-        remaining = np.where(iou <= iou_threshold)[0]
-        order = order[remaining + 1]
-    return keep
-
-
-def detect_birds(yolo, yolo_input, pil_image):
-    """Run YOLOv8n on PIL image, return detections."""
-    orig_w, orig_h = pil_image.size
-    tensor, scale, pad_x, pad_y = preprocess_yolo(pil_image)
-    output = yolo.run(None, {yolo_input: tensor})[0]
-    predictions = output[0].T
-
-    boxes_cxcywh = predictions[:, :4]
-    bird_scores = predictions[:, 4 + BIRD_CLASS_ID]
-    mask = bird_scores > DETECTION_CONFIDENCE
-    if not mask.any():
-        return []
-
-    bird_boxes = boxes_cxcywh[mask]
-    bird_conf = bird_scores[mask]
-
-    x1 = bird_boxes[:, 0] - bird_boxes[:, 2] / 2
-    y1 = bird_boxes[:, 1] - bird_boxes[:, 3] / 2
-    x2 = bird_boxes[:, 0] + bird_boxes[:, 2] / 2
-    y2 = bird_boxes[:, 1] + bird_boxes[:, 3] / 2
-    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
-
-    keep = nms_numpy(boxes_xyxy, bird_conf, NMS_IOU_THRESHOLD)
-    if not keep:
-        return []
-
-    detections = []
-    for i in keep:
-        bx1, by1, bx2, by2 = boxes_xyxy[i]
-        ox1 = max(0, min(orig_w, (bx1 - pad_x) / scale))
-        oy1 = max(0, min(orig_h, (by1 - pad_y) / scale))
-        ox2 = max(0, min(orig_w, (bx2 - pad_x) / scale))
-        oy2 = max(0, min(orig_h, (by2 - pad_y) / scale))
-        detections.append({
-            "box": [int(ox1), int(oy1), int(ox2), int(oy2)],
-            "confidence": round(float(bird_conf[i]), 3),
-        })
-    return detections
-
-
-def parse_label(raw_label):
-    if "(" in raw_label and raw_label.endswith(")"):
-        # Use rindex to split on LAST '(' — handles species like "Hawk (Cooper's)"
-        idx = raw_label.rindex("(")
-        scientific = raw_label[:idx].strip()
-        common = raw_label[idx + 1:-1]
-        return scientific, common
-    return raw_label, raw_label
-
-
-def classify_species(species_sess, species_input, labels, bird_crop, regional=None):
-    """Classify a bird crop (PIL Image). Returns top prediction dict."""
-    resized = bird_crop.resize(SPECIES_INPUT_SIZE)
-    arr = np.array(resized, dtype=np.uint8)[np.newaxis]
-
-    if _species_backend == "coral":
-        _coral_common.set_input(species_sess, arr[0])
-        species_sess.invoke()
-        scores = np.array(_coral_common.output_tensor(species_sess, 0), dtype=np.float32)
-        if scores.ndim == 2:
-            scores = scores[0]
-    else:
-        scores = species_sess.run(None, {species_input: arr})[0][0]
-
-    if regional:
-        all_idx = np.argsort(scores)[::-1]
-        for idx in all_idx:
-            idx = int(idx)
-            _, common = parse_label(labels[idx])
-            common = SPECIES_ALIASES.get(common, common)
-            if common in regional:
-                return {
-                    "common_name": common,
-                    "scientific_name": parse_label(labels[idx])[0],
-                    "raw_score": int(scores[idx]),
-                }
-        return {"common_name": "unidentified", "scientific_name": "unknown", "raw_score": 0}
-
-    top_idx = int(np.argmax(scores))
-    scientific, common = parse_label(labels[top_idx])
-    common = SPECIES_ALIASES.get(common, common)
-    return {
-        "common_name": common,
-        "scientific_name": scientific,
-        "raw_score": int(scores[top_idx]),
-    }
+    tpu_path = str(SPECIES_TPU_PATH) if _CORAL_OK and SPECIES_TPU_PATH.exists() else None
+    _classifier = SpeciesClassifier(
+        str(SPECIES_MODEL_PATH),
+        str(LABELS_PATH),
+        regional_species=regional,
+        tpu_model_path=tpu_path,
+    )
+    logging.info("Species classifier loaded via bird_inference.py: %s", SPECIES_MODEL_PATH)
 
 
 # ──────────────────────────────────────────────────
@@ -552,13 +408,15 @@ class SSEHandler(BaseHTTPRequestHandler):
 # Camera processing loop
 # ──────────────────────────────────────────────────
 
-def camera_loop(camera_name: str, stream_name: str,
-                yolo, yolo_input, species_sess, species_input,
-                labels, regional, fps: float):
+def camera_loop(camera_name: str, stream_name: str, fps: float):
     """Process camera: poll frames, detect birds, classify, push SSE."""
     frame_interval = 1.0 / fps
     consecutive_errors = 0
     voter = SpeciesVoter()
+
+    # Per-camera motion gate — skip static frames before running inference
+    if camera_name not in _motion_gates:
+        _motion_gates[camera_name] = MotionGate(threshold_pct=1.5, resize_width=320)
 
     # Initialize detection funnel for metrics
     _metrics.funnel("detection", [
@@ -605,6 +463,15 @@ def camera_loop(camera_name: str, stream_name: str,
         _metrics.funnel("detection").inc("frames")
         _metrics.counter("frames_processed").inc()
 
+        # Motion gate: skip static frames before running inference (~1ms check)
+        frame_np = np.array(frame)  # RGB numpy array for motion check
+        if not _motion_gates[camera_name].has_motion(frame_np, camera=camera_name):
+            _metrics.counter("frames_skipped_motion").inc()
+            elapsed = time.monotonic() - t_start
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+            continue
+
         # Measure frame brightness (enables adaptive dark-frame skip, ~2ms overhead)
         brightness = float(np.mean(np.array(frame.convert('L'))))
         _metrics.gauge("frame_brightness").set(brightness)
@@ -614,7 +481,7 @@ def camera_loop(camera_name: str, stream_name: str,
 
         # Detect birds (wrapped to prevent camera thread death on inference crash)
         try:
-            detections = detect_birds(yolo, yolo_input, frame)
+            detections = _detector.detect(frame)
         except Exception as e:
             logging.error("[%s] YOLO detection error: %s", camera_name, e)
             _metrics.counter("yolo_errors").inc()
@@ -640,22 +507,20 @@ def camera_loop(camera_name: str, stream_name: str,
         # Classify each detection and collect candidates for voting
         candidates = []  # list of (det_dict, pred_dict)
         for det in detections:
-            x1, y1, x2, y2 = det["box"]
-            bw, bh = x2 - x1, y2 - y1
-            pad_x = int(bw * CROP_PAD_RATIO)
-            pad_y = int(bh * CROP_PAD_RATIO)
-            cx1 = max(0, x1 - pad_x)
-            cy1 = max(0, y1 - pad_y)
-            cx2 = min(w, x2 + pad_x)
-            cy2 = min(h, y2 + pad_y)
-
-            crop = frame.crop((cx1, cy1, cx2, cy2))
+            crop = crop_bird(frame, det["box"])
             if crop.size[0] == 0 or crop.size[1] == 0:
                 continue
 
             t_cls_start = time.monotonic()
             try:
-                pred = classify_species(species_sess, species_input, labels, crop, regional)
+                filtered, _raw = _classifier.classify(crop)
+                # Build the dict format that SpeciesVoter expects
+                top = filtered[0]
+                pred = {
+                    "common_name": top["common_name"],
+                    "scientific_name": top["scientific_name"],
+                    "raw_score": top["raw_score"],
+                }
             except Exception as e:
                 logging.error("[%s] Classifier error: %s", camera_name, e)
                 _metrics.counter("classify_errors").inc()
@@ -734,8 +599,8 @@ def main():
 
     logging.info("live_detector starting: fps=%.1f, port=%d, go2rtc=%s", args.fps, args.port, GO2RTC_BASE)
 
-    # Load models
-    yolo, yolo_input, species, species_input, labels, regional = load_models()
+    # Load models into module-level globals (_detector, _classifier)
+    load_models()
 
     # Determine which cameras to process
     cameras = dict(CAMERA_STREAMS)
@@ -769,7 +634,7 @@ def main():
     for cam_name, stream_name in cameras.items():
         t = threading.Thread(
             target=camera_loop,
-            args=(cam_name, stream_name, yolo, yolo_input, species, species_input, labels, regional, args.fps),
+            args=(cam_name, stream_name, args.fps),
             daemon=True,
             name=f'cam-{cam_name}',
         )

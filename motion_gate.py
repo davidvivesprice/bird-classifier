@@ -45,15 +45,23 @@ class MotionGate:
         self._prev_frames = {}  # camera → grayscale frame
         self._stats = {"checked": 0, "skipped": 0}
 
-    def has_motion(self, image_path, camera="feeder"):
+    def has_motion(self, image_or_path, camera="feeder"):
         """Return True if the frame has meaningful motion vs the previous frame.
+
+        Args:
+            image_or_path: File path (str/Path) or numpy BGR/RGB array.
+                           When a numpy array is passed, cv2.imread is skipped.
+            camera: Camera identifier for per-camera tracking.
 
         Always returns True for the first frame per camera (no reference).
         Returns True on any error (fail-open — never block the pipeline).
         """
         self._stats["checked"] += 1
         try:
-            img = cv2.imread(str(image_path))
+            if isinstance(image_or_path, np.ndarray):
+                img = image_or_path
+            else:
+                img = cv2.imread(str(image_or_path))
             if img is None:
                 return True  # Can't read → let process_file handle it
 
@@ -79,8 +87,9 @@ class MotionGate:
 
             if pct < self.threshold_pct:
                 self._stats["skipped"] += 1
+                label = camera if isinstance(image_or_path, np.ndarray) else os.path.basename(str(image_or_path))
                 logging.debug("Motion gate: %.2f%% change (<%s%% threshold), skipping %s",
-                              pct, self.threshold_pct, os.path.basename(str(image_path)))
+                              pct, self.threshold_pct, label)
                 return False
 
             return True
