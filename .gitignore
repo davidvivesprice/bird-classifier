@@ -17,3 +17,6 @@ pretty shots/
 unknown birds/
 rtsp_urls.json
 .worktrees/
+test_clips/*.mp4
+test_clips/*.mkv
+test_clips/*.avi
