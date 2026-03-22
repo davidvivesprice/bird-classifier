@@ -142,3 +142,43 @@ class TestGetProviders:
     def test_non_empty(self):
         providers = get_providers()
         assert len(providers) >= 1
+
+
+# ── YOLODetector ──────────────────────────────────────────────────────────
+
+class TestYOLODetector:
+    def test_init(self, yolo_model_path):
+        from bird_inference import YOLODetector
+        detector = YOLODetector(yolo_model_path)
+        assert detector is not None
+
+    def test_detect_returns_list(self, yolo_model_path, test_bird_image_pil):
+        from bird_inference import YOLODetector
+        detector = YOLODetector(yolo_model_path)
+        detections = detector.detect(test_bird_image_pil)
+        assert isinstance(detections, list)
+
+    def test_detection_has_required_fields(self, yolo_model_path, test_bird_image_pil):
+        from bird_inference import YOLODetector
+        detector = YOLODetector(yolo_model_path)
+        detections = detector.detect(test_bird_image_pil)
+        if len(detections) > 0:
+            det = detections[0]
+            assert "box" in det
+            assert "confidence" in det
+            assert len(det["box"]) == 4
+            assert 0 < det["confidence"] <= 1.0
+
+    def test_detect_empty_image(self, yolo_model_path):
+        from PIL import Image
+        from bird_inference import YOLODetector
+        detector = YOLODetector(yolo_model_path)
+        black = Image.new("RGB", (640, 640), (0, 0, 0))
+        detections = detector.detect(black)
+        assert isinstance(detections, list)
+
+    def test_confidence_threshold(self, yolo_model_path, test_bird_image_pil):
+        from bird_inference import YOLODetector
+        det_low = YOLODetector(yolo_model_path, confidence=0.1).detect(test_bird_image_pil)
+        det_high = YOLODetector(yolo_model_path, confidence=0.9).detect(test_bird_image_pil)
+        assert len(det_low) >= len(det_high)

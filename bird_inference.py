@@ -74,3 +74,167 @@ def get_providers():
     except Exception:
         pass
     return ["CPUExecutionProvider"]
+
+
+# ── YOLO Detection ────────────────────────────────────────────────────────
+
+def _nms(boxes, scores, iou_threshold):
+    """Non-maximum suppression in pure numpy.
+
+    boxes: (N, 4) as x1, y1, x2, y2
+    scores: (N,)
+    Returns list of indices to keep.
+    """
+    import numpy as np
+
+    if len(boxes) == 0:
+        return []
+
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+
+    order = scores.argsort()[::-1]
+    keep = []
+
+    while len(order) > 0:
+        i = order[0]
+        keep.append(i)
+        if len(order) == 1:
+            break
+
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
+        iou = inter / (areas[i] + areas[order[1:]] - inter)
+
+        remaining = np.where(iou <= iou_threshold)[0]
+        order = order[remaining + 1]
+
+    return keep
+
+
+class YOLODetector:
+    """YOLO bird detector wrapping an ONNX model.
+
+    Parameters
+    ----------
+    model_path : str or Path
+        Path to a YOLOv8 ONNX model.
+    confidence : float
+        Minimum detection confidence (default 0.3).
+    iou_threshold : float
+        NMS IoU threshold (default 0.45).
+    class_id : int or None
+        If set, filter for this specific class ID instead of taking the
+        max score across all classes.  Default 0 (single-class bird model).
+    input_size : int
+        Model input resolution (default 640).
+    """
+
+    def __init__(self, model_path, *, confidence=0.3, iou_threshold=0.45,
+                 class_id=0, input_size=640):
+        import onnxruntime as ort
+
+        self.confidence = confidence
+        self.iou_threshold = iou_threshold
+        self.class_id = class_id
+        self.input_size = input_size
+
+        providers = get_providers()
+        self._session = ort.InferenceSession(str(model_path), providers=providers)
+        self._input_name = self._session.get_inputs()[0].name
+
+    # ── preprocessing ─────────────────────────────────────────────────
+
+    def _preprocess(self, pil_image):
+        """Letterbox resize to input_size with gray (114) padding.
+
+        Returns (input_tensor, scale, pad_x, pad_y).
+        """
+        import numpy as np
+        from PIL import Image as PILImage
+
+        orig_w, orig_h = pil_image.size
+        size = self.input_size
+        scale = min(size / orig_w, size / orig_h)
+        new_w = int(orig_w * scale)
+        new_h = int(orig_h * scale)
+
+        resized = pil_image.resize((new_w, new_h), PILImage.BILINEAR)
+
+        pad_x = (size - new_w) // 2
+        pad_y = (size - new_h) // 2
+        padded = PILImage.new("RGB", (size, size), (114, 114, 114))
+        padded.paste(resized, (pad_x, pad_y))
+
+        arr = np.array(padded, dtype=np.float32) / 255.0
+        arr = arr.transpose(2, 0, 1)[np.newaxis]  # NCHW
+        return arr, scale, pad_x, pad_y
+
+    # ── public API ────────────────────────────────────────────────────
+
+    def detect(self, pil_image):
+        """Run detection on a PIL Image.
+
+        Returns list of dicts: [{"box": [x1,y1,x2,y2], "confidence": float}, ...]
+        Coordinates are in the original image space.
+        """
+        import numpy as np
+
+        orig_w, orig_h = pil_image.size
+        input_tensor, scale, pad_x, pad_y = self._preprocess(pil_image)
+
+        # Run inference — output shape: (1, num_features, num_anchors)
+        output = self._session.run(None, {self._input_name: input_tensor})[0]
+        predictions = output[0].T  # (num_anchors, num_features)
+
+        boxes_cxcywh = predictions[:, :4]
+        class_scores = predictions[:, 4:]
+
+        # Score extraction: single class or max across classes
+        if self.class_id is not None:
+            scores = class_scores[:, self.class_id]
+        else:
+            scores = class_scores.max(axis=1)
+
+        # Confidence filter
+        mask = scores > self.confidence
+        if not mask.any():
+            return []
+
+        filtered_boxes = boxes_cxcywh[mask]
+        filtered_scores = scores[mask]
+
+        # Convert cx, cy, w, h → x1, y1, x2, y2 (in YOLO input space)
+        x1 = filtered_boxes[:, 0] - filtered_boxes[:, 2] / 2
+        y1 = filtered_boxes[:, 1] - filtered_boxes[:, 3] / 2
+        x2 = filtered_boxes[:, 0] + filtered_boxes[:, 2] / 2
+        y2 = filtered_boxes[:, 1] + filtered_boxes[:, 3] / 2
+        boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+
+        # NMS
+        keep = _nms(boxes_xyxy, filtered_scores, self.iou_threshold)
+        if not keep:
+            return []
+
+        # Map back to original image coordinates
+        detections = []
+        for i in keep:
+            bx1, by1, bx2, by2 = boxes_xyxy[i]
+            ox1 = max(0, min(orig_w, (bx1 - pad_x) / scale))
+            oy1 = max(0, min(orig_h, (by1 - pad_y) / scale))
+            ox2 = max(0, min(orig_w, (bx2 - pad_x) / scale))
+            oy2 = max(0, min(orig_h, (by2 - pad_y) / scale))
+
+            detections.append({
+                "box": [int(ox1), int(oy1), int(ox2), int(oy2)],
+                "confidence": round(float(filtered_scores[i]), 3),
+            })
+
+        return detections
