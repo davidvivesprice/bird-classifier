@@ -97,6 +97,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cls_action_date ON classifications(action, source_date)",
     "CREATE INDEX IF NOT EXISTS idx_cls_confidence ON classifications(confidence)",
     "CREATE INDEX IF NOT EXISTS idx_cls_timestamp ON classifications(timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_cls_action_common ON classifications(action, common_name)",
+    "CREATE INDEX IF NOT EXISTS idx_cls_date_action_name ON classifications(source_date, action, common_name)",
 ]
 
 
