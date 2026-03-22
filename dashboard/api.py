@@ -29,6 +29,7 @@ import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import classifications_db as cdb
 import reviews_db as rdb
+import visits_db as vdb
 from bird_inference import SPECIES_ALIASES, normalize_species
 
 # --- Paths ---
@@ -345,7 +346,23 @@ def species_list(date: Optional[str] = Query(None, description="Filter by date Y
     """List all detected species with counts and metadata, optionally filtered by date and camera."""
     _validate_date(date)
     def _compute():
-        return cdb.get_species_list(date, camera)
+        species_data = cdb.get_species_list(date, camera)
+        # Enrich with visit counts
+        try:
+            cam = None if (not camera or camera == "all") else camera
+            visit_summary = vdb.get_visit_summary(date) if date and date != "all" else []
+            visit_map = {s["species"]: s["visits"] for s in visit_summary}
+            if isinstance(species_data, list):
+                for item in species_data:
+                    name = item.get("species") or item.get("name", "")
+                    item["visit_count"] = visit_map.get(name, 0)
+            elif isinstance(species_data, dict) and "species" in species_data:
+                for item in species_data["species"]:
+                    name = item.get("species") or item.get("name", "")
+                    item["visit_count"] = visit_map.get(name, 0)
+        except Exception:
+            pass  # Don't break existing endpoint if visit enrichment fails
+        return species_data
     return cached_result(f"species:{date}:{camera}", 30, _compute)
 
 
@@ -1713,3 +1730,49 @@ def get_species_list():
 
     sorted_species = sorted(counts.items(), key=lambda x: -x[1])
     return {"species": [{"name": s, "count": c} for s, c in sorted_species]}
+
+
+# ── Visit-Based Event Endpoints ──────────────────────────────────────────
+
+def _resolve_visit_date(date: str) -> str:
+    """Resolve 'today'/'yesterday' to actual YYYY-MM-DD date string."""
+    if date == "today":
+        return datetime.now().strftime("%Y-%m-%d")
+    elif date == "yesterday":
+        return (datetime.now() - _timedelta(days=1)).strftime("%Y-%m-%d")
+    return date
+
+
+@app.get("/api/visits")
+def api_get_visits(date: str = "today", camera: str = "all", species: str = "",
+                   limit: int = 50, offset: int = 0):
+    """Get visits with optional filters."""
+    date = _resolve_visit_date(date)
+    cam = None if camera == "all" else camera
+    sp = species if species else None
+    visits = vdb.get_visits(date=date, camera=cam, species=sp, limit=limit, offset=offset)
+    total = vdb.count_visits(date=date, camera=cam, species=sp)
+    return {
+        "visits": visits,
+        "total": total,
+        "date": date,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
+@app.get("/api/visit-summary")
+def api_visit_summary(date: str = "today", camera: str = "all"):
+    """Species visit counts — enriched detection counts."""
+    date = _resolve_visit_date(date)
+    summary = vdb.get_visit_summary(date)
+    stats = vdb.get_visit_stats(date)
+    return {"summary": summary, "stats": stats, "date": date}
+
+
+@app.get("/api/visit-stats")
+def api_visit_stats(date: str = "today"):
+    """Aggregate visit statistics."""
+    date = _resolve_visit_date(date)
+    return vdb.get_visit_stats(date)
