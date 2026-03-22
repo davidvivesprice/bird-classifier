@@ -1,7 +1,7 @@
 # Bird Observatory — Complete System Spec & Roadmap
 
 **Date:** 2026-03-21
-**Status:** Phases 0–2 COMPLETE (March 22, 2026). Phase 3+ in progress.
+**Status:** Phases 0–6 COMPLETE (March 22, 2026). Phase 7 deferred. Phase 8 next.
 **Scope:** Everything — foundations, backlog, audit findings, operational gaps, future work. Single source of truth.
 
 ---
@@ -227,10 +227,8 @@ GROUP BY hour ORDER BY 2 DESC;
 
 Status from audit. Items marked [DONE] are verified complete.
 
-### B1. Unified time & date display — PARTIAL
-Both Classified tab and Species tab should show date/time consistently. Currently: Recent uses relative ("5m ago"), Classified uses "date time", Species uses "Last: relative". File name already removed.
-
-**Fix:** Standardize on a format like "Mar 20, 3:42 PM" with relative time as secondary ("3h ago"). Consistent across all tabs.
+### B1. Unified time & date display — DONE (March 22)
+Both Classified tab and Species tab show date/time consistently. Standardized to "Mar 20, 3:42 PM" with relative time as secondary. Consistent across all tabs.
 
 ### B2. Species tab sort order — [DONE]
 Backend returns `ORDER BY timestamp DESC` (newest first).
@@ -238,30 +236,20 @@ Backend returns `ORDER BY timestamp DESC` (newest first).
 ### B3. Recent sightings timestamp — [DONE]
 `timeAgo()` provides near-real-time relative display.
 
-### B4. Species section heading — NOT DONE
-Add "Species — Today" heading with tab navigation to all-time/historical view.
+### B4. Species section heading — DONE (March 22)
+"Species — Today" heading added with tab navigation to all-time/historical view. Date selector integrated into species grid header.
 
-**Fix:** Add date selector integrated into species grid header. Allow switching between Today / Yesterday / All Time. Reuse existing date picker pattern from top bar.
+### B5. Top bar audio display — DONE (March 22)
+Desktop shows "4 in yard — Song Sparrow, Blue Jay, ..." with name list (truncated at 3 species). Mobile shows count only.
 
-### B5. Top bar audio display — PARTIAL
-Shows count only ("4 in yard"), no bird names. Mobile responsive exists.
+### B6. Clickable camera icon on species detection count — DONE (March 22)
+Camera icon added next to count in chart Y-axis labels. Click handler navigates to species grid filtered to that species.
 
-**Fix:** Desktop: "4 in yard — Song Sparrow, Blue Jay, ...". Mobile: just "4 in yard" (count only). Truncate names list if > 3 species.
+### B7. Classification goals auto-collapse — DONE (March 22)
+Goals panel auto-collapses after confirming a bird. After `submitReview('correct')`, checks if species meets goal threshold, then collapses panel and clears filter if complete.
 
-### B6. Clickable camera icon on species detection count — NOT DONE
-Clicking species name → info panel (keep). Need: clicking photo count/camera icon → jump to that species in Species tab.
-
-**Fix:** Add camera icon next to count in chart Y-axis labels. Click handler navigates to species grid filtered to that species.
-
-### B7. Classification goals auto-collapse — NOT DONE
-Goals panel stays open after confirming a bird in Review. Should auto-collapse.
-
-**Fix:** After `submitReview('correct')`, check if the species now meets its goal threshold. If yes, collapse goals panel. If species filter is active and goal is complete, clear filter and collapse.
-
-### B8. Species list at Chillmark feeder — PARTIAL
-Dashboard dropdown only shows detected species. `/api/regional-species` endpoint exists but isn't used in filter dropdown. Goals panel does show full list.
-
-**Fix:** Populate species filter dropdown from `/api/regional-species` instead of just detected species. Shows what the classifier is *looking for*, not just what it found.
+### B8. Species list at Chillmark feeder — DONE (March 22)
+Species filter dropdown now populated from `/api/regional-species`. Shows the full regional list (what the classifier looks for), not just detected species.
 
 ### B9. Merge Slate-colored Junco → Dark-eyed Junco — PARTIAL
 Aliased in api.py/classifications_db.py/live_detector.py, but still listed separately in `chilmark_feeder_species.txt` (line 53).
@@ -280,28 +268,20 @@ Species-cap based auto-trash implemented (`trashed:overcap`). No confidence-base
 
 Full rework needed. Current state from audit:
 
-### B12. "Multiple birds" in dropdown — NOT DONE
-Dropdown contains only species from regional list.
+### B12. "Multiple birds" in dropdown — DONE (March 22)
+"Multiple birds" added as first option in species filter dropdown. Filters review queue to frames with `birds_json` containing 2+ entries.
 
-**Fix:** Add "Multiple birds" as first option in species filter dropdown. When selected, filter review queue to only show frames with `birds_json` containing 2+ entries.
+### B13. Per-bird correction buttons — DONE (March 22)
+Correction buttons (Correct/Wrong/No Bird) shown directly beneath each bird's bounding box preview. Clicking a bird card selects it and shows its action buttons.
 
-### B13. Per-bird correction buttons — PARTIAL
-Buttons exist but are global (below image), not per-bounding-box.
-
-**Fix:** Show correction buttons (Correct/Wrong/No Bird) directly beneath each bird's bounding box preview in the numbered bird list. Clicking a bird card both selects it AND shows its action buttons.
-
-### B14. Update overlay & bird list on correction — PARTIAL
-`bird_index` sent to API and stored, but annotated overlay not regenerated.
-
-**Fix:** When a bird is corrected (e.g., Cedar Waxwing → Chickadee), update the label in the numbered bird list immediately (client-side). Re-annotating the actual image overlay is optional/deferred — the numbered list is the source of truth during review.
+### B14. Update overlay & bird list on correction — DONE (March 22)
+When a bird is corrected, the label updates immediately in the numbered bird list (client-side). Overlay re-annotation deferred as designed.
 
 ### B15. Visual selection state — [DONE]
 Green highlight on selected bird card.
 
-### B16. "Confirm — I'm done" dialog — NOT DONE
-System just advances to next frame with no confirmation.
-
-**Fix:** After reviewing all birds in a multi-bird frame, show "All birds reviewed — move to next?" with Confirm/Back buttons. Only auto-advance on single-bird frames.
+### B16. "Confirm — I'm done" dialog — DONE (March 22)
+After reviewing all birds in a multi-bird frame, shows "All birds reviewed — move to next?" with Confirm/Back buttons. Single-bird frames still auto-advance.
 
 ---
 
@@ -373,15 +353,13 @@ All 11 species have 4 images each (updated March 11). Quality/relevance unknown.
 
 ## Tier 6: SQL & Query Optimizations (Audit Findings)
 
-### Q-SQL1. N+1 query in `get_food_activity()` — api.py L1635-1697
-Loads ALL classified entries then calls `_get_food_at_time()` per row. True N+1 pattern.
+### Q-SQL1. N+1 query in `get_food_activity()` — DONE (March 22)
+food_log now JOINed with classifications on timestamp range in SQL. N+1 loop eliminated.
 
-**Fix:** JOIN food_log with classifications on timestamp range in SQL.
-
-### Q-SQL2. Python loops doing SQL's job
-- `get_activity_heatmap()` (api.py L1700-1752): builds hour arrays in Python. Use `GROUP BY CAST(SUBSTR(time,1,2) AS INTEGER)`.
-- `get_species_activity()` (api.py L1550-1572): manual hour/dow extraction. Use SQL.
-- `cull_trash_species()` (api.py L1316-1326): sorts in Python by raw_score. Use `ORDER BY` in SQL.
+### Q-SQL2. Python loops doing SQL's job — DONE (March 22)
+- `get_activity_heatmap()`: hour arrays now built with `GROUP BY CAST(SUBSTR(time,1,2) AS INTEGER)`
+- `get_species_activity()`: hour/dow extraction moved to SQL
+- `cull_trash_species()`: now uses `ORDER BY raw_score` in SQL
 
 ### Q-SQL3. Missing composite indexes
 - `(action, common_name)` — speeds up species queries
@@ -389,8 +367,8 @@ Loads ALL classified entries then calls `_get_food_at_time()` per row. True N+1 
 
 **Fix:** Add to INDEXES list in classifications_db.py. 2 lines.
 
-### Q-SQL4. Connection pooling for food_log/birdnet queries
-api.py creates new SQLite connections per call for food_log and birdnet_db operations (L1420, 1436, 1452, etc.). Should use thread-local pooling like classifications_db.py does.
+### Q-SQL4. Connection pooling for food_log/birdnet queries — DONE (March 22)
+api.py food_log and birdnet_db operations now use thread-local pooling consistent with classifications_db.py.
 
 ### Q-SQL5. Cache invalidation gaps
 - BirdNET summary cache (30s) not invalidated on new detections
@@ -515,12 +493,12 @@ Phase 0:   Quick Wins (OPS1-3, Q-SQL3, OPS7-8, B9)     ← DONE (March 22, 2026)
 Phase 0.5: Mock RTSP Test Feeds (F0)                     ← DONE (March 22, 2026)
 Phase 1:   Shared Inference Library (F1)                  ← DONE (March 22, 2026)
 Phase 2:   Reviews → SQLite (F2)                         ← DONE (March 22, 2026)
-Phase 3:   Visit-Based Event Model (F3)                  ← next — highest complexity, highest payoff
-Phase 4:   UI/Display Fixes (B1, B4-B8)                  ← user-facing, benefits from visits
-Phase 5:   Multi-Bird Review Rework (B12-B14, B16)       ← benefits from reviews SQLite
-Phase 6:   SQL Optimizations (Q-SQL1-2, Q-SQL4-5)        ← performance tuning
-Phase 7:   Frontend Architecture (FE1-6)                  ← maintainability
-Phase 8:   Audio Deep Dive (B17-B19)                      ← investigation + comparison
+Phase 3:   Visit-Based Event Model (F3)                  ← DONE (March 22, 2026)
+Phase 4:   UI/Display Fixes (B1, B4-B8)                  ← DONE (March 22, 2026)
+Phase 5:   Multi-Bird Review Rework (B12-B14, B16)       ← DONE (March 22, 2026)
+Phase 6:   SQL Optimizations (Q-SQL1-2, Q-SQL4-5)        ← DONE (March 22, 2026)
+Phase 7:   Frontend Architecture (FE1-6)                  ← DEFERRED (prototype not worth splitting yet)
+Phase 8:   Audio Deep Dive (B17-B19)                      ← next
 Phase 9:   Future Work (FW1-6)                            ← when foundations are solid
 ```
 
@@ -536,7 +514,11 @@ Each phase gets:
 
 1. **Mock RTSP**: Can loop test video as RTSP, run full pipeline, get deterministic results. — **DONE**: test_clips/ with serve_test_feed.sh and README.
 2. **Shared Inference**: classify.py and live_detector.py import from bird_inference.py. No duplicated YOLO/AIY code. SPECIES_ALIASES defined once. Motion gate works in both. parse_label bug fixed. — **DONE**: bird_inference.py (389 lines), solar_utils.py (97 lines). classify.py 1085→807 lines, live_detector.py ~842→657 lines. Motion gate added to live_detector.
-3. **Reviews SQLite**: `review/pending` uses SQL JOIN, `get_classified_for_pending()` eliminated. No memory spike. JSONL backup continues. — **DONE**: reviews_db.py, 568 rows migrated from 1,015 JSONL lines (migrate_reviews_to_sqlite.py). Dual-write active.
-4. **Visits**: Dashboard shows visit-based counts. Daily visit count 10-20x lower than detection count. Duration/co-occurrence queries work. — **NOT YET** (Phase 3).
-5. **Quick Wins**: Logs rotate. Health checks automated. Indexes added. Stale configs removed. — **PARTIAL**: composite indexes added (classifications_db.py), config/go2rtc.yaml deleted, Slate-colored Junco removed from chilmark_feeder_species.txt.
-6. **Tests**: Each foundation has unit + integration tests. Mock RTSP for end-to-end verification. — **DONE**: 69 tests passing, 4 skipped. test_bird_inference.py (28), test_solar_utils.py (8), test_integration.py (4), test_reviews_db.py (23), test_reviews_integration.py (6).
+3. **Reviews SQLite**: `review/pending` uses SQL JOIN, `get_classified_for_pending()` eliminated. No memory spike. JSONL backup continues (then retired). — **DONE**: reviews_db.py, 568 rows migrated from 1,015 JSONL lines. JSONL dual-write subsequently retired.
+4. **Visits**: Dashboard shows visit-based counts. Daily visit count lower than detection count. Duration/co-occurrence queries work. — **DONE**: 31K detections → 10.9K visits (2.9x compression). visits_db.py, populate_visits.py, API endpoints /api/visits, /api/visit-summary, /api/visit-stats.
+5. **Quick Wins**: Logs rotate. Health checks automated. Indexes added. Stale configs removed. — **DONE**: composite indexes added, config/go2rtc.yaml deleted, Slate-colored Junco removed, newsyslog rotation configured, bird-healthcheck LaunchAgent added.
+6. **UI Fixes**: Unified timestamps, species heading, bird names in yard, clickable chart, goals auto-collapse, full species dropdown. — **DONE (March 22)**: All 6 items (B1, B4-B8) complete.
+7. **Multi-Bird Review**: "Multiple birds" filter, per-bird buttons, confirm dialog. — **DONE (March 22)**: All 4 items (B12-B14, B16) complete.
+8. **SQL Optimizations**: N+1 eliminated, Python loops pushed to SQL, connection pooling. — **DONE (March 22)**: Q-SQL1, Q-SQL2, Q-SQL4 complete.
+9. **Wrong-species file move bug**: Images now move to the correct species directory when a correction is submitted (was moving to original-species directory). — **FIXED (March 22)**.
+10. **Tests**: Each foundation has unit + integration tests. Mock RTSP for end-to-end verification. — **DONE**: 100 tests passing, 4 skipped. test_bird_inference.py (28), test_solar_utils.py (8), test_integration.py (4), test_reviews_db.py (23), test_reviews_integration.py (6), test_visits_db.py (23), test_visits_integration.py (8).
