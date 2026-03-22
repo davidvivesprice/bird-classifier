@@ -79,10 +79,11 @@ CREATE TABLE IF NOT EXISTS visits (
     start_time      TEXT    NOT NULL,
     end_time        TEXT,
     status          TEXT    DEFAULT 'active',
+    duration_sec    REAL    DEFAULT 0,
     frame_count     INTEGER DEFAULT 1,
     best_confidence REAL,
     best_score      REAL,
-    best_snapshot   TEXT,
+    best_file       TEXT,
     avg_confidence  REAL,
     bird_count      INTEGER DEFAULT 1,
     source_date     TEXT    NOT NULL
@@ -115,9 +116,9 @@ def start_visit(camera, species, scientific_name, timestamp, source_date,
     cur = conn.execute(
         "INSERT INTO visits "
         "(camera, species, scientific_name, start_time, end_time, status, "
-        " frame_count, best_confidence, best_score, best_snapshot, avg_confidence, "
-        " bird_count, source_date) "
-        "VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?, ?)",
+        " duration_sec, frame_count, best_confidence, best_score, best_file, "
+        " avg_confidence, bird_count, source_date) "
+        "VALUES (?, ?, ?, ?, ?, 'active', 0, 1, ?, ?, ?, ?, ?, ?)",
         (camera, species, scientific_name, timestamp, timestamp,
          confidence, score, snapshot, confidence, bird_count, source_date),
     )
@@ -129,7 +130,7 @@ def extend_visit(visit_id, timestamp, confidence, score, snapshot, bird_count=1)
     """Add a frame to an existing visit.
 
     Increments frame_count, updates end_time.
-    Updates best_confidence/best_score/best_snapshot if this frame is better.
+    Updates best_confidence/best_score/best_file if this frame is better.
     Updates bird_count to peak (max seen in any single frame — e.g. 5 doves).
     Recalculates avg_confidence.
     """
@@ -164,17 +165,21 @@ def extend_visit(visit_id, timestamp, confidence, score, snapshot, bird_count=1)
 
     if new_snapshot is not None:
         conn.execute(
-            "UPDATE visits SET end_time=?, frame_count=?, bird_count=?, "
-            "best_confidence=?, best_score=?, best_snapshot=?, avg_confidence=? "
+            "UPDATE visits SET end_time=?, "
+            "duration_sec=(julianday(?) - julianday(start_time)) * 86400, "
+            "frame_count=?, bird_count=?, "
+            "best_confidence=?, best_score=?, best_file=?, avg_confidence=? "
             "WHERE id=?",
-            (timestamp, new_count, new_bird_count, new_best_conf, new_best_score,
-             new_snapshot, new_avg, visit_id),
+            (timestamp, timestamp, new_count, new_bird_count, new_best_conf,
+             new_best_score, new_snapshot, new_avg, visit_id),
         )
     else:
         conn.execute(
-            "UPDATE visits SET end_time=?, frame_count=?, bird_count=?, avg_confidence=? "
+            "UPDATE visits SET end_time=?, "
+            "duration_sec=(julianday(?) - julianday(start_time)) * 86400, "
+            "frame_count=?, bird_count=?, avg_confidence=? "
             "WHERE id=?",
-            (timestamp, new_count, new_bird_count, new_avg, visit_id),
+            (timestamp, timestamp, new_count, new_bird_count, new_avg, visit_id),
         )
     conn.commit()
 

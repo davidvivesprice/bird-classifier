@@ -136,7 +136,7 @@ class TestStartVisit:
         assert v["frame_count"] == 1
         assert v["best_confidence"] == 0.85
         assert v["best_score"] == 0.9
-        assert v["best_snapshot"] == "snap001.jpg"
+        assert v["best_file"] == "snap001.jpg"
         assert v["avg_confidence"] == 0.85
         assert v["bird_count"] == 1
         assert v["source_date"] == "2025-06-01"
@@ -173,14 +173,14 @@ class TestExtendVisit:
         visits_db.extend_visit(vid, "2025-06-01T10:00:30", 0.80, 0.85, "snap002.jpg")
         visits = visits_db.get_visits(date="2025-06-01")
         assert visits[0]["best_confidence"] == 0.85
-        assert visits[0]["best_snapshot"] == "snap001.jpg"
+        assert visits[0]["best_file"] == "snap001.jpg"
 
         # Higher confidence — SHOULD update best
         visits_db.extend_visit(vid, "2025-06-01T10:01:00", 0.95, 0.98, "snap003.jpg")
         visits = visits_db.get_visits(date="2025-06-01")
         assert visits[0]["best_confidence"] == 0.95
         assert visits[0]["best_score"] == 0.98
-        assert visits[0]["best_snapshot"] == "snap003.jpg"
+        assert visits[0]["best_file"] == "snap003.jpg"
 
     def test_avg_confidence_calculated_correctly(self, in_memory_db):
         vid = visits_db.start_visit(

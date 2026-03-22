@@ -24,9 +24,11 @@ CREATE TABLE IF NOT EXISTS visits (
     scientific_name TEXT,
     start_time      TEXT    NOT NULL,
     end_time        TEXT    NOT NULL,
-    duration_sec    REAL    NOT NULL,
+    status          TEXT    DEFAULT 'ended',
+    duration_sec    REAL    DEFAULT 0,
     frame_count     INTEGER NOT NULL DEFAULT 1,
     best_confidence REAL,
+    best_score      REAL,
     avg_confidence  REAL,
     best_file       TEXT,
     source_date     TEXT,
@@ -112,6 +114,7 @@ def main():
             "duration_sec": duration,
             "frame_count": v["frame_count"],
             "best_confidence": v["best_confidence"],
+            "best_score": v["best_score"],
             "avg_confidence": v["sum_confidence"] / v["frame_count"],
             "best_file": v["best_file"],
             "source_date": v["source_date"],
@@ -128,6 +131,7 @@ def main():
         ts_str = row["source_timestamp"]
         src_date = row["source_date"]
         confidence = row["confidence"] or 0.0
+        raw_score = row["raw_score"] or 0.0
         filename = row["file"]
         det_count = row["detections"] or 1  # number of birds detected in this frame
 
@@ -158,6 +162,7 @@ def main():
                 v["bird_count"] = max(v["bird_count"], det_count)  # peak birds in any frame
                 if confidence > v["best_confidence"]:
                     v["best_confidence"] = confidence
+                    v["best_score"] = raw_score
                     v["best_file"] = filename
                 # Keep source_date as the start date of the visit
             else:
@@ -172,6 +177,7 @@ def main():
                     "end_ts": ts,
                     "frame_count": 1,
                     "best_confidence": confidence,
+                    "best_score": raw_score,
                     "sum_confidence": confidence,
                     "best_file": filename,
                     "source_date": src_date,
@@ -187,6 +193,7 @@ def main():
                 "end_ts": ts,
                 "frame_count": 1,
                 "best_confidence": confidence,
+                "best_score": raw_score,
                 "sum_confidence": confidence,
                 "best_file": filename,
                 "source_date": src_date,
@@ -202,12 +209,12 @@ def main():
     # Batch insert all visits
     conn.executemany("""
         INSERT INTO visits
-            (camera, species, scientific_name, start_time, end_time,
-             duration_sec, frame_count, best_confidence, avg_confidence,
+            (camera, species, scientific_name, start_time, end_time, status,
+             duration_sec, frame_count, best_confidence, best_score, avg_confidence,
              best_file, source_date, bird_count)
         VALUES
-            (:camera, :species, :scientific_name, :start_time, :end_time,
-             :duration_sec, :frame_count, :best_confidence, :avg_confidence,
+            (:camera, :species, :scientific_name, :start_time, :end_time, 'ended',
+             :duration_sec, :frame_count, :best_confidence, :best_score, :avg_confidence,
              :best_file, :source_date, :bird_count)
     """, visits_to_insert)
     conn.commit()
