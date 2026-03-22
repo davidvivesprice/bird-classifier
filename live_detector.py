@@ -46,6 +46,8 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 
+from bird_inference import SPECIES_ALIASES, normalize_species, parse_label, crop_bird, get_providers
+
 # Coral Edge TPU — disabled by default to avoid stealing TPU from classify.py
 # Enable with LIVE_DETECT_CORAL=1 if running without the batch classifier
 _CORAL_OK = False
@@ -211,13 +213,6 @@ class SpeciesVoter:
             slots[:] = sorted(slots, key=lambda s: s["last_seen"], reverse=True)[:20]
 
         return approved
-
-# Subspecies / regional forms → canonical parent species
-SPECIES_ALIASES = {
-    "Slate-colored Junco": "Dark-eyed Junco",
-    "Myrtle Warbler": "Yellow-rumped Warbler",
-    "Feral Pigeon": "Rock Pigeon",
-}
 
 running = True
 

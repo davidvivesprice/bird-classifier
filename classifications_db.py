@@ -14,18 +14,9 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from bird_inference import SPECIES_ALIASES, normalize_species
+
 DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
-
-# Subspecies / regional forms → canonical parent species
-SPECIES_ALIASES = {
-    "Slate-colored Junco": "Dark-eyed Junco",
-    "Myrtle Warbler": "Yellow-rumped Warbler",
-    "Feral Pigeon": "Rock Pigeon",
-}
-
-
-def normalize_species(name):
-    return SPECIES_ALIASES.get(name, name)
 
 
 # ── Connection pool (thread-local) ──

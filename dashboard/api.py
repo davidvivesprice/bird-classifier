@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import classifications_db as cdb
+from bird_inference import SPECIES_ALIASES, normalize_species
 
 # --- Paths ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
@@ -43,16 +44,6 @@ SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.js
 SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
 SPECIES_GALLERY_PATH = Path("/Users/vives/bird-classifier/dashboard/species_gallery.json")
 CULL_CONFIG_PATH = Path("/Users/vives/bird-classifier/config/cull_config.json")
-
-# Subspecies / regional forms → canonical parent species
-SPECIES_ALIASES = {
-    "Slate-colored Junco": "Dark-eyed Junco",
-    "Myrtle Warbler": "Yellow-rumped Warbler",
-    "Feral Pigeon": "Rock Pigeon",
-}
-
-def normalize_species(name: str) -> str:
-    return SPECIES_ALIASES.get(name, name)
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
