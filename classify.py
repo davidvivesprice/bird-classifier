@@ -18,7 +18,6 @@ Usage:
 import argparse
 import json
 import logging
-import math
 import os
 import shutil
 import sys
@@ -27,7 +26,6 @@ from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
 from motion_gate import MotionGate
 from PIL import Image, ImageDraw, ImageFont
 
@@ -37,14 +35,11 @@ from range_filter import RangeFilter
 # Shared solar calculations
 from solar_utils import solar_times, is_nighttime, is_twilight_window
 
-# Coral Edge TPU — optional, falls back to ONNX+CoreML if unavailable
-_CORAL_OK = False
-try:
-    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
-    from pycoral.adapters import common as _coral_common
-    _CORAL_OK = bool(list_edge_tpus())
-except ImportError:
-    pass
+# Shared inference utilities (detection, classification, label parsing)
+from bird_inference import (
+    YOLODetector, SpeciesClassifier, normalize_species,
+    parse_label, crop_bird, get_providers,
+)
 
 # --- Configuration ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
@@ -69,7 +64,6 @@ REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 BIRD_CLASS_ID = 0                 # Custom model: single class "bird"
 DETECTION_CONFIDENCE = float(os.environ.get('DETECTION_CONFIDENCE', '0.3'))
 NMS_IOU_THRESHOLD = 0.45          # Non-max suppression overlap threshold
-CROP_PAD_RATIO = 0.15             # Extra padding around detected bird (15% of box size)
 
 # IR frame detection (auto-trash grayscale/infrared frames during twilight)
 IR_SATURATION_THRESHOLD = float(os.environ.get('IR_SATURATION_THRESHOLD', '0.08'))
@@ -89,10 +83,9 @@ LATITUDE = 41.35
 LONGITUDE = -70.74
 NIGHT_OFFSET_MINUTES = 30  # keep running this many minutes after sunset
 
-# YOLO input
-YOLO_INPUT_SIZE = 640
-# Species classifier input
-SPECIES_INPUT_SIZE = (224, 224)
+# Module-level model instances (initialised in main())
+_detector = None       # type: YOLODetector
+_classifier = None     # type: SpeciesClassifier
 
 
 def is_infrared_frame(img):
@@ -128,196 +121,6 @@ def setup_logging():
     )
 
 
-# ──────────────────────────────────────────────────
-# Stage 1: YOLOv8n Bird Detection
-# ──────────────────────────────────────────────────
-
-def _get_providers():
-    """Return ONNX Runtime execution providers, preferring CoreML on macOS."""
-    available = ort.get_available_providers()
-    providers = []
-    if "CoreMLExecutionProvider" in available:
-        providers.append("CoreMLExecutionProvider")
-    providers.append("CPUExecutionProvider")
-    return providers
-
-
-def load_yolo(path):
-    """Load YOLOv8n ONNX model with CoreML acceleration if available."""
-    logging.info("Loading YOLO detector: %s", path)
-    providers = _get_providers()
-    sess = ort.InferenceSession(str(path), providers=providers)
-    input_name = sess.get_inputs()[0].name
-    active = sess.get_providers()
-    logging.info("YOLO loaded: input=%s shape=%s providers=%s", input_name, sess.get_inputs()[0].shape, active)
-    return sess, input_name
-
-
-def preprocess_yolo(image, target_size=YOLO_INPUT_SIZE):
-    """
-    Preprocess image for YOLOv8: resize, normalize, transpose to NCHW.
-    Uses letterbox (pad to square) to preserve aspect ratio.
-    Returns (input_tensor, scale_x, scale_y, pad_x, pad_y) for coordinate mapping.
-    """
-    orig_w, orig_h = image.size
-
-    # Compute scale to fit in target_size while preserving aspect ratio
-    scale = min(target_size / orig_w, target_size / orig_h)
-    new_w = int(orig_w * scale)
-    new_h = int(orig_h * scale)
-
-    # Resize
-    resized = image.resize((new_w, new_h), Image.BILINEAR)
-
-    # Pad to target_size x target_size (center)
-    pad_x = (target_size - new_w) // 2
-    pad_y = (target_size - new_h) // 2
-    padded = Image.new("RGB", (target_size, target_size), (114, 114, 114))
-    padded.paste(resized, (pad_x, pad_y))
-
-    # To numpy: HWC → CHW, normalize to 0-1, add batch dim
-    arr = np.array(padded, dtype=np.float32) / 255.0
-    arr = arr.transpose(2, 0, 1)  # CHW
-    arr = arr[np.newaxis]  # NCHW
-
-    return arr, scale, pad_x, pad_y
-
-
-def nms_numpy(boxes, scores, iou_threshold):
-    """
-    Non-maximum suppression in pure numpy.
-    boxes: (N, 4) as x1, y1, x2, y2
-    scores: (N,)
-    Returns indices to keep.
-    """
-    if len(boxes) == 0:
-        return []
-
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
-    areas = (x2 - x1) * (y2 - y1)
-
-    order = scores.argsort()[::-1]
-    keep = []
-
-    while len(order) > 0:
-        i = order[0]
-        keep.append(i)
-        if len(order) == 1:
-            break
-
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
-
-        inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
-        iou = inter / (areas[i] + areas[order[1:]] - inter)
-
-        remaining = np.where(iou <= iou_threshold)[0]
-        order = order[remaining + 1]
-
-    return keep
-
-
-def detect_birds(yolo_sess, yolo_input_name, image):
-    """
-    Run YOLOv8n detection, return list of bird bounding boxes in original image coords.
-    Each detection: {"box": (x1, y1, x2, y2), "confidence": float}
-    """
-    orig_w, orig_h = image.size
-    input_tensor, scale, pad_x, pad_y = preprocess_yolo(image)
-
-    # Run inference
-    output = yolo_sess.run(None, {yolo_input_name: input_tensor})[0]  # (1, 84, 8400)
-    predictions = output[0].T  # (8400, 84)
-
-    # Split: boxes (cx, cy, w, h) and class scores
-    boxes_cxcywh = predictions[:, :4]
-    class_scores = predictions[:, 4:]  # (8400, 80)
-
-    # Filter for bird class only
-    bird_scores = class_scores[:, BIRD_CLASS_ID]
-    mask = bird_scores > DETECTION_CONFIDENCE
-    if not mask.any():
-        return []
-
-    bird_boxes = boxes_cxcywh[mask]
-    bird_conf = bird_scores[mask]
-
-    # Convert cx,cy,w,h → x1,y1,x2,y2 (in YOLO 640x640 space)
-    x1 = bird_boxes[:, 0] - bird_boxes[:, 2] / 2
-    y1 = bird_boxes[:, 1] - bird_boxes[:, 3] / 2
-    x2 = bird_boxes[:, 0] + bird_boxes[:, 2] / 2
-    y2 = bird_boxes[:, 1] + bird_boxes[:, 3] / 2
-    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
-
-    # NMS
-    keep = nms_numpy(boxes_xyxy, bird_conf, NMS_IOU_THRESHOLD)
-    if not keep:
-        return []
-
-    # Map back to original image coordinates
-    detections = []
-    for i in keep:
-        bx1, by1, bx2, by2 = boxes_xyxy[i]
-        # Remove padding, undo scale
-        ox1 = (bx1 - pad_x) / scale
-        oy1 = (by1 - pad_y) / scale
-        ox2 = (bx2 - pad_x) / scale
-        oy2 = (by2 - pad_y) / scale
-        # Clamp to image bounds
-        ox1 = max(0, min(orig_w, ox1))
-        oy1 = max(0, min(orig_h, oy1))
-        ox2 = max(0, min(orig_w, ox2))
-        oy2 = max(0, min(orig_h, oy2))
-
-        detections.append({
-            "box": (int(ox1), int(oy1), int(ox2), int(oy2)),
-            "confidence": round(float(bird_conf[i]), 3),
-        })
-
-    return detections
-
-
-# ──────────────────────────────────────────────────
-# Stage 2: Species Classification (AIY Birds V1)
-# ──────────────────────────────────────────────────
-
-_species_backend = "onnx"  # set by load_species_model()
-
-
-def load_species_model(path, labels_path):
-    """Load AIY Birds V1 — Coral TPU if available, else ONNX+CoreML."""
-    global _species_backend
-
-    with open(labels_path) as f:
-        labels = [line.strip() for line in f]
-
-    # Try Coral TPU first
-    if _CORAL_OK and SPECIES_TPU_PATH.exists():
-        try:
-            interp = make_interpreter(str(SPECIES_TPU_PATH))
-            interp.allocate_tensors()
-            _species_backend = "coral"
-            logging.info("Species model loaded on CORAL TPU: %s (%d labels)",
-                         SPECIES_TPU_PATH.name, len(labels))
-            return interp, None, labels
-        except Exception as e:
-            logging.warning("Coral TPU failed (%s), falling back to ONNX", e)
-
-    # Fallback: ONNX + CoreML
-    logging.info("Loading species classifier (ONNX): %s", path)
-    providers = _get_providers()
-    sess = ort.InferenceSession(str(path), providers=providers)
-    input_name = sess.get_inputs()[0].name
-    _species_backend = "onnx"
-    logging.info("Species model loaded: %d labels, providers=%s", len(labels), sess.get_providers())
-    return sess, input_name, labels
-
-
 def load_regional_filter(path):
     """Load regional species allowlist. Returns a set of common names, or None if file missing."""
     if not path.exists():
@@ -327,97 +130,6 @@ def load_regional_filter(path):
         species = {line.strip() for line in f if line.strip()}
     logging.info("Regional filter loaded: %d species", len(species))
     return species
-
-
-def parse_label(raw_label):
-    """Parse 'Scientific name (Common Name)' into components."""
-    if "(" in raw_label and raw_label.endswith(")"):
-        scientific = raw_label.split("(")[0].strip()
-        common = raw_label.split("(")[1].rstrip(")")
-        return scientific, common
-    return raw_label, raw_label
-
-
-def crop_bird(image, box, pad_ratio=CROP_PAD_RATIO):
-    """Crop bird region from image with padding."""
-    x1, y1, x2, y2 = box
-    w = x2 - x1
-    h = y2 - y1
-    pad_x = int(w * pad_ratio)
-    pad_y = int(h * pad_ratio)
-
-    cx1 = max(0, x1 - pad_x)
-    cy1 = max(0, y1 - pad_y)
-    cx2 = min(image.width, x2 + pad_x)
-    cy2 = min(image.height, y2 + pad_y)
-
-    return image.crop((cx1, cy1, cx2, cy2))
-
-
-def classify_species(species_sess, species_input_name, labels, bird_crop, regional_species=None):
-    """
-    Classify a cropped bird image.
-    Returns (filtered_predictions, raw_predictions).
-    If regional_species is set, filtered_predictions only contains regional matches.
-    """
-    resized = bird_crop.resize(SPECIES_INPUT_SIZE)
-    arr = np.array(resized, dtype=np.uint8)[np.newaxis]
-
-    if _species_backend == "coral":
-        _coral_common.set_input(species_sess, arr[0])
-        species_sess.invoke()
-        scores = np.array(_coral_common.output_tensor(species_sess, 0), dtype=np.float32)
-        if scores.ndim == 2:
-            scores = scores[0]
-    else:
-        scores = species_sess.run(None, {species_input_name: arr})[0][0]
-
-    # Raw top 3
-    top3_idx = np.argsort(scores)[-3:][::-1]
-    raw_predictions = []
-    for idx in top3_idx:
-        idx = int(idx)
-        raw_score = int(scores[idx])
-        scientific, common = parse_label(labels[idx])
-        raw_predictions.append({
-            "index": idx,
-            "label": labels[idx],
-            "scientific_name": scientific,
-            "common_name": common,
-            "raw_score": raw_score,
-        })
-
-    if regional_species is None:
-        return raw_predictions, raw_predictions
-
-    # Filter: walk all scores descending, pick top 3 regional matches
-    all_idx = np.argsort(scores)[::-1]
-    filtered = []
-    for idx in all_idx:
-        idx = int(idx)
-        scientific, common = parse_label(labels[idx])
-        if common in regional_species:
-            filtered.append({
-                "index": idx,
-                "label": labels[idx],
-                "scientific_name": scientific,
-                "common_name": common,
-                "raw_score": int(scores[idx]),
-            })
-            if len(filtered) >= 3:
-                break
-
-    if not filtered:
-        # No regional match — return as unidentified
-        filtered = [{
-            "index": -1,
-            "label": "unidentified",
-            "scientific_name": "unknown",
-            "common_name": "unidentified bird",
-            "raw_score": 0,
-        }]
-
-    return filtered, raw_predictions
 
 
 # ──────────────────────────────────────────────────
@@ -640,7 +352,7 @@ def sanitize_dirname(name):
     return name.replace(" ", "_").replace("'", "").replace("/", "-")
 
 
-def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, image_path, regional_species=None, range_filter=None):
+def process_file(image_path, range_filter=None):
     """Full pipeline: detect birds → classify species → move file."""
     fname = os.path.basename(image_path)
 
@@ -688,7 +400,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     t0 = time.monotonic()
 
     # Stage 1: Bird detection
-    detections = detect_birds(yolo_sess, yolo_input_name, img)
+    detections = _detector.detect(img)
     detect_ms = (time.monotonic() - t0) * 1000
 
     if not detections:
@@ -723,9 +435,7 @@ def process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, l
     all_raw = []           # list of raw predictions per detection
     for det in detections:
         bird_crop = crop_bird(img, det["box"])
-        preds, raw_preds = classify_species(
-            species_sess, species_input_name, labels, bird_crop, regional_species
-        )
+        preds, raw_preds = _classifier.classify(bird_crop)
         all_predictions.append(preds)
         all_raw.append(raw_preds)
 
@@ -908,7 +618,7 @@ def get_pending_files():
             and (now - f.stat().st_mtime) > 2.0]
 
 
-def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
+def process_all(range_filter=None):
     """Process all pending files."""
     files = get_pending_files()
     if not files:
@@ -925,7 +635,7 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
             shutil.move(str(fpath), str(SKIPPED_DIR / fpath.name))
             motion_skipped += 1
             continue
-        r = process_file(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, fpath, regional_species, range_filter)
+        r = process_file(fpath, range_filter)
         if r:
             results.append(r)
 
@@ -953,7 +663,7 @@ def process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, la
     return len(results)
 
 
-def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
+def watch_mode(range_filter=None):
     """Continuously watch for new files. Pauses during nighttime."""
     logging.info("Watch mode started (polling every %ds)", WATCH_INTERVAL)
     was_night = False
@@ -968,7 +678,7 @@ def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, lab
             if was_night:
                 logging.info("Daytime resumed — restarting classification")
                 was_night = False
-            n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+            n = process_all(range_filter)
             if n > 0:
                 logging.info("Processed %d file(s), waiting for more...", n)
             time.sleep(WATCH_INTERVAL)
@@ -976,7 +686,7 @@ def watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, lab
         logging.info("Watch mode stopped")
 
 
-def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species=None, range_filter=None):
+def reprocess(range_filter=None):
     """Move images from classified/ and skipped/ back to incoming/ and reprocess."""
     count = 0
     for src_dir in [CLASSIFIED_DIR, SKIPPED_DIR]:
@@ -992,7 +702,7 @@ def reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labe
         return
 
     logging.info("Moved %d files back to incoming/, reprocessing...", count)
-    process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+    process_all(range_filter)
 
 
 def print_summary():
@@ -1055,10 +765,23 @@ def main():
     for d in [INCOMING_DIR, CLASSIFIED_DIR, SKIPPED_DIR, FAILED_DIR, ANNOTATED_DIR, LOG_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
-    # Load both models
-    yolo_sess, yolo_input_name = load_yolo(YOLO_MODEL_PATH)
-    species_sess, species_input_name, labels = load_species_model(SPECIES_MODEL_PATH, LABELS_PATH)
+    # Load both models into module-level globals
+    global _detector, _classifier
+
+    _detector = YOLODetector(
+        str(YOLO_MODEL_PATH),
+        confidence=DETECTION_CONFIDENCE,
+        iou_threshold=NMS_IOU_THRESHOLD,
+    )
+    logging.info("YOLO detector loaded: %s", YOLO_MODEL_PATH)
+
     regional_species = load_regional_filter(REGIONAL_SPECIES_PATH)
+    _classifier = SpeciesClassifier(
+        str(SPECIES_MODEL_PATH), str(LABELS_PATH),
+        regional_species=regional_species,
+        tpu_model_path=str(SPECIES_TPU_PATH) if SPECIES_TPU_PATH.exists() else None,
+    )
+    logging.info("Species classifier loaded: %s (backend=%s)", SPECIES_MODEL_PATH, _classifier._backend)
 
     # Initialize range filter for geographic validation
     try:
@@ -1069,12 +792,12 @@ def main():
         range_filter = None
 
     if args.reprocess:
-        reprocess(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+        reprocess(range_filter)
     elif args.watch:
-        process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
-        watch_mode(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+        process_all(range_filter)
+        watch_mode(range_filter)
     else:
-        n = process_all(yolo_sess, yolo_input_name, species_sess, species_input_name, labels, regional_species, range_filter)
+        n = process_all(range_filter)
         if n == 0:
             logging.info("No pending files in %s", INCOMING_DIR)
         print_summary()
