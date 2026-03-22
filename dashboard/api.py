@@ -1,9 +1,9 @@
 """
 Bird Dashboard API — serves classifier data for the bird observatory dashboard.
 
-Phase 2: endpoints query SQLite directly via classifications_db module.
-No in-memory classification cache — RAM usage drops from ~1.2GB to near zero.
-Reviews still loaded from JSONL (small, <1MB).
+Phase 3: all data (classifications + reviews) served from SQLite.
+No in-memory caches — RAM usage minimal.
+JSONL backup still written for reviews during transition.
 
 Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 """
@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import classifications_db as cdb
+import reviews_db as rdb
 from bird_inference import SPECIES_ALIASES, normalize_species
 
 # --- Paths ---
@@ -50,16 +51,16 @@ app = FastAPI(title="Bird Dashboard API", version="1.0")
 
 @app.on_event("startup")
 def warm_cache():
-    """Verify SQLite DB is accessible and pre-load reviews on startup."""
+    """Verify SQLite DB is accessible on startup."""
     import logging
     t0 = _time.time()
     cdb.init_db()
     total = cdb.count_total()
     species = cdb.count_species()
-    reviews = load_reviews()
+    review_count = rdb.count_reviews()
     t1 = _time.time()
-    logging.info("Startup: SQLite DB has %d entries (%d species), %d reviews loaded in %.1fs",
-                 total, species, len(reviews), t1 - t0)
+    logging.info("Startup: SQLite DB has %d entries (%d species), %d reviews in %.1fs",
+                 total, species, review_count, t1 - t0)
 
 
 app.add_middleware(
@@ -88,42 +89,8 @@ def _append_jsonl(path: Path, entry: dict):
 # See classifications_db.py for all query functions.
 
 
-# ── Reviews cache ──
-
-_reviews_cache: dict = {}
-_reviews_size: int = 0
-
-
-def load_reviews():
-    """Load review verdicts with incremental append caching."""
-    global _reviews_cache, _reviews_size
-    if not REVIEWS_PATH.exists():
-        _reviews_cache = {}
-        _reviews_size = 0
-        return {}
-    st = REVIEWS_PATH.stat()
-    current_size = st.st_size
-
-    if current_size == _reviews_size:
-        return _reviews_cache
-
-    if current_size < _reviews_size:
-        _reviews_cache = {}
-        _reviews_size = 0
-
-    with open(REVIEWS_PATH, "rb") as f:
-        f.seek(_reviews_size)
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    r = json.loads(line)
-                    _reviews_cache[r["file"]] = r
-                except (json.JSONDecodeError, KeyError):
-                    pass
-
-    _reviews_size = current_size
-    return _reviews_cache
+# ── Reviews: now served from SQLite via reviews_db (rdb) ──
+# JSONL backup still written via _append_jsonl for transition safety.
 
 
 # ── Result cache with TTL ──
@@ -459,50 +426,54 @@ def get_image_crop(filename: str, box: str = ""):
 def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = ""):
     """Get unreviewed classifications for the annotation GUI (paginated).
 
-    Returns `limit` items starting from `offset`.  The full count and
-    species list are always included so the UI can show progress and
-    the species filter without needing all items up-front.
+    Uses SQL LEFT JOIN via reviews_db — no in-memory cross-reference needed.
     """
-    reviews = load_reviews()
-    classified = cdb.get_classified_for_pending()
+    sp = species or None
+    mb = bool(multibird)
 
+    rows = rdb.get_pending_classifications(species=sp, multibird=mb, offset=offset, limit=limit)
+    remaining = rdb.count_pending(species=sp, multibird=mb)
+
+    # Build response items from SQL rows
     pending = []
-    species_set = set()
-    for e in classified:
-        if e["file"] not in reviews or reviews[e["file"]]["verdict"] == "requeued":
-            sp = e["species"]
-            species_set.add(sp)
-            if species and sp != species:
-                continue
-            if multibird and len(e.get("birds", [])) < 2:
-                continue
-            pending.append({
-                "file": e["file"],
-                "timestamp": e.get("source_timestamp") or e["timestamp"],
-                "species": sp,
-                "confidence": e["confidence"],
-                "raw_score": e["raw_score"],
-                "top3": e.get("top3", []),
-                "raw_top3": e.get("raw_top3", []),
-                "birds": e.get("birds", []),
-            })
+    for r in rows:
+        birds = json.loads(r["birds_json"]) if r.get("birds_json") else []
+        top3 = json.loads(r["top3_json"]) if r.get("top3_json") else []
+        raw_top3 = json.loads(r["raw_top3_json"]) if r.get("raw_top3_json") else []
+        pending.append({
+            "file": r["file"],
+            "timestamp": r.get("source_timestamp") or "",
+            "species": r["common_name"],
+            "confidence": r["confidence"],
+            "raw_score": r.get("raw_score", 0),
+            "top3": top3,
+            "raw_top3": raw_top3,
+            "birds": birds,
+        })
 
     total_classified = cdb.count_classified()
-    total_reviewed = len(reviews)
-    total_pending = len(pending)
+    total_reviewed = rdb.count_reviews()
 
-    # Paginate: only return the requested slice
-    page = pending[offset:offset + limit]
+    # Species list: distinct species from unreviewed classifications
+    conn = rdb.get_conn(readonly=True)
+    species_rows = conn.execute(
+        "SELECT DISTINCT c.common_name FROM classifications c "
+        "LEFT JOIN reviews r ON c.file = r.file "
+        "WHERE c.action='classified' AND c.common_name IS NOT NULL "
+        "AND (r.file IS NULL OR r.verdict = 'requeued') "
+        "ORDER BY c.common_name"
+    ).fetchall()
+    species_list = [row[0] for row in species_rows]
 
     return {
-        "pending": page,
+        "pending": pending,
         "total_classified": total_classified,
         "total_reviewed": total_reviewed,
-        "remaining": total_pending,
-        "species_list": sorted(species_set),
+        "remaining": remaining,
+        "species_list": species_list,
         "offset": offset,
         "limit": limit,
-        "has_more": (offset + limit) < total_pending,
+        "has_more": (offset + limit) < remaining,
     }
 
 
@@ -512,9 +483,8 @@ INCOMING_DIR = BASE_DIR / "incoming"
 @app.get("/api/review/rerun-count")
 def rerun_count():
     """Count files flagged with verdict=reclassify (missed birds)."""
-    reviews = load_reviews()
-    count = sum(1 for r in reviews.values() if r["verdict"] == "reclassify")
-    return {"count": count}
+    reclassify_reviews = rdb.get_reviews_by_verdict("reclassify")
+    return {"count": len(reclassify_reviews)}
 
 
 @app.post("/api/review/rerun-missed")
@@ -526,8 +496,8 @@ def rerun_missed():
     2. Delete annotated version (new one will be generated)
     3. Write verdict=requeued entry so it shows as pending after re-classification
     """
-    reviews = load_reviews()
-    flagged = [f for f, r in reviews.items() if r["verdict"] == "reclassify"]
+    flagged_reviews = rdb.get_reviews_by_verdict("reclassify")
+    flagged = [r["file"] for r in flagged_reviews]
 
     INCOMING_DIR.mkdir(parents=True, exist_ok=True)
     moved = 0
@@ -553,6 +523,7 @@ def rerun_missed():
             "bird_index": 0,
             "timestamp": datetime.now().isoformat(),
         }
+        rdb.insert_review(requeue_entry)
         _append_jsonl(REVIEWS_PATH, requeue_entry)
 
     return {
@@ -566,44 +537,20 @@ def rerun_missed():
 def review_goals(threshold: int = 20):
     """Species classification goals — which species need more confirmed reviews for training.
 
-    Counts confirmed reviews per species (correct → classified species,
-    wrong with correct_species → corrected species).  Returns species from
-    the regional list that have at least 1 but fewer than `threshold` confirmed shots.
+    Uses SQL aggregation via reviews_db instead of in-memory iteration.
     """
-    reviews = load_reviews()
-    regional = set(load_regional_species())
-
-    # Collect filenames of "correct" reviews for batch lookup
-    correct_files = [r["file"] for r in reviews.values() if r["verdict"] == "correct"]
-    file_entries = cdb.get_entries_by_files(correct_files) if correct_files else {}
-
-    confirmed: dict[str, int] = defaultdict(int)
-    for r in reviews.values():
-        if r["verdict"] == "correct":
-            cls = file_entries.get(r["file"], {})
-            sp = cls.get("top_prediction", {}).get("common_name", "")
-            if sp:
-                confirmed[sp] += 1
-        elif r["verdict"] == "wrong" and r.get("correct_species"):
-            sp = normalize_species(r["correct_species"])
-            confirmed[sp] += 1
+    regional = load_regional_species()
+    raw_goals = rdb.get_review_goals(regional, threshold)
 
     goals = []
-    for sp in regional:
-        count = confirmed.get(sp, 0)
-        if count > 0 and count < threshold:
+    for g in raw_goals:
+        count = g["confirmed"]
+        if count > 0:
             goals.append({
-                "species": sp,
+                "species": g["species"],
                 "confirmed": count,
                 "target": threshold,
-                "complete": round(count / threshold * 100),
-            })
-        elif count >= threshold:
-            goals.append({
-                "species": sp,
-                "confirmed": count,
-                "target": threshold,
-                "complete": 100,
+                "complete": 100 if count >= threshold else round(count / threshold * 100),
             })
 
     # Sort: furthest from goal first (completed at bottom)
@@ -621,7 +568,8 @@ def review_goals(threshold: int = 20):
 def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
     """Submit a review verdict for a classification."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
-    _append_jsonl(REVIEWS_PATH, review)
+    rdb.insert_review(review)
+    _append_jsonl(REVIEWS_PATH, review)  # JSONL backup during transition
     invalidate_cache("stats:", "species:", "goals:")
 
     # Move trashed images out of annotated dir
@@ -636,50 +584,62 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
 
 @app.get("/api/review/classified")
 def review_classified(species: str = "", verdict: str = "", limit: int = 50, offset: int = 0):
-    """Get reviewed classifications (correct, wrong, reclassify verdicts)."""
-    reviews = load_reviews()
+    """Get reviewed classifications (correct, wrong, reclassify verdicts).
 
-    # Batch lookup all reviewed files
-    review_files = [f for f, r in reviews.items()
-                    if r["verdict"] in ("correct", "wrong", "reclassify")]
-    file_entries = cdb.get_entries_by_files(review_files) if review_files else {}
+    Uses SQL JOIN via reviews_db instead of batch file lookup.
+    """
+    sp = species or None
+    v = verdict or None
+    rows = rdb.get_reviewed_entries(species=sp, verdict=v, offset=offset, limit=limit)
 
     items = []
-    species_set = set()
-    for fname, r in reviews.items():
-        if r["verdict"] not in ("correct", "wrong", "reclassify"):
-            continue
-        cls = file_entries.get(fname, {})
-        sp = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
-        species_set.add(sp)
-        if species and sp != species:
-            continue
-        if verdict and r["verdict"] != verdict:
-            continue
+    for r in rows:
+        best_det = json.loads(r["best_detection_json"]) if r.get("best_detection_json") else {}
         items.append({
-            "file": fname,
-            "species": sp,
-            "confidence": cls.get("best_detection", {}).get("confidence", 0) if cls else 0,
+            "file": r["file"],
+            "species": r.get("common_name", "Unknown") or "Unknown",
+            "confidence": best_det.get("confidence", 0) if best_det else r.get("confidence", 0),
             "verdict": r["verdict"],
             "correct_species": r.get("correct_species", ""),
-            "missed_birds": r.get("missed_birds", False),
-            "review_timestamp": r.get("timestamp", ""),
-            "source_timestamp": cls.get("source_timestamp", "") if cls else "",
+            "missed_birds": bool(r.get("missed_birds", False)),
+            "review_timestamp": r.get("review_timestamp", ""),
+            "source_timestamp": r.get("source_timestamp", ""),
         })
 
-    items.sort(key=lambda x: x["review_timestamp"], reverse=True)
-    total = len(items)
-    page = items[offset:offset + limit]
-    species_list = sorted(species_set)
+    # Get total count (without pagination) for the same filters
+    conn = rdb.get_conn(readonly=True)
+    where_parts = []
+    params = []
+    if sp:
+        where_parts.append("c.common_name = ?")
+        params.append(sp)
+    if v:
+        where_parts.append("r.verdict = ?")
+        params.append(v)
+    extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
+    total = conn.execute(
+        "SELECT COUNT(*) FROM reviews r JOIN classifications c ON r.file = c.file WHERE 1=1" + extra,
+        params
+    ).fetchone()[0]
 
-    return {"items": page, "total": total, "species_list": species_list}
+    # Species list for filter dropdown
+    species_rows = conn.execute(
+        "SELECT DISTINCT c.common_name FROM reviews r "
+        "JOIN classifications c ON r.file = c.file "
+        "WHERE r.verdict IN ('correct','wrong','reclassify') "
+        "ORDER BY c.common_name"
+    ).fetchall()
+    species_list = [row[0] for row in species_rows if row[0]]
+
+    return {"items": items, "total": total, "species_list": species_list}
 
 
 @app.post("/api/review/{filename}/update")
 def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
-    """Update an existing review verdict (appends new entry, load_reviews picks latest)."""
+    """Update an existing review verdict (INSERT OR REPLACE in SQLite)."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
-    _append_jsonl(REVIEWS_PATH, review)
+    rdb.insert_review(review)
+    _append_jsonl(REVIEWS_PATH, review)  # JSONL backup during transition
     invalidate_cache("stats:", "species:", "goals:")
     return {"status": "ok", "review": review}
 
@@ -872,30 +832,25 @@ def regional_species():
 @app.get("/api/skipped")
 def skipped_list(limit: int = 200, offset: int = 0):
     """List user-skipped images (verdict='skip' in reviews), most recent first."""
-    reviews = load_reviews()
-
-    # Batch lookup all skipped files
-    skip_files = [f for f, r in reviews.items() if r.get("verdict") == "skip"]
-    file_entries = cdb.get_entries_by_files(skip_files) if skip_files else {}
+    rows = rdb.get_reviewed_entries(verdict="skip", offset=offset, limit=limit)
 
     skipped = []
-    for fname, r in reviews.items():
-        if r.get("verdict") != "skip":
-            continue
-        cls = file_entries.get(fname, {})
-        species = cls.get("top_prediction", {}).get("common_name", "Unknown") if cls else "Unknown"
+    for r in rows:
         skipped.append({
-            "file": fname,
-            "species": species,
-            "timestamp": r.get("timestamp", ""),
-            "source_timestamp": cls.get("source_timestamp", "") if cls else "",
+            "file": r["file"],
+            "species": r.get("common_name", "Unknown") or "Unknown",
+            "timestamp": r.get("review_timestamp", ""),
+            "source_timestamp": r.get("source_timestamp", ""),
         })
 
-    skipped.sort(key=lambda x: x["timestamp"], reverse=True)
-    total = len(skipped)
-    page = skipped[offset:offset + limit]
+    # Total count of skip reviews
+    conn = rdb.get_conn(readonly=True)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM reviews r JOIN classifications c ON r.file = c.file "
+        "WHERE r.verdict = 'skip'"
+    ).fetchone()[0]
 
-    return {"files": page, "total": total}
+    return {"files": skipped, "total": total}
 
 
 def _find_classified_image(filename: str):
@@ -1246,22 +1201,13 @@ def update_cull_config(
 @app.get("/api/cull/inventory")
 def cull_inventory():
     """Per-species file counts on disk + confirmed review counts."""
-    reviews = load_reviews()
+    regional = load_regional_species()
+    raw_goals = rdb.get_review_goals(regional, threshold=999999)
 
-    # Batch lookup correct-review files for species resolution
-    correct_files = [r["file"] for r in reviews.values() if r["verdict"] == "correct"]
-    file_entries = cdb.get_entries_by_files(correct_files) if correct_files else {}
-
-    # Count confirmed reviews per species
     confirmed: dict[str, int] = defaultdict(int)
-    for r in reviews.values():
-        if r["verdict"] == "correct":
-            cls = file_entries.get(r["file"], {})
-            sp = cls.get("top_prediction", {}).get("common_name", "")
-            if sp:
-                confirmed[sp] += 1
-        elif r["verdict"] == "wrong" and r.get("correct_species"):
-            confirmed[normalize_species(r["correct_species"])] += 1
+    for g in raw_goals:
+        if g["confirmed"] > 0:
+            confirmed[g["species"]] = g["confirmed"]
 
     # Count files on disk per species directory
     cfg = load_cull_config()
