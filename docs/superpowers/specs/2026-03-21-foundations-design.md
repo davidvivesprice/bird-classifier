@@ -305,10 +305,12 @@ Audio is performing better than reported:
 
 The two systems complement each other. Audio isn't "broken" — it was too restrictive, and recent threshold changes helped significantly.
 
-### B17. Investigate audio detection counts — IN PROGRESS
-The 359→1,073 jump between March 19-20 needs investigation: threshold change, better birdsong day, or bug?
+### B17. Investigate audio detection counts — RESOLVED (March 22, 2026)
+The 359→1,073 jump between March 19-20 was caused by **RTSP token expiry**, not threshold changes.
 
-**Action:** Query detection counts by hour for both days. Compare with weather. Check if threshold changes were deployed between days.
+**Root cause:** `sync_rtsp_urls.sh` had a SCP port flag bug (`-p` vs `-P`) causing nightly token sync to fail silently since March 20. March 19 had detections only 12:36-18:41 (service down all morning due to stale token). March 20 had a full day 06:49-18:28 with still-valid tokens. Daily counts across Mar 11-20 range from 387-1,073, so March 20 was high but not anomalous.
+
+**Fix:** SCP bug fixed, plus comprehensive RTSP resilience added (see `rtsp-resilience-design.md`).
 
 ### B18. Dual-instance BirdNET comparison — NOT DONE
 Run BirdNET on both raw and enhanced audio. `enhanced_audio_stream.py` currently only serves filtered audio for playback — not analyzed.
@@ -317,10 +319,19 @@ Run BirdNET on both raw and enhanced audio. `enhanced_audio_stream.py` currently
 
 **Dependency:** Mock RTSP feeds (F0) enable controlled comparison.
 
-### B19. Auto-trigger audio classification — NOT DONE
-Audio analyzer runs as independent continuous service. Not triggered by capture events.
+### B19. Audio-visual temporal correlation — INVESTIGATED (March 23, 2026)
+Audio analyzer runs as independent continuous service (correct architecture — birds sing without camera triggers).
 
-**Note:** Current architecture (continuous RTSP monitoring) is actually the right approach for audio — birds sing whether or not the camera captures a frame. "Auto-trigger" may be unnecessary. Instead, consider tighter temporal correlation: when a visual detection occurs, automatically check if there's a matching audio detection within ±60 seconds.
+**Findings (March 20 data, ±60s correlation window):**
+- 6 species had same-species audio+visual matches within 60s
+- House Finch: 42.9% of visual detections corroborated by audio (very vocal)
+- Song Sparrow: 31% corroborated — audio catches 160 vs 42 visual (vocal but less visible)
+- Mourning Dove: 2.2% — quiet bird, camera dominates
+- Eastern Bluebird: 48 audio-only detections, 0 visual (audio finds species camera misses)
+- Downy Woodpecker: 70 visual-only, 0 audio (visual finds species audio misses)
+- The two systems are highly complementary — audio-visual fusion would significantly improve coverage
+
+**Next step:** Add audio corroboration as an enrichment field on visual detections or visit summaries. Build a cross-reference API endpoint.
 
 ### `birdnetlib` sensitivity — KNOWN NO-OP
 The `sensitivity` parameter is hardcoded in birdnetlib's analyzer.py. All tuning is via confidence thresholds and deep detection. Documented in gotchas.
@@ -498,7 +509,7 @@ Phase 4:   UI/Display Fixes (B1, B4-B8)                  ← DONE (March 22, 202
 Phase 5:   Multi-Bird Review Rework (B12-B14, B16)       ← DONE (March 22, 2026)
 Phase 6:   SQL Optimizations (Q-SQL1-2, Q-SQL4-5)        ← DONE (March 22, 2026)
 Phase 7:   Frontend Architecture (FE1-6)                  ← DEFERRED (prototype not worth splitting yet)
-Phase 8:   Audio Deep Dive (B17-B19)                      ← next
+Phase 8:   Audio Deep Dive (B17-B19)                      ← B17 RESOLVED, B19 INVESTIGATED, B18 next
 Phase 9:   Future Work (FW1-6)                            ← when foundations are solid
 ```
 
