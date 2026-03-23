@@ -1238,6 +1238,47 @@
   }
   .audio-warning .dismiss:hover { opacity: 1; }
 
+  /* Audio browser tab */
+  .audio-det-list { display: flex; flex-direction: column; gap: 6px; }
+  .audio-det-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; background: var(--bg-secondary);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    transition: background 0.15s;
+  }
+  .audio-det-item:hover { background: var(--bg-hover); }
+  .audio-det-play {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--accent-green-dim); color: #fff; border: none;
+    cursor: pointer; font-size: 16px; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0;
+  }
+  .audio-det-play:hover { opacity: 0.85; }
+  .audio-det-play.playing { background: #b91c1c; }
+  .audio-det-info { flex: 1; min-width: 0; }
+  .audio-det-species { font-weight: 600; color: var(--text-primary); }
+  .audio-det-meta { font-size: 0.82rem; color: var(--text-muted); }
+  .audio-det-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .audio-det-source {
+    font-size: 0.72rem; padding: 2px 6px; border-radius: 3px;
+    background: var(--bg-hover); color: var(--text-muted);
+  }
+  .audio-det-confirms {
+    font-size: 0.72rem; padding: 2px 6px; border-radius: 3px;
+    background: var(--accent-green-dim); color: #fff;
+  }
+  .audio-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .audio-filters select, .audio-filters input {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-secondary); color: var(--text-primary); font-size: 0.85rem;
+  }
+  .audio-load-more {
+    padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;
+    margin-top: 8px; width: 100%; text-align: center;
+  }
+  .audio-load-more:hover { background: var(--bg-hover); }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -1826,6 +1867,7 @@
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="activity">Activity</button>
+    <button class="tab-btn" data-tab="audio">Audio</button>
     <button class="tab-btn" data-tab="review">Review</button>
   </div>
 </div>
@@ -2105,6 +2147,24 @@
 </div>
 
 <!-- Activity Tab -->
+<!-- Audio Detection Browser Tab -->
+<div class="tab-content" id="tab-audio">
+  <div class="audio-filters">
+    <select id="audio-species-filter" onchange="loadAudioDetections()">
+      <option value="">All species</option>
+    </select>
+    <select id="audio-source-filter" onchange="loadAudioDetections()">
+      <option value="">All cameras</option>
+      <option value="ground">Ground</option>
+      <option value="magnolia">Magnolia</option>
+    </select>
+    <span id="audio-total" style="color:var(--text-muted);font-size:0.85rem;margin-left:auto;"></span>
+  </div>
+  <div class="audio-det-list" id="audio-det-list"></div>
+  <button class="audio-load-more" id="audio-load-more" onclick="loadMoreAudio()" style="display:none">Load more</button>
+  <audio id="audio-browser-player" preload="none" style="display:none"></audio>
+</div>
+
 <div class="tab-content" id="tab-activity">
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:12px 0;">
     <!-- Left: Species Search + Activity -->
@@ -5596,6 +5656,129 @@
 
   setInterval(pollAudioHealth, 60000);
   pollAudioHealth();
+
+  // ── Audio Detection Browser ──
+  var _audioOffset = 0;
+  var _audioLimit = 30;
+  var _audioDetections = [];
+  var _audioPlayerClip = null;
+
+  function loadAudioDetections(append) {
+    if (!append) { _audioOffset = 0; _audioDetections = []; }
+    var species = document.getElementById('audio-species-filter').value;
+    var source = document.getElementById('audio-source-filter').value;
+    var today = new Date().toISOString().slice(0, 10);
+    var params = 'date=' + today + '&limit=' + _audioLimit + '&offset=' + _audioOffset;
+    if (species) params += '&species=' + encodeURIComponent(species);
+    if (source) params += '&source=' + encodeURIComponent(source);
+
+    fetch('/api/audio-detections?' + params)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _audioDetections = append ? _audioDetections.concat(data.detections) : data.detections;
+        document.getElementById('audio-total').textContent = data.total + ' detections today';
+        renderAudioList();
+        document.getElementById('audio-load-more').style.display =
+          (_audioOffset + _audioLimit < data.total) ? '' : 'none';
+
+        // Populate species filter on first load
+        if (!append && !document.getElementById('audio-species-filter').dataset.loaded) {
+          var seen = {};
+          data.detections.forEach(function(d) { seen[d.species] = true; });
+          var sel = document.getElementById('audio-species-filter');
+          // Also fetch full species list from summary
+          fetch('/api/birdnet-summary')
+            .then(function(r) { return r.json(); })
+            .then(function(summary) {
+              var todayDate = new Date().toISOString().slice(0, 10);
+              var todaySpecies = (summary.by_date && summary.by_date[todayDate])
+                ? summary.by_date[todayDate].species.map(function(s) { return s.common_name; })
+                : Object.keys(seen);
+              todaySpecies.sort();
+              todaySpecies.forEach(function(sp) {
+                var opt = document.createElement('option');
+                opt.value = sp; opt.textContent = sp;
+                sel.appendChild(opt);
+              });
+              sel.dataset.loaded = '1';
+            }).catch(function() {});
+        }
+      })
+      .catch(function() {});
+  }
+
+  function loadMoreAudio() {
+    _audioOffset += _audioLimit;
+    loadAudioDetections(true);
+  }
+
+  function renderAudioList() {
+    var el = document.getElementById('audio-det-list');
+    el.innerHTML = _audioDetections.map(function(d) {
+      var confPct = Math.round(d.confidence * 100);
+      var confCls = confPct >= 80 ? 'conf-high' : confPct >= 50 ? 'conf-med' : 'conf-low';
+      var source = d.source || 'ground';
+      var confirms = d.confirmations || 1;
+      var clipBtn = d.clip_name
+        ? '<button class="audio-det-play" data-clip="' + d.clip_name + '" onclick="playAudioBrowser(\'' + d.clip_name.replace(/'/g, "\\'") + '\', this)">' +
+          '&#9654;</button>'
+        : '<div style="width:36px"></div>';
+
+      return '<div class="audio-det-item">' +
+        clipBtn +
+        '<div class="audio-det-info">' +
+          '<div class="audio-det-species">' + d.species + '</div>' +
+          '<div class="audio-det-meta">' + d.time +
+            ' &middot; ' + confPct + '%</div>' +
+        '</div>' +
+        '<div class="audio-det-badges">' +
+          (confirms > 1 ? '<span class="audio-det-confirms">' + confirms + 'x</span>' : '') +
+          '<span class="audio-det-source">' + source + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.playAudioBrowser = function(clipName, btn) {
+    var audio = document.getElementById('audio-browser-player');
+    var url = '/api/birdnet-clip/' + clipName;
+
+    // Toggle off if same clip
+    if (_audioPlayerClip === clipName && !audio.paused) {
+      audio.pause(); audio.currentTime = 0;
+      _audioPlayerClip = null;
+      document.querySelectorAll('.audio-det-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+      return;
+    }
+
+    // Stop previous
+    document.querySelectorAll('.audio-det-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+
+    _audioPlayerClip = clipName;
+    audio.src = url;
+    audio.play().then(function() {
+      if (btn) btn.classList.add('playing');
+    }).catch(function(e) {
+      console.warn('[AudioBrowser] Playback failed:', e);
+    });
+
+    audio.onended = function() {
+      _audioPlayerClip = null;
+      document.querySelectorAll('.audio-det-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+    };
+  };
+
+  // Load audio detections when Audio tab is shown
+  var _audioTabLoaded = false;
+  var origTabClick = document.querySelectorAll('.tab-btn');
+  origTabClick.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (btn.dataset.tab === 'audio' && !_audioTabLoaded) {
+        _audioTabLoaded = true;
+        loadAudioDetections();
+      }
+    });
+  });
 
   // ── Activity Tab ──
   var _activityHourChart = null;

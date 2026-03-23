@@ -1191,6 +1191,80 @@ async def birdnet_events():
     )
 
 
+@app.get("/api/audio-detections")
+def audio_detections(date: str = None, species: str = None, source: str = None,
+                     limit: int = 50, offset: int = 0):
+    """Paginated audio detection list with clip paths for playback/verification.
+
+    Returns detections with source camera, confirmations count, and clip path.
+    Supports filtering by date, species, and source camera.
+    """
+    conn = _birdnet_db()
+    if not conn:
+        return {"detections": [], "total": 0}
+
+    where = []
+    params = []
+    if date:
+        where.append("date = ?")
+        params.append(date)
+    if species:
+        where.append("common_name = ?")
+        params.append(species)
+    if source:
+        where.append("source = ?")
+        params.append(source)
+
+    where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+    try:
+        cur = conn.cursor()
+
+        # Total count
+        cur.execute(f"SELECT COUNT(*) FROM notes {where_clause}", params)
+        total = cur.fetchone()[0]
+
+        # Paginated results — try new columns, fall back if they don't exist
+        try:
+            cur.execute(f"""
+                SELECT id, common_name, scientific_name, confidence,
+                       date, time, clip_name, source, confirmations
+                FROM notes {where_clause}
+                ORDER BY id DESC LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+            has_new_columns = True
+        except Exception:
+            cur.execute(f"""
+                SELECT id, common_name, scientific_name, confidence,
+                       date, time, clip_name
+                FROM notes {where_clause}
+                ORDER BY id DESC LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+            has_new_columns = False
+
+        detections = []
+        for row in cur.fetchall():
+            det = {
+                "id": row["id"],
+                "species": normalize_species(row["common_name"]),
+                "scientific_name": row["scientific_name"],
+                "confidence": round(row["confidence"], 3),
+                "date": row["date"],
+                "time": row["time"],
+                "clip_name": row["clip_name"] or "",
+            }
+            if has_new_columns:
+                det["source"] = row["source"] or "ground"
+                det["confirmations"] = row["confirmations"] or 1
+            detections.append(det)
+
+        return {"detections": detections, "total": total}
+
+    except Exception as exc:
+        logging.warning("[audio-detections] Query error: %s", exc)
+        return {"detections": [], "total": 0}
+
+
 @app.get("/api/birdnet-clip/{clip_path:path}")
 def birdnet_clip(clip_path: str):
     """Serve a BirdNET audio clip (WAV file)."""
