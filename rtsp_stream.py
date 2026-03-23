@@ -334,3 +334,90 @@ class RTSPStreamManager:
     def should_switch_to_primary(self):
         """Check if enough consecutive probes succeeded to switch back."""
         return self._recovery_successes >= RECOVERY_REQUIRED
+
+    # ── Connection ──
+
+    def connect(self):
+        """Open an RTSP audio stream using current escalation state.
+
+        Returns (container, audio_stream) on success.
+        Raises RuntimeError if no URL is available at current escalation level.
+        """
+        import av
+
+        url = self.get_next_url()
+        if url is None:
+            raise RuntimeError(
+                f"No RTSP URL available for {self._current_stream}/{self._current_quality}"
+            )
+
+        log.info("Connecting to %s/%s: %s",
+                 self._current_stream, self._current_quality, url)
+
+        container = av.open(url, options=PYAV_OPTIONS)
+
+        # Find best audio stream (prefer highest sample rate)
+        audio_stream = None
+        for s in container.streams:
+            if s.type == "audio":
+                if audio_stream is None or s.rate > audio_stream.rate:
+                    audio_stream = s
+
+        if audio_stream is None:
+            container.close()
+            raise RuntimeError("No audio stream found in RTSP feed")
+
+        log.info("Audio stream: %s %dHz %dch",
+                 audio_stream.codec_context.name,
+                 audio_stream.rate, audio_stream.channels)
+
+        return container, audio_stream
+
+    def probe_primary(self):
+        """Test if the preferred stream is reachable. Non-destructive.
+
+        Opens a short-lived connection, reads one frame, closes.
+        Returns True if successful, False otherwise.
+        """
+        import av
+
+        url = self._get_url(self.preferred_stream, "high")
+        if url is None:
+            self.record_probe_failure()
+            return False
+
+        try:
+            container = av.open(url, options={
+                "rtsp_transport": "tcp",
+                "stimeout": "5000000",
+                "timeout": "5000000",
+            })
+            audio_stream = None
+            for s in container.streams:
+                if s.type == "audio":
+                    audio_stream = s
+                    break
+            if audio_stream is None:
+                container.close()
+                self.record_probe_failure()
+                return False
+
+            for frame in container.decode(audio_stream):
+                break  # got one frame, enough
+            container.close()
+            self.record_probe_success()
+            return True
+
+        except Exception as e:
+            log.debug("Recovery probe failed: %s", e)
+            self.record_probe_failure()
+            return False
+
+    def wait_backoff(self, shutdown_event=None):
+        """Wait for the current backoff duration. Interruptible via shutdown_event."""
+        delay = self.get_backoff()
+        log.info("Waiting %ds before next attempt...", delay)
+        if shutdown_event:
+            shutdown_event.wait(delay)
+        else:
+            time.sleep(delay)
