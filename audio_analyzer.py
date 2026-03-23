@@ -76,6 +76,14 @@ CLIPS_DIR = Path(
 )
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
+# ── Multi-Camera Configuration ───────────────────────────────────────────
+CAMERAS = [
+    {"name": "ground", "preferred": "ground", "fallback": "magnolia"},
+    {"name": "magnolia", "preferred": "magnolia", "fallback": "ground"},
+]
+MULTI_CAMERA_ENABLED = os.environ.get("MULTI_CAMERA", "true").lower() in ("1", "true", "yes")
+CROSS_CAM_DEDUP_WINDOW = 10  # seconds — same species on 2 cams = multi_source
+
 # ── Nighttime Pause ──────────────────────────────────────────────────────
 # No birds call in the dark. Skip inference from sunset+30min to sunrise
 # to save CPU. Uses the same NOAA solar algorithm as classify.py.
@@ -157,6 +165,7 @@ log = logging.getLogger("audio_analyzer")
 
 # ── Globals ────────────────────────────────────────────────────────────────
 _shutdown = threading.Event()
+_inference_lock = threading.Lock()
 
 
 # ── Dynamic Threshold Manager ─────────────────────────────────────────────
@@ -285,6 +294,41 @@ def insert_detection(det, clip_name, source="ground", preprocessing="raw", confi
         _db_conn.commit()
 
 
+def check_cross_camera(species, source, detection_time):
+    """Check if same species was detected on a different camera within ±10s.
+    If so, mark both as multi_source."""
+    now = datetime.datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M:%S")
+    with _db_lock:
+        rows = _db_conn.execute(
+            """
+            SELECT id FROM notes
+            WHERE common_name = ? AND source != ? AND date = ?
+            AND ABS(
+                (CAST(SUBSTR(time,1,2) AS INTEGER)*3600 +
+                 CAST(SUBSTR(time,4,2) AS INTEGER)*60 +
+                 CAST(SUBSTR(time,7,2) AS INTEGER))
+                -
+                (CAST(SUBSTR(?,1,2) AS INTEGER)*3600 +
+                 CAST(SUBSTR(?,4,2) AS INTEGER)*60 +
+                 CAST(SUBSTR(?,7,2) AS INTEGER))
+            ) <= ?
+            """,
+            (species, source, date_str, time_str, time_str, time_str, CROSS_CAM_DEDUP_WINDOW),
+        ).fetchall()
+        if rows:
+            ids = [r[0] for r in rows]
+            placeholders = ",".join("?" * len(ids))
+            _db_conn.execute(
+                f"UPDATE notes SET multi_source = 1 WHERE id IN ({placeholders})",
+                ids,
+            )
+            _db_conn.commit()
+            return True
+    return False
+
+
 # ── Audio Clip Saving ──────────────────────────────────────────────────────
 def save_clip(raw_pcm, det):
     """Save a 3-second PCM chunk as a WAV file. Returns relative clip path."""
@@ -334,49 +378,11 @@ def cleanup_old_clips():
 
 
 # ── Main Analysis Loop ─────────────────────────────────────────────────────
-def run(test_mode=False):
-    """Main loop: pull audio, analyze, store results."""
-    # Import here to keep startup fast for --help etc.
-    from birdnetlib import Recording
-    from birdnetlib.analyzer import Analyzer
+def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
+                   range_filter, test_mode=False):
+    """Run analysis loop for a single camera."""
+    from birdnetlib import RecordingBuffer
 
-    log.info("Loading BirdNET model...")
-    t0 = time.time()
-    analyzer = Analyzer()
-    log.info("Model loaded in %.1fs", time.time() - t0)
-
-    init_db()
-    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Load range filter for geographic/habitat validation
-    range_filter = None
-    try:
-        from range_filter import RangeFilter
-        range_filter = RangeFilter()
-        log.info("Range filter loaded (%d species)", len(range_filter.species_db))
-    except Exception as e:
-        log.warning("Range filter unavailable: %s", e)
-
-    # JIT warmup: run one dummy inference to compile numba kernels
-    log.info("Warming up inference engine...")
-    dummy = np.zeros(SAMPLE_RATE * CHUNK_SECONDS, dtype=np.float32)
-    try:
-        from birdnetlib import RecordingBuffer
-        with contextlib.redirect_stdout(io.StringIO()):
-            warmup = RecordingBuffer(
-                analyzer, dummy, SAMPLE_RATE,
-                lat=LAT, lon=LON, min_conf=0.99,
-            )
-            warmup.analyze()
-    except Exception:
-        pass
-    log.info("Warmup complete — ready for real-time analysis")
-
-    # Schedule daily clip cleanup
-    last_cleanup = 0
-
-    total_detections = 0
-    chunks_processed = 0
     dyn_thresh = DynamicThreshold() if DYNAMIC_THRESHOLD_ENABLED else None
     confirmer = OverlapConfirmation(
         flush_window=OVERLAP_FLUSH_WINDOW,
@@ -384,20 +390,24 @@ def run(test_mode=False):
     ) if OVERLAP_CONFIRMATION_ENABLED else None
 
     stream_mgr = RTSPStreamManager(
-        service_name="analyzer",
-        preferred_stream="ground",
-        fallback_stream="birds",
+        service_name=f"analyzer-{camera_name}",
+        preferred_stream=preferred_stream,
+        fallback_stream=fallback_stream,
     )
+
+    total_detections = 0
+    chunks_processed = 0
+    last_cleanup = 0
 
     while not _shutdown.is_set():
         # Sleep during nighttime — no birds calling, save CPU
         if is_nighttime():
-            log.info("Nighttime — pausing analysis until sunrise")
+            log.info("[%s] Nighttime — pausing analysis until sunrise", camera_name)
             while is_nighttime() and not _shutdown.is_set():
                 _shutdown.wait(60)  # check every minute
             if _shutdown.is_set():
                 break
-            log.info("Sunrise — resuming analysis")
+            log.info("[%s] Sunrise — resuming analysis", camera_name)
 
         container = None
         try:
@@ -455,19 +465,20 @@ def run(test_mode=False):
                         inference_result = [False]
 
                         def _run_inference():
-                            with contextlib.redirect_stdout(io.StringIO()):
-                                recording.analyze()
+                            with _inference_lock:
+                                with contextlib.redirect_stdout(io.StringIO()):
+                                    recording.analyze()
                             inference_result[0] = True
 
                         t_inf = threading.Thread(target=_run_inference, daemon=True)
                         t_inf.start()
                         t_inf.join(timeout=30)  # 30s max for inference
                         if not inference_result[0]:
-                            log.error("Inference timed out (30s), skipping chunk")
+                            log.error("[%s] Inference timed out (30s), skipping chunk", camera_name)
                             _metrics.counter("inference_timeouts").inc()
                             continue
                     except Exception as e:
-                        log.error("Inference error: %s", e)
+                        log.error("[%s] Inference error: %s", camera_name, e)
                         _metrics.counter("inference_errors").inc()
                         continue
 
@@ -514,8 +525,8 @@ def run(test_mode=False):
                             if not validation["valid"]:
                                 _metrics.counter("rejected_range").inc()
                                 log.info(
-                                    "Range filter rejected: %s (%.0f%%) — %s",
-                                    species, conf * 100, validation["reason"],
+                                    "[%s] Range filter rejected: %s (%.0f%%) — %s",
+                                    camera_name, species, conf * 100, validation["reason"],
                                 )
                                 continue
 
@@ -535,21 +546,26 @@ def run(test_mode=False):
                         try:
                             clip_name = save_clip(clip_raw, det)
                         except Exception as e:
-                            log.warning("Failed to save clip: %s", e)
+                            log.warning("[%s] Failed to save clip: %s", camera_name, e)
                             clip_name = ""
                         t_db = time.monotonic()
-                        insert_detection(det, clip_name)
+                        insert_detection(det, clip_name, source=camera_name)
                         _metrics.histogram("db_write_ms").record((time.monotonic() - t_db) * 1000)
                         _metrics.counter("accepted").inc()
                         _metrics.histogram("accepted_confidence").record(conf)
                         total_detections += 1
                         log.info(
-                            "Detection #%d: %s (%.0f%%) — %s",
-                            total_detections,
+                            "[%s] Detection #%d: %s (%.0f%%) — %s",
+                            camera_name, total_detections,
                             species,
                             conf * 100,
                             clip_name,
                         )
+
+                        if MULTI_CAMERA_ENABLED:
+                            if check_cross_camera(species, camera_name, None):
+                                log.info("[%s] Multi-source confirmation: %s also on another camera",
+                                         camera_name, species)
 
                     # Flush confirmed detections from overlap confirmation
                     if confirmer:
@@ -566,8 +582,8 @@ def run(test_mode=False):
                                 )
                                 if not validation["valid"]:
                                     _metrics.counter("rejected_range").inc()
-                                    log.info("Range filter rejected: %s (%.0f%%) — %s",
-                                             species, conf * 100, validation["reason"])
+                                    log.info("[%s] Range filter rejected: %s (%.0f%%) — %s",
+                                             camera_name, species, conf * 100, validation["reason"])
                                     continue
 
                             if dyn_thresh:
@@ -584,18 +600,24 @@ def run(test_mode=False):
                             try:
                                 clip_name = save_clip(clip_raw, confirmed_det)
                             except Exception as e:
-                                log.warning("Failed to save clip: %s", e)
+                                log.warning("[%s] Failed to save clip: %s", camera_name, e)
                                 clip_name = ""
                             insert_detection(confirmed_det, clip_name,
-                                             source="ground", confirmations=confirmations)
+                                             source=camera_name, confirmations=confirmations)
                             _metrics.counter("accepted").inc()
                             total_detections += 1
-                            log.info("Detection #%d: %s (%.0f%%, %d confirms) — %s",
-                                     total_detections, species, conf * 100,
+                            log.info("[%s] Detection #%d: %s (%.0f%%, %d confirms) — %s",
+                                     camera_name, total_detections, species, conf * 100,
                                      confirmations, clip_name)
 
+                            if MULTI_CAMERA_ENABLED:
+                                if check_cross_camera(species, camera_name, None):
+                                    log.info("[%s] Multi-source confirmation: %s also on another camera",
+                                             camera_name, species)
+
                     if test_mode:
-                        log.info("Test mode: processed 1 analysis window, exiting")
+                        log.info("[%s] Test mode: processed 1 analysis window, exiting",
+                                 camera_name)
                         container.close()
                         return
 
@@ -608,22 +630,23 @@ def run(test_mode=False):
                     # Log progress periodically
                     if chunks_processed % 100 == 0:
                         log.info(
-                            "Processed %d windows, %d total detections",
-                            chunks_processed, total_detections,
+                            "[%s] Processed %d windows, %d total detections",
+                            camera_name, chunks_processed, total_detections,
                         )
 
                 # Recovery probes while on fallback
                 if stream_mgr.should_probe():
                     if stream_mgr.probe_primary():
                         if stream_mgr.should_switch_to_primary():
-                            log.info("Primary stream recovered, switching back")
+                            log.info("[%s] Primary stream recovered, switching back",
+                                     camera_name)
                             stream_mgr.switch_to_primary()
                             break  # exit decode loop to reconnect on primary
 
-            log.warning("RTSP stream ended")
+            log.warning("[%s] RTSP stream ended", camera_name)
 
         except Exception as e:
-            log.error("Stream error: %s", e)
+            log.error("[%s] Stream error: %s", camera_name, e)
             stream_mgr.report_failure(e)
         finally:
             if container:
@@ -634,6 +657,67 @@ def run(test_mode=False):
 
         if not _shutdown.is_set():
             stream_mgr.wait_backoff(_shutdown)
+
+
+def run(test_mode=False):
+    """Load model, init DB, then run analysis on one or more cameras."""
+    from birdnetlib import RecordingBuffer
+    from birdnetlib.analyzer import Analyzer
+
+    log.info("Loading BirdNET model...")
+    t0 = time.time()
+    analyzer = Analyzer()
+    log.info("Model loaded in %.1fs", time.time() - t0)
+
+    init_db()
+    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load range filter for geographic/habitat validation
+    range_filter = None
+    try:
+        from range_filter import RangeFilter
+        range_filter = RangeFilter()
+        log.info("Range filter loaded (%d species)", len(range_filter.species_db))
+    except Exception as e:
+        log.warning("Range filter unavailable: %s", e)
+
+    # JIT warmup: run one dummy inference to compile numba kernels
+    log.info("Warming up inference engine...")
+    dummy = np.zeros(SAMPLE_RATE * CHUNK_SECONDS, dtype=np.float32)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            warmup = RecordingBuffer(
+                analyzer, dummy, SAMPLE_RATE,
+                lat=LAT, lon=LON, min_conf=0.99,
+            )
+            warmup.analyze()
+    except Exception:
+        pass
+    log.info("Warmup complete — ready for real-time analysis")
+
+    if MULTI_CAMERA_ENABLED and not test_mode:
+        threads = []
+        for cam in CAMERAS:
+            t = threading.Thread(
+                target=analyze_camera,
+                args=(analyzer, cam["name"], cam["preferred"], cam["fallback"],
+                      range_filter, False),
+                daemon=True,
+                name=f"audio-{cam['name']}",
+            )
+            t.start()
+            threads.append(t)
+            log.info("Started analysis thread for camera: %s", cam["name"])
+
+        # Wait for shutdown
+        while not _shutdown.is_set():
+            _shutdown.wait(1)
+        # Wait for threads to finish
+        for t in threads:
+            t.join(timeout=10)
+    else:
+        analyze_camera(analyzer, "ground", "ground", "magnolia",
+                       range_filter, test_mode)
 
 
 # ── Metrics HTTP Server ───────────────────────────────────────────────────
@@ -696,6 +780,10 @@ def main():
         log.info("  Overlap confirmation: %ds window, %d min confirmations",
                  OVERLAP_FLUSH_WINDOW, OVERLAP_MIN_CONFIRMATIONS)
     log.info("  Noise reduction: %s", "ON (bandpass + noisereduce + RMS match)" if NOISE_REDUCE_ENABLED else "bandpass only")
+    if MULTI_CAMERA_ENABLED:
+        log.info("  Multi-camera: %s", ", ".join(c["name"] for c in CAMERAS))
+    else:
+        log.info("  Single camera: ground")
     log.info("  DB: %s", DB_PATH)
     log.info("  Clips: %s", CLIPS_DIR)
 
