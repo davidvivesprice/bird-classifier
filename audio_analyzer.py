@@ -31,6 +31,7 @@ import numpy as np
 from scipy.signal import butter, sosfilt
 
 from metrics import MetricsRegistry
+from overlap_confirmation import OverlapConfirmation
 from rtsp_stream import RTSPStreamManager
 _metrics = MetricsRegistry()
 
@@ -44,30 +45,22 @@ CHANNELS = 1
 CHUNK_SECONDS = 3
 CHUNK_BYTES = SAMPLE_RATE * 2 * CHANNELS * CHUNK_SECONDS  # 288,000 bytes
 
-# BirdNET-Go uses overlap=2.0 (slide 1.0s per step = 3 analysis windows per second)
-# We feed 6s buffers with overlap=2.0 → birdnetlib creates windows at 0, 1, 1.5, 3s
-OVERLAP = 2.0          # 2.0s overlap within 3s window → slide by 1.0s
-ANALYSIS_SECONDS = 6   # feed 6 seconds at a time → ~4 overlapping windows
+ANALYSIS_SECONDS = 3   # feed 3 seconds at a time (single BirdNET window)
 ANALYSIS_BYTES = SAMPLE_RATE * 2 * CHANNELS * ANALYSIS_SECONDS
-# Advance the buffer by (ANALYSIS_SECONDS - step) to maintain continuity
-# With 6s buffer and 1s step, we advance by ~3s to avoid re-analyzing old audio
-ADVANCE_SECONDS = 3
+ADVANCE_SECONDS = 1    # slide by 1 second (2s overlap between consecutive chunks)
 ADVANCE_BYTES = SAMPLE_RATE * 2 * CHANNELS * ADVANCE_SECONDS
 
 # ── Dynamic Thresholding (from BirdNET-Go) ────────────────────────────────
 # When a species is detected at high confidence, lower the threshold for it
 DYNAMIC_THRESHOLD_ENABLED = True
 DYNAMIC_THRESHOLD_TRIGGER = 0.80   # confidence that triggers threshold lowering
-DYNAMIC_THRESHOLD_MIN = 0.25       # lowest a dynamic threshold can go (BirdNET-Go uses 0.20)
+DYNAMIC_THRESHOLD_MIN = 0.20       # lowest a dynamic threshold can go
 DYNAMIC_THRESHOLD_HOURS = 24       # how long lowered thresholds last
 
-# ── Deep Detection (from BirdNET-Go) ─────────────────────────────────────
-# Require multiple detections of same species within a time window
-DEEP_DETECTION_ENABLED = True
-DEEP_DETECTION_WINDOW = 15.0    # seconds to accumulate detections
-DEEP_DETECTION_MIN_HITS = 2     # minimum detections required to confirm
-DEEP_DETECTION_INSTANT = 0.65   # single detection above this = instant accept (was 0.90)
-DEEP_DETECTION_COOLDOWN = 10.0  # seconds after accept before re-accepting same species
+# ── Overlap Confirmation ─────────────────────────────────────────────────
+OVERLAP_CONFIRMATION_ENABLED = True
+OVERLAP_FLUSH_WINDOW = 6.0     # seconds to accumulate before deciding
+OVERLAP_MIN_CONFIRMATIONS = 2  # overlapping windows needed to accept (level 1)
 
 DB_PATH = Path(
     os.environ.get(
@@ -220,75 +213,6 @@ class DynamicThreshold:
         return confidence >= threshold
 
 
-# ── Deep Detection Accumulator ───────────────────────────────────────────
-class DetectionAccumulator:
-    """Require multiple detections before confirming a species.
-
-    Mirrors BirdNET-Go's deep detection: species must be detected
-    MIN_HITS times within WINDOW_SECONDS to be accepted. Single
-    detections above INSTANT_THRESHOLD are accepted immediately.
-    """
-
-    def __init__(self, window=DEEP_DETECTION_WINDOW,
-                 min_hits=DEEP_DETECTION_MIN_HITS,
-                 instant_thresh=DEEP_DETECTION_INSTANT,
-                 cooldown=DEEP_DETECTION_COOLDOWN):
-        self._window = window
-        self._min_hits = min_hits
-        self._instant = instant_thresh
-        self._cooldown = cooldown
-        self._pending = {}    # species -> [(timestamp, confidence, det_dict), ...]
-        self._cooldowns = {}  # species -> last_emit_timestamp
-
-    def _prune(self, species, now):
-        """Remove entries older than the detection window."""
-        if species in self._pending:
-            cutoff = now - self._window
-            self._pending[species] = [
-                (t, c, d) for t, c, d in self._pending[species] if t >= cutoff
-            ]
-            if not self._pending[species]:
-                del self._pending[species]
-
-    def add(self, species, confidence, det_dict, now=None):
-        """Add a detection candidate. Returns (accepted, best_det) or (False, None).
-
-        When accepted, returns the highest-confidence detection from the window.
-        """
-        if now is None:
-            now = time.time()
-
-        # Check cooldown — don't re-accept too quickly
-        last_emit = self._cooldowns.get(species, 0)
-        if now - last_emit < self._cooldown:
-            return False, None
-
-        # Instant accept for very high confidence
-        if confidence >= self._instant:
-            self._cooldowns[species] = now
-            self._pending.pop(species, None)
-            return True, det_dict
-
-        # Add to pending
-        if species not in self._pending:
-            self._pending[species] = []
-        self._pending[species].append((now, confidence, det_dict))
-
-        # Prune old entries
-        self._prune(species, now)
-
-        # Check if we have enough hits
-        entries = self._pending.get(species, [])
-        if len(entries) >= self._min_hits:
-            # Accept with the highest-confidence detection
-            best = max(entries, key=lambda x: x[1])
-            self._cooldowns[species] = now
-            del self._pending[species]
-            return True, best[2]
-
-        return False, None
-
-
 # ── Database ───────────────────────────────────────────────────────────────
 _db_conn = None
 _db_lock = threading.Lock()
@@ -316,18 +240,33 @@ def init_db():
         """
     )
     _db_conn.commit()
+
+    # Add columns for multi-camera and A/B testing (idempotent)
+    for col_sql in [
+        "ALTER TABLE notes ADD COLUMN source TEXT DEFAULT 'ground'",
+        "ALTER TABLE notes ADD COLUMN multi_source INTEGER DEFAULT 0",
+        "ALTER TABLE notes ADD COLUMN preprocessing TEXT DEFAULT 'raw'",
+        "ALTER TABLE notes ADD COLUMN confirmations INTEGER DEFAULT 1",
+    ]:
+        try:
+            _db_conn.execute(col_sql)
+        except sqlite3.OperationalError:
+            pass  # column already exists
+    _db_conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_source ON notes(source)")
+
     log.info("Database ready: %s", DB_PATH)
 
 
-def insert_detection(det, clip_name, source="ground"):
+def insert_detection(det, clip_name, source="ground", preprocessing="raw", confirmations=1):
     """Insert a detection row into the database."""
     now = datetime.datetime.now()
     with _db_lock:
         _db_conn.execute(
             """
             INSERT INTO notes (source_node, date, time, common_name,
-                               scientific_name, confidence, clip_name, input_file)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                               scientific_name, confidence, clip_name, input_file,
+                               source, preprocessing, confirmations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 source,
@@ -337,7 +276,10 @@ def insert_detection(det, clip_name, source="ground"):
                 det["scientific_name"],
                 round(det["confidence"], 3),
                 clip_name,
-                "",  # input_file — RTSP URL no longer stored (managed by rtsp_stream.py)
+                "",
+                source,
+                preprocessing,
+                confirmations,
             ),
         )
         _db_conn.commit()
@@ -436,7 +378,10 @@ def run(test_mode=False):
     total_detections = 0
     chunks_processed = 0
     dyn_thresh = DynamicThreshold() if DYNAMIC_THRESHOLD_ENABLED else None
-    accumulator = DetectionAccumulator() if DEEP_DETECTION_ENABLED else None
+    confirmer = OverlapConfirmation(
+        flush_window=OVERLAP_FLUSH_WINDOW,
+        min_confirmations=OVERLAP_MIN_CONFIRMATIONS,
+    ) if OVERLAP_CONFIRMATION_ENABLED else None
 
     stream_mgr = RTSPStreamManager(
         service_name="analyzer",
@@ -504,8 +449,8 @@ def run(test_mode=False):
                             analyzer, audio, SAMPLE_RATE,
                             lat=LAT, lon=LON,
                             date=datetime.datetime.now(),
-                            min_conf=0.25,  # pre-filter low to feed accumulator
-                            overlap=OVERLAP,
+                            min_conf=0.25,  # pre-filter low to feed confirmer
+                            overlap=0.0,  # no internal overlap — we handle it via sliding window
                         )
                         inference_result = [False]
 
@@ -555,16 +500,10 @@ def run(test_mode=False):
                         species = det["common_name"]
                         conf = det["confidence"]
 
-                        # Deep detection: accumulate hits, require multiple before confirming
-                        if accumulator:
-                            accepted, best_det = accumulator.add(
-                                species, conf, det, now_time
-                            )
-                            if not accepted:
-                                _metrics.counter("rejected_accumulator").inc()
-                                continue
-                            det = best_det
-                            conf = det["confidence"]
+                        # Overlap confirmation — add to pending, don't process directly
+                        if confirmer:
+                            confirmer.add(species, conf, det, now_time)
+                            continue  # processing happens in flush below
 
                         # Range filter: reject impossible species for this location/habitat
                         if range_filter:
@@ -604,21 +543,56 @@ def run(test_mode=False):
                         _metrics.counter("accepted").inc()
                         _metrics.histogram("accepted_confidence").record(conf)
                         total_detections += 1
-                        extra = ""
-                        if dyn_thresh:
-                            t = dyn_thresh.get_threshold(species)
-                            if t < MIN_CONFIDENCE:
-                                extra += f" [thresh={t:.0%}]"
-                        if accumulator:
-                            extra += " [deep]"
                         log.info(
-                            "Detection #%d: %s (%.0f%%)%s — %s",
+                            "Detection #%d: %s (%.0f%%) — %s",
                             total_detections,
                             species,
                             conf * 100,
-                            extra,
                             clip_name,
                         )
+
+                    # Flush confirmed detections from overlap confirmation
+                    if confirmer:
+                        for confirmed_det in confirmer.flush(now_time):
+                            species = confirmed_det["common_name"]
+                            conf = confirmed_det["confidence"]
+                            confirmations = confirmed_det.get("confirmations", 1)
+
+                            # Range filter
+                            if range_filter:
+                                validation = range_filter.is_species_valid_at_location(
+                                    species, confidence=conf,
+                                    date=datetime.datetime.now()
+                                )
+                                if not validation["valid"]:
+                                    _metrics.counter("rejected_range").inc()
+                                    log.info("Range filter rejected: %s (%.0f%%) — %s",
+                                             species, conf * 100, validation["reason"])
+                                    continue
+
+                            if dyn_thresh:
+                                dyn_thresh.record_detection(species, conf)
+
+                            start_sec = confirmed_det.get("start_time", 0)
+                            clip_start = int(start_sec * SAMPLE_RATE * 2)
+                            clip_end = clip_start + CHUNK_BYTES
+                            if clip_end > len(raw):
+                                clip_start = max(0, len(raw) - CHUNK_BYTES)
+                                clip_end = len(raw)
+                            clip_raw = raw[clip_start:clip_end]
+
+                            try:
+                                clip_name = save_clip(clip_raw, confirmed_det)
+                            except Exception as e:
+                                log.warning("Failed to save clip: %s", e)
+                                clip_name = ""
+                            insert_detection(confirmed_det, clip_name,
+                                             source="ground", confirmations=confirmations)
+                            _metrics.counter("accepted").inc()
+                            total_detections += 1
+                            log.info("Detection #%d: %s (%.0f%%, %d confirms) — %s",
+                                     total_detections, species, conf * 100,
+                                     confirmations, clip_name)
 
                     if test_mode:
                         log.info("Test mode: processed 1 analysis window, exiting")
@@ -718,7 +692,9 @@ def main():
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)
-    log.info("  Deep detection instant: %.0f%%", DEEP_DETECTION_INSTANT * 100)
+    if OVERLAP_CONFIRMATION_ENABLED:
+        log.info("  Overlap confirmation: %ds window, %d min confirmations",
+                 OVERLAP_FLUSH_WINDOW, OVERLAP_MIN_CONFIRMATIONS)
     log.info("  Noise reduction: %s", "ON (bandpass + noisereduce + RMS match)" if NOISE_REDUCE_ENABLED else "bandpass only")
     log.info("  DB: %s", DB_PATH)
     log.info("  Clips: %s", CLIPS_DIR)
