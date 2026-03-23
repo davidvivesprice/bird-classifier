@@ -462,6 +462,21 @@
   .chart-container { padding: 16px; }
   .chart-canvas-wrap { position: relative; min-height: 300px; }
 
+  /* Activity tab grid */
+  .activity-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 12px 0;
+  }
+
+  /* System metrics grid */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
   /* Row 3: Species Grid */
   .species-grid {
     display: grid;
@@ -1286,25 +1301,121 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
   /* Responsive */
+  /* ── Responsive: Tablet (<=1024px) ── */
   @media (max-width: 1024px) {
     .row-live { grid-template-columns: 1fr; }
+    /* Reorder: Live (1), Recent (2), Yard (3) on mobile */
+    .row-live-recent { order: 2; }
+    .row-live-yard { order: 3; }
     .recent-list { max-height: 300px; }
     .yard-list { max-height: 300px; }
     .species-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   }
 
-  @media (max-width: 640px) {
-    .topbar { padding: 10px 14px; }
-    .topbar-title { font-size: 1.1rem; }
-    .topbar-stats { gap: 10px; font-size: 0.78rem; }
-    .main { padding: 14px; }
-    .species-grid { grid-template-columns: 1fr; }
-    .review-actions { flex-direction: column; }
-    .review-btn { justify-content: center; }
-    .tab-btn { padding: 7px 12px; font-size: 0.82rem; }
-    .lightbox-body { padding: 12px; }
-    .lightbox-img { max-height: 60vh; }
+  /* ── Responsive: Large phone / small tablet (<=768px) ── */
+  @media (max-width: 768px) {
+    .main { padding: 14px 16px; }
+    .row-live { gap: 12px; margin-bottom: 16px; }
+    .activity-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .panel-header { padding: 10px 14px; font-size: 0.88rem; }
+    .row-chart { margin-bottom: 16px; }
+    .chart-container { padding: 10px; }
+    .chart-canvas-wrap { min-height: 220px; }
+    .status-dropdown { min-width: auto; width: calc(100vw - 32px); right: 16px; max-width: 400px; }
+    .sp-overlay { padding: 10px; }
+    .sp-popup { max-width: 100%; max-height: 100vh; border-radius: 0; }
+    .sp-header { padding: 14px 16px 10px; }
+    .sp-name { font-size: 1.2rem; }
+    .sp-body { padding: 0 16px 16px; }
+    .sp-content { flex-direction: column; gap: 12px; }
+    .sp-photo-wrap { width: 100%; max-width: 280px; margin: 0 auto; }
+    .review-btn { padding: 10px 20px; font-size: 0.9rem; }
+    .review-modal-content { margin: 10px; border-radius: 8px; }
+    .review-modal-body { padding: 14px; }
   }
+
+  /* ── Responsive: Phone (<=640px) ── */
+  @media (max-width: 640px) {
+    .topbar { padding: 8px 12px; gap: 8px; }
+    .topbar-title { font-size: 1rem; }
+    .topbar-stats { gap: 6px; font-size: 0.75rem; }
+    .topbar-stats .stat-value { font-size: 1rem; }
+    .main { padding: 10px 12px; }
+    .tab-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab-btn { padding: 7px 12px; font-size: 0.82rem; white-space: nowrap; flex-shrink: 0; }
+    .row-live { gap: 10px; margin-bottom: 12px; }
+    .panel-header { padding: 8px 12px; font-size: 0.85rem; }
+    .species-grid { grid-template-columns: 1fr; gap: 10px; }
+    .species-card { padding: 12px; }
+    .recent-item { padding: 8px 10px; gap: 8px; }
+    .recent-thumb { width: 40px; height: 40px; }
+    .recent-species { font-size: 0.85rem; }
+    .recent-meta { font-size: 0.72rem; }
+    .yard-item { padding: 8px 10px; gap: 8px; }
+    .yard-thumb { width: 36px; height: 36px; }
+    .yard-play-btn { width: 32px; height: 32px; font-size: 0.75rem; }
+    .confidence-badge { font-size: 0.65rem; padding: 2px 6px; }
+    .review-actions { flex-direction: column; }
+    .review-btn { justify-content: center; padding: 10px 16px; }
+    .lightbox { border-radius: 0; max-height: 100vh; }
+    .lightbox-body { padding: 8px; }
+    .lightbox-img { max-height: 55vh; }
+    .review-modal-content { margin: 0; border-radius: 0; min-height: 100vh; }
+    .review-modal-header { padding: 12px 14px; }
+    .review-modal-body { padding: 12px; }
+    .sp-popup { border-radius: 0; max-height: 100vh; }
+    .sp-header { padding: 12px 14px 8px; }
+    .sp-name { font-size: 1.1rem; }
+    .sp-sci { font-size: 0.82rem; }
+    .sp-body { padding: 0 14px 14px; }
+    .sp-audio-row { flex-direction: column; gap: 4px; }
+    .sp-audio-row audio { width: 100%; }
+    /* Audio browser tab */
+    .audio-filters { flex-direction: column; gap: 6px; }
+    .audio-filters select { width: 100%; }
+    .audio-det-item { padding: 8px 10px; gap: 8px; }
+    .audio-det-play { width: 32px; height: 32px; font-size: 14px; }
+    .audio-det-species { font-size: 0.88rem; }
+    .audio-det-meta { font-size: 0.75rem; }
+    /* Status dropdown */
+    .status-dropdown { min-width: auto; width: calc(100vw - 24px); right: 12px; font-size: 0.8rem; }
+    .status-row-name { min-width: 80px; font-size: 0.8rem; }
+    .status-row-detail { font-size: 0.72rem; }
+    /* Audio health warning banner */
+    .audio-warning { font-size: 12px; padding: 6px 12px; }
+  }
+
+  /* ── Responsive: Small phone (<=480px) ── */
+  @media (max-width: 480px) {
+    .topbar-title { font-size: 0.92rem; }
+    .topbar-stats { display: none; }
+    .metrics-grid { grid-template-columns: 1fr; }
+    .main { padding: 8px 10px; }
+    .species-grid { gap: 8px; }
+    .species-card .card-header { font-size: 0.85rem; }
+    .chart-canvas-wrap { min-height: 180px; }
+    .recent-list { max-height: 240px; }
+    .yard-list { max-height: 240px; }
+    .sp-name { font-size: 1rem; }
+    .review-btn { font-size: 0.85rem; padding: 8px 14px; }
+  }
+
+  /* ── Review Modal ── */
+  .review-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); z-index: 1000; overflow-y: auto;
+  }
+  .review-modal-content {
+    max-width: 900px; margin: 40px auto;
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .review-modal-header {
+    background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+    padding: 16px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .review-modal-body { padding: 20px; }
 
   /* ── Species link (clickable bird names) ── */
   .species-link {
@@ -1910,13 +2021,13 @@
           </div>
         </div>
       </div>
-      <div class="panel">
+      <div class="panel row-live-yard" id="yard-panel">
         <div class="panel-header"><span class="icon">&#x1F3A4;</span> In the Yard <span class="sse-status" id="sse-dot" title="Connecting…">●</span></div>
         <div class="yard-list" id="yard-list">
           <div class="yard-empty">Listening for birds…</div>
         </div>
       </div>
-      <div class="panel">
+      <div class="panel row-live-recent">
         <div class="panel-header"><span class="icon">&#x1F424;</span> Recent Sightings</div>
         <div class="recent-list" id="recent-list">
           <div class="loading-msg">Loading recent sightings...</div>
@@ -2136,13 +2247,13 @@
 </div>
 
 <!-- Species Review Modal -->
-<div id="species-review-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;overflow-y:auto;" onclick="if(event.target===this)closeSpeciesReviewModal()">
-  <div style="max-width:900px;margin:40px auto;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;">
-    <div style="background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px;display:flex;justify-content:space-between;align-items:center;">
+<div id="species-review-modal" class="review-modal-overlay" style="display:none;" onclick="if(event.target===this)closeSpeciesReviewModal()">
+  <div class="review-modal-content">
+    <div class="review-modal-header">
       <div id="modal-species-name" style="font-size:1.2rem;font-weight:600;color:var(--text-primary);"></div>
       <button onclick="closeSpeciesReviewModal()" style="background:none;border:none;color:var(--text-muted);font-size:1.5rem;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <div id="modal-review-content" style="padding:20px;"></div>
+    <div id="modal-review-content" class="review-modal-body"></div>
   </div>
 </div>
 
@@ -2166,7 +2277,7 @@
 </div>
 
 <div class="tab-content" id="tab-activity">
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:12px 0;">
+  <div class="activity-grid">
     <!-- Left: Species Search + Activity -->
     <div class="panel" style="padding:16px;">
       <h3 style="margin:0 0 12px">Species Activity</h3>
@@ -2208,7 +2319,7 @@
   <!-- Metrics Section -->
   <div class="panel" style="padding:16px; margin-top:0;">
     <h3 style="margin:0 0 12px">System Metrics</h3>
-    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;" id="metrics-cards">
+    <div class="metrics-grid" id="metrics-cards">
       <div class="panel" style="padding:12px; text-align:center;">
         <div style="font-size:24px; font-weight:bold;" id="metric-cost">—</div>
         <div style="font-size:11px; opacity:0.6;">CPU-sec / detection</div>
