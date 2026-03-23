@@ -25,17 +25,10 @@ import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
 
 from metrics import MetricsRegistry
+from rtsp_stream import RTSPStreamManager
 _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
-_RTSP_URL_FALLBACK = os.environ.get(
-    "RTSP_URL",
-    "rtsp://192.168.4.9:7447/VaeaRCXUbGgJsYSA",
-)
-RTSP_URLS_FILE = os.environ.get(
-    "RTSP_URLS_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "rtsp_urls.json"),
-)
 SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK_SECONDS = 1.0
@@ -46,10 +39,6 @@ MP3_BITRATE = "192k"
 
 # Ring buffer: holds processed PCM chunks for clients to read
 RING_SIZE = 30  # ~30 seconds of audio
-
-# Reconnection backoff
-RECONNECT_BASE = 3
-RECONNECT_MAX = 30
 
 # ── Audio preprocessing ───────────────────────────────────────────────────
 # Simple bandpass filter — removes wind/traffic rumble (<300Hz) and
@@ -69,21 +58,6 @@ logging.basicConfig(
 log = logging.getLogger("enhanced_audio")
 
 
-def _get_rtsp_url(stream_name="birds"):
-    """Read current RTSP URL from local rtsp_urls.json, fall back to env var."""
-    try:
-        import json
-        with open(RTSP_URLS_FILE) as f:
-            data = json.load(f)
-            url = data.get("streams", {}).get(stream_name)
-            if url:
-                log.info("Using RTSP URL from %s: %s", RTSP_URLS_FILE, url)
-                return url
-    except Exception as e:
-        log.warning("Could not read RTSP URL from %s: %s", RTSP_URLS_FILE, e)
-    return _RTSP_URL_FALLBACK
-
-
 # ── Globals ────────────────────────────────────────────────────────────────
 _shutdown = threading.Event()
 
@@ -99,31 +73,17 @@ def _rtsp_reader():
     """Background thread: decode RTSP audio, apply bandpass, push to ring buffer."""
     global _ring_seq
 
-    reconnect_delay = RECONNECT_BASE
+    stream_mgr = RTSPStreamManager(
+        service_name="enhanced",
+        preferred_stream="birds",
+        fallback_stream="ground",
+    )
 
     while not _shutdown.is_set():
         container = None
-        rtsp_url = _get_rtsp_url("birds")
         try:
-            log.info("Opening RTSP stream: %s", rtsp_url)
-            container = av.open(rtsp_url, options={
-                "rtsp_transport": "tcp",
-                "stimeout": "5000000",
-            })
-            audio_stream = None
-            for s in container.streams:
-                if s.type == "audio":
-                    audio_stream = s
-                    break
-
-            if not audio_stream:
-                log.error("No audio stream found in RTSP")
-                continue
-
-            log.info("Audio stream: %s %dHz %dch",
-                     audio_stream.codec_context.name,
-                     audio_stream.codec_context.sample_rate,
-                     audio_stream.codec_context.channels)
+            container, audio_stream = stream_mgr.connect()
+            stream_mgr.report_success()
 
             resampler = av.AudioResampler(
                 format="s16", layout="mono", rate=SAMPLE_RATE
@@ -136,9 +96,6 @@ def _rtsp_reader():
 
             # Initialize bandpass filter state for seamless chunk boundaries
             zi = sosfilt_zi(_bandpass_sos)
-
-            # Reset backoff on successful connection
-            reconnect_delay = RECONNECT_BASE
 
             for packet in container.demux(audio_stream):
                 if _shutdown.is_set():
@@ -187,8 +144,10 @@ def _rtsp_reader():
 
         except av.error.ExitError:
             log.warning("RTSP stream ended")
+            stream_mgr.report_failure(Exception("Stream ended"))
         except Exception as e:
             log.error("RTSP error: %s", e)
+            stream_mgr.report_failure(e)
         finally:
             if container:
                 try:
@@ -198,9 +157,7 @@ def _rtsp_reader():
 
         if not _shutdown.is_set():
             _metrics.counter("reconnects").inc()
-            log.info("Reconnecting in %ds...", reconnect_delay)
-            _shutdown.wait(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
+            stream_mgr.wait_backoff(_shutdown)
 
 
 class StreamHandler(BaseHTTPRequestHandler):
@@ -356,7 +313,7 @@ class ThreadedHTTPServer(HTTPServer):
 
 def main():
     log.info("Enhanced audio stream server starting on port %d", HTTP_PORT)
-    log.info("  RTSP: %s (dynamic, fallback: %s)", _get_rtsp_url("birds"), _RTSP_URL_FALLBACK)
+    log.info("  RTSP: managed (preferred=birds, fallback=ground)")
     log.info("  MP3 bitrate: %s", MP3_BITRATE)
     log.info("  Filter: bandpass %d-%d Hz", BANDPASS_LOW, BANDPASS_HIGH)
     log.info("  Chunk: %.1fs, Ring: %d chunks", CHUNK_SECONDS, RING_SIZE)
