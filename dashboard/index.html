@@ -1214,6 +1214,30 @@
   .toast-success { background: var(--accent-green-dim); color: #fff; }
   .toast-error { background: #b91c1c; color: #fff; }
 
+  /* Audio health warning banner */
+  .audio-warning {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    padding: 8px 16px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+    display: none;
+    transition: opacity 0.3s;
+  }
+  .audio-warning.visible { display: block; }
+  .audio-warning.warning { background: #92400e; color: #fef3c7; }
+  .audio-warning.error { background: #991b1b; color: #fef2f2; }
+  .audio-warning .dismiss {
+    cursor: pointer;
+    margin-left: 12px;
+    opacity: 0.7;
+  }
+  .audio-warning .dismiss:hover { opacity: 1; }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -2148,6 +2172,12 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Audio Health Warning -->
+<div class="audio-warning" id="audioWarning">
+  <span id="audioWarningText"></span>
+  <span class="dismiss" onclick="dismissAudioWarning()">&times;</span>
+</div>
 
 <!-- Hidden audio element for BirdNET clip playback -->
 <audio id="yard-audio" preload="none" style="display:none"></audio>
@@ -5512,6 +5542,60 @@
 
   // Poll every 30 seconds + on page load
   setInterval(pollSystemHealth, 30000);
+
+  // ── Audio Health Warning ──
+  let _audioWarningDismissed = null;
+
+  function pollAudioHealth() {
+    fetch('/api/audio-health')
+      .then(r => r.json())
+      .then(data => {
+        const analyzer = data.analyzer || data.enhanced || {};
+        const status = analyzer.status || 'unknown';
+        const stream = analyzer.stream || '';
+
+        const el = document.getElementById('audioWarning');
+        const textEl = document.getElementById('audioWarningText');
+
+        if (status === 'connected') {
+          el.classList.remove('visible', 'warning', 'error');
+          _audioWarningDismissed = null;
+          return;
+        }
+
+        let msg = '';
+        let severity = 'warning';
+        if (status === 'fallback') {
+          msg = 'Audio: using backup cam (primary cam down)';
+        } else if (status === 'down') {
+          msg = 'Audio: stream down, all retries exhausted';
+          severity = 'error';
+        } else if (status === 'reconnecting' || status === 'refreshing_urls') {
+          msg = 'Audio: reconnecting to ' + stream + ' cam...';
+        } else if (status === 'unknown') {
+          msg = 'Audio: status unknown (service may be down)';
+          severity = 'error';
+        } else {
+          return;
+        }
+
+        if (msg === _audioWarningDismissed) return;
+
+        textEl.textContent = msg;
+        el.className = 'audio-warning visible ' + severity;
+      })
+      .catch(() => {});
+  }
+
+  function dismissAudioWarning() {
+    const el = document.getElementById('audioWarning');
+    const textEl = document.getElementById('audioWarningText');
+    _audioWarningDismissed = textEl.textContent;
+    el.classList.remove('visible');
+  }
+
+  setInterval(pollAudioHealth, 60000);
+  pollAudioHealth();
 
   // ── Activity Tab ──
   var _activityHourChart = null;
