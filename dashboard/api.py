@@ -10,6 +10,7 @@ Run: uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 from __future__ import annotations
 
 
+import glob as _glob
 import json
 import logging
 import os
@@ -301,6 +302,41 @@ def system_health():
     _health_cache["data"] = result
     _health_cache["time"] = now
     return result
+
+
+@app.get("/api/audio-health")
+def get_audio_health():
+    """Return health status of audio stream services.
+
+    Reads per-service health files written by RTSPStreamManager.
+    Returns status for each audio service (analyzer, enhanced).
+    """
+    services = {}
+    health_files = _glob.glob("/tmp/audio-stream-health-*.json")
+    for path in health_files:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            # Check staleness — if updated > 5 min ago, mark unknown
+            updated = data.get("updated", "")
+            if updated:
+                try:
+                    updated_dt = datetime.fromisoformat(updated)
+                    age = (datetime.now() - updated_dt).total_seconds()
+                    if age > 300:
+                        data["status"] = "unknown"
+                        data["stale"] = True
+                except (ValueError, TypeError):
+                    pass
+            service_name = data.get("service", "unknown")
+            services[service_name] = data
+        except Exception:
+            continue
+
+    if not services:
+        return {"analyzer": {"status": "unknown"}, "enhanced": {"status": "unknown"}}
+
+    return services
 
 
 @app.get("/api/cameras")
