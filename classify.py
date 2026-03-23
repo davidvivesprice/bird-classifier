@@ -220,6 +220,10 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
             bg_top = max(0, block_top)
             bg_bottom = min(img.height, block_top + total_h)
 
+            # Guard: skip label if coordinates are invalid
+            if bg_right <= bg_left or bg_bottom <= bg_top:
+                continue
+
             # Use semi-transparent black background for contrast
             if img.mode == 'RGBA':
                 overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
