@@ -337,7 +337,7 @@ def insert_detection(det, clip_name, source="ground"):
                 det["scientific_name"],
                 round(det["confidence"], 3),
                 clip_name,
-                _get_rtsp_url("ground"),
+                "",  # input_file — RTSP URL no longer stored (managed by rtsp_stream.py)
             ),
         )
         _db_conn.commit()
