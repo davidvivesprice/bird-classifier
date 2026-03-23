@@ -31,17 +31,10 @@ import numpy as np
 from scipy.signal import butter, sosfilt
 
 from metrics import MetricsRegistry
+from rtsp_stream import RTSPStreamManager
 _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
-_RTSP_URL_FALLBACK = os.environ.get(
-    "BIRDNET_RTSP_URL",
-    "rtsp://192.168.4.9:7447/VaeaRCXUbGgJsYSA",  # ground cam
-)
-RTSP_URLS_FILE = os.environ.get(
-    "RTSP_URLS_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "rtsp_urls.json"),
-)
 LAT = float(os.environ.get("BIRDNET_LAT", "41.35"))
 LON = float(os.environ.get("BIRDNET_LON", "-70.73"))
 MIN_CONFIDENCE = float(os.environ.get("BIRDNET_MIN_CONF", "0.50"))
@@ -88,8 +81,6 @@ CLIPS_DIR = Path(
         os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"),
     )
 )
-RECONNECT_BASE = 5   # initial seconds before retrying on RTSP failure
-RECONNECT_MAX = 30   # max backoff delay
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
 # ── Nighttime Pause ──────────────────────────────────────────────────────
@@ -169,20 +160,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("audio_analyzer")
-
-
-def _get_rtsp_url(stream_name="ground"):
-    """Read current RTSP URL from local rtsp_urls.json, fall back to env var."""
-    try:
-        with open(RTSP_URLS_FILE) as f:
-            data = json.load(f)
-            url = data.get("streams", {}).get(stream_name)
-            if url:
-                log.info("Using RTSP URL from %s: %s", RTSP_URLS_FILE, url)
-                return url
-    except Exception as e:
-        log.warning("Could not read RTSP URL from %s: %s", RTSP_URLS_FILE, e)
-    return _RTSP_URL_FALLBACK
 
 
 # ── Globals ────────────────────────────────────────────────────────────────
@@ -414,44 +391,6 @@ def cleanup_old_clips():
                 pass
 
 
-# ── PyAV Audio Stream ─────────────────────────────────────────────────────
-def open_rtsp_audio():
-    """Open RTSP stream via PyAV and return (container, audio_stream).
-
-    Uses the 48kHz Opus stream (index 1) if available, otherwise the first audio stream.
-    Decoding is done natively — no resampler needed since the stream is already 48kHz.
-    Stereo→mono conversion is done via numpy (both channels are identical on this mic).
-    """
-    import av
-
-    rtsp_url = _get_rtsp_url("ground")
-    log.info("Opening RTSP stream: %s", rtsp_url)
-    container = av.open(rtsp_url, options={
-        "rtsp_transport": "tcp",
-        "stimeout": "10000000",     # 10s connection timeout (microseconds)
-        "timeout": "10000000",      # 10s read timeout
-        "reconnect": "1",           # auto-reconnect on disconnect
-        "reconnect_streamed": "1",  # reconnect for streamed content
-        "reconnect_delay_max": "5", # max 5s between reconnect attempts
-    })
-
-    # Find the best audio stream (prefer 48kHz)
-    audio_stream = None
-    for s in container.streams:
-        if s.type == "audio":
-            if audio_stream is None or s.rate > audio_stream.rate:
-                audio_stream = s
-
-    if audio_stream is None:
-        container.close()
-        raise RuntimeError("No audio stream found in RTSP feed")
-
-    log.info("Audio stream: %s %dHz %dch", audio_stream.codec_context.name,
-             audio_stream.rate, audio_stream.channels)
-
-    return container, audio_stream
-
-
 # ── Main Analysis Loop ─────────────────────────────────────────────────────
 def run(test_mode=False):
     """Main loop: pull audio, analyze, store results."""
@@ -499,7 +438,11 @@ def run(test_mode=False):
     dyn_thresh = DynamicThreshold() if DYNAMIC_THRESHOLD_ENABLED else None
     accumulator = DetectionAccumulator() if DEEP_DETECTION_ENABLED else None
 
-    reconnect_delay = RECONNECT_BASE
+    stream_mgr = RTSPStreamManager(
+        service_name="analyzer",
+        preferred_stream="ground",
+        fallback_stream="birds",
+    )
 
     while not _shutdown.is_set():
         # Sleep during nighttime — no birds calling, save CPU
@@ -513,8 +456,8 @@ def run(test_mode=False):
 
         container = None
         try:
-            container, audio_stream = open_rtsp_audio()
-            reconnect_delay = RECONNECT_BASE  # reset on successful connection
+            container, audio_stream = stream_mgr.connect()
+            stream_mgr.report_success()
 
             pcm_buf = bytearray()
 
@@ -695,10 +638,19 @@ def run(test_mode=False):
                             chunks_processed, total_detections,
                         )
 
+                # Recovery probes while on fallback
+                if stream_mgr.should_probe():
+                    if stream_mgr.probe_primary():
+                        if stream_mgr.should_switch_to_primary():
+                            log.info("Primary stream recovered, switching back")
+                            stream_mgr.switch_to_primary()
+                            break  # exit decode loop to reconnect on primary
+
             log.warning("RTSP stream ended")
 
         except Exception as e:
             log.error("Stream error: %s", e)
+            stream_mgr.report_failure(e)
         finally:
             if container:
                 try:
@@ -707,9 +659,7 @@ def run(test_mode=False):
                     pass
 
         if not _shutdown.is_set():
-            log.info("Reconnecting in %ds...", reconnect_delay)
-            _shutdown.wait(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 2, RECONNECT_MAX)
+            stream_mgr.wait_backoff(_shutdown)
 
 
 # ── Metrics HTTP Server ───────────────────────────────────────────────────
@@ -764,7 +714,7 @@ def main():
     test_mode = "--test" in sys.argv
 
     log.info("Bird Audio Analyzer starting")
-    log.info("  RTSP: %s (dynamic, fallback: %s)", _get_rtsp_url("ground"), _RTSP_URL_FALLBACK)
+    log.info("  RTSP: managed (preferred=ground, fallback=birds)")
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)
