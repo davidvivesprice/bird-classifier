@@ -50,6 +50,26 @@ CULL_CONFIG_PATH = Path("/Users/vives/bird-classifier/config/cull_config.json")
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
 
+# ── URL rewrite middleware: /bird-api/* → /api/* for direct access ──
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+
+class BirdAPIRewriteMiddleware(BaseHTTPMiddleware):
+    """Rewrite /bird-api/ paths to /api/ so the dashboard works
+    both through the NAS nginx proxy and via direct Tailscale access."""
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if request.url.path.startswith("/bird-api/"):
+            # Rewrite the path
+            new_path = "/api/" + request.url.path[len("/bird-api/"):]
+            request.scope["path"] = new_path
+        return await call_next(request)
+
+
+app.add_middleware(BirdAPIRewriteMiddleware)
+
+
 @app.on_event("startup")
 def warm_cache():
     """Verify SQLite DB is accessible on startup."""
@@ -70,6 +90,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Serve dashboard HTML directly (for Tailscale / direct access) ──
+
+DASHBOARD_DIR = Path(__file__).parent
+
+@app.get("/")
+def serve_dashboard():
+    """Serve the main dashboard HTML."""
+    return FileResponse(str(DASHBOARD_DIR / "index.html"), media_type="text/html")
+
+
+@app.get("/docs.html")
+def serve_docs_html():
+    """Serve the docs viewer HTML."""
+    return FileResponse(str(DASHBOARD_DIR / "docs.html"), media_type="text/html")
 
 
 # ── Atomic JSONL writer ──
