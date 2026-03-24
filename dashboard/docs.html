@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bird Observatory — Docs</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --bg-card: #1a1a2e;
+    --bg-sidebar: #141425;
+    --bg-hover: #252540;
+    --border: #2a2a45;
+    --text: #e0e0e0;
+    --text-muted: #8888aa;
+    --accent: #4ade80;
+    --accent-blue: #60a5fa;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  a { color: var(--accent-blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .docs-layout {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  .docs-sidebar {
+    width: 280px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 100;
+    transition: transform 0.25s ease;
+  }
+  .docs-sidebar-header {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .docs-sidebar-header a {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .docs-sidebar-back {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding: 8px 18px;
+    display: block;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs-nav-section {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs-nav-section-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 4px 18px 6px;
+    font-weight: 600;
+  }
+  .docs-nav-item {
+    display: block;
+    padding: 6px 18px 6px 24px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    border-left: 3px solid transparent;
+  }
+  .docs-nav-item:hover { background: var(--bg-hover); color: var(--text); text-decoration: none; }
+  .docs-nav-item.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(74,222,128,0.05);
+  }
+
+  /* Main content */
+  .docs-main {
+    flex: 1;
+    margin-left: 280px;
+    padding: 32px 40px;
+    max-width: 900px;
+  }
+
+  /* Markdown rendering */
+  .docs-content h1 { font-size: 1.8rem; font-weight: 700; margin: 0 0 16px; color: #fff; }
+  .docs-content h2 { font-size: 1.3rem; font-weight: 600; margin: 28px 0 12px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .docs-content h3 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 8px; color: var(--text); }
+  .docs-content p { margin: 0 0 14px; }
+  .docs-content ul, .docs-content ol { margin: 0 0 14px; padding-left: 24px; }
+  .docs-content li { margin-bottom: 4px; }
+  .docs-content blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 8px 16px;
+    margin: 0 0 14px;
+    background: rgba(74,222,128,0.05);
+    color: var(--text-muted);
+    font-size: 0.92rem;
+  }
+  .docs-content code {
+    background: var(--bg-card);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  .docs-content pre {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 14px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .docs-content pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+  .docs-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 14px;
+    font-size: 0.88rem;
+  }
+  .docs-content th, .docs-content td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .docs-content th { background: var(--bg-card); font-weight: 600; color: #fff; }
+  .docs-content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  .docs-content img { max-width: 100%; border-radius: var(--radius); }
+  .docs-content strong { color: #fff; }
+
+  /* Glossary tooltip */
+  .glossary-term {
+    border-bottom: 1px dashed var(--accent);
+    cursor: help;
+    position: relative;
+  }
+  .glossary-tooltip {
+    display: none;
+    position: fixed;
+    background: var(--bg-card);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    max-width: 340px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    z-index: 5000;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    color: var(--text);
+  }
+  .glossary-tooltip.visible { display: block; }
+  .glossary-tooltip-title {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+  }
+
+  /* Search */
+  .docs-search {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs-search input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .docs-search input:focus { border-color: var(--accent); }
+
+  /* Mobile hamburger */
+  .docs-hamburger {
+    display: none;
+    position: fixed;
+    top: 10px; left: 10px;
+    z-index: 200;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 1.3rem;
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Mobile */
+  @media (max-width: 768px) {
+    .docs-sidebar {
+      transform: translateX(-100%);
+      width: 85vw;
+      max-width: 320px;
+    }
+    .docs-sidebar.open { transform: translateX(0); }
+    .docs-main { margin-left: 0; padding: 20px 16px; padding-top: 56px; }
+    .docs-hamburger { display: flex; }
+    .docs-content h1 { font-size: 1.4rem; }
+    .docs-content h2 { font-size: 1.15rem; }
+    .docs-content pre { font-size: 0.78rem; padding: 10px 12px; }
+    .docs-content table { font-size: 0.78rem; }
+    .docs-content th, .docs-content td { padding: 6px 8px; }
+    .glossary-tooltip { max-width: calc(100vw - 32px); }
+  }
+
+  /* Sidebar overlay on mobile */
+  .docs-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99;
+  }
+  .docs-overlay.visible { display: block; }
+
+  /* Loading */
+  .docs-loading {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 60px 20px;
+    font-size: 0.95rem;
+  }
+</style>
+</head>
+<body>
+
+<button class="docs-hamburger" id="docs-hamburger" onclick="toggleSidebar()">&#9776;</button>
+<div class="docs-overlay" id="docs-overlay" onclick="toggleSidebar()"></div>
+
+<div class="docs-layout">
+  <nav class="docs-sidebar" id="docs-sidebar">
+    <div class="docs-sidebar-header">
+      <span style="font-size:1.2rem">&#x1F426;</span>
+      <a href="#">Bird Observatory Docs</a>
+    </div>
+    <a class="docs-sidebar-back" href="/">&#8592; Back to Dashboard</a>
+    <div class="docs-search">
+      <input type="text" id="docs-search" placeholder="Search docs..." oninput="filterDocs(this.value)">
+    </div>
+    <div id="docs-nav"></div>
+  </nav>
+  <main class="docs-main">
+    <div class="docs-content" id="docs-content">
+      <div class="docs-loading">Loading documentation...</div>
+    </div>
+  </main>
+</div>
+
+<div class="glossary-tooltip" id="glossary-tooltip">
+  <div class="glossary-tooltip-title" id="glossary-tooltip-title"></div>
+  <div id="glossary-tooltip-body"></div>
+</div>
+
+<script>
+// ── Glossary definitions ──
+var GLOSSARY = {
+  "SQLite": "A lightweight database engine that stores data in a single file. No server needed — the application reads/writes directly. Used here for all bird detection data.",
+  "WAL mode": "Write-Ahead Logging — a SQLite journaling mode that allows reads and writes to happen simultaneously. Faster and more reliable than the default rollback journal.",
+  "RTSP": "Real Time Streaming Protocol — how IP cameras send live video/audio over the network. The bird cameras use RTSP URLs that include authentication tokens.",
+  "RTSP token": "A temporary authentication code in the RTSP URL that grants access to a camera stream. UniFi Protect rotates these tokens nightly for security.",
+  "FastAPI": "A modern Python web framework for building APIs. Handles all the dashboard's backend endpoints (bird data, images, audio clips).",
+  "LaunchAgent": "A macOS service manager — like a background worker that starts automatically and restarts if it crashes. Each part of the bird system runs as a LaunchAgent.",
+  "PyAV": "A Python library for working with audio/video streams. Used to decode RTSP camera audio for BirdNET analysis.",
+  "BirdNET": "An AI model from Cornell Lab that identifies bird species from audio recordings. Trained on hundreds of thousands of bird calls worldwide.",
+  "birdnetlib": "A Python wrapper around the BirdNET model that makes it easy to analyze audio. Handles the model loading, audio chunking, and inference.",
+  "BirdNET-Go": "A standalone Go application that runs BirdNET analysis continuously. Runs in Docker on the NAS. Being compared against our custom Python implementation.",
+  "YOLOv8": "You Only Look Once — a fast object detection AI model. Detects WHERE birds are in camera images (bounding boxes), then a second model identifies the species.",
+  "CoreML": "Apple's machine learning framework. Runs AI models using the Mac's GPU and Neural Engine for faster inference.",
+  "ONNX": "Open Neural Network Exchange — a standard format for AI models. Allows the same model to run on different hardware (CPU, GPU, Coral TPU).",
+  "Coral TPU": "Google's Tensor Processing Unit — a USB accelerator that speeds up AI inference. Used for bird species classification.",
+  "SSE": "Server-Sent Events — a way for the server to push real-time updates to the browser. Used for live detection overlay and 'In the Yard' panel.",
+  "sigmoid": "A mathematical function that squashes any number into a 0-1 range. BirdNET uses it to convert raw model outputs into confidence percentages.",
+  "inference": "Running data through an AI model to get predictions. 'Running inference' means asking the model 'what bird is this?'",
+  "confidence": "How sure the AI model is about its prediction, from 0% to 100%. Higher confidence = more likely correct. The system filters out low-confidence detections.",
+  "dynamic threshold": "A confidence threshold that automatically lowers for species recently detected at high confidence. If the system is confident a Blue Jay is around, it'll accept lower-confidence Blue Jay detections.",
+  "overlap confirmation": "Analyzing the same audio multiple times with slightly different time offsets. Real bird calls appear consistently across shifts; random noise doesn't. Requires 2+ confirmations to accept a detection.",
+  "deep detection": "The old approach (replaced): requiring 2 separate detections within 15 seconds. Less reliable than overlap confirmation because the detections could be from completely different audio.",
+  "range filter": "Rejects impossible bird species for the location and time of year. A tropical bird in Massachusetts in March? Filtered out.",
+  "bandpass filter": "Removes frequencies outside the bird call range (300Hz-15kHz). Cuts out low rumble (wind, traffic) and high-pitched noise, leaving just the bird frequencies.",
+  "noisereduce": "A spectral gating algorithm that suppresses background noise while preserving bird calls. Like noise cancellation for bird audio.",
+  "RMS normalization": "Adjusting audio volume so the AI model receives audio at the loudness level it was trained on. Prevents volume differences from affecting detection quality.",
+  "spectrogram": "A visual representation of sound — time on one axis, frequency on the other, brightness shows volume. Bird calls appear as distinctive patterns.",
+  "PCM": "Pulse-Code Modulation — raw digital audio data. The uncompressed audio format that BirdNET needs for analysis.",
+  "WAV": "A common audio file format that contains uncompressed PCM data. The system saves detected bird calls as 3-second WAV clips.",
+  "FFmpeg": "A powerful tool for processing audio and video. Used behind the scenes to decode camera streams and encode audio clips.",
+  "Docker": "A container platform that packages applications with their dependencies. BirdNET-Go runs in a Docker container on the NAS.",
+  "Synology NAS": "Network Attached Storage — the VivesSyn server that hosts cameras (UniFi Protect), serves the dashboard, and runs Docker containers.",
+  "UniFi Protect": "Ubiquiti's camera management system running on the Synology NAS. Manages the bird feeder and ground cameras.",
+  "Traefik": "A reverse proxy that routes web traffic to the right service. Handles HTTPS certificates and URL routing on the NAS.",
+  "nginx": "A web server that serves the dashboard HTML and proxies API requests to the iMac.",
+  "uvicorn": "A fast Python web server that runs the FastAPI application. Handles HTTP requests on port 8099.",
+  "venv": "Python virtual environment — an isolated set of Python packages. Prevents conflicts between different projects on the same machine.",
+  "git tag": "A named marker on a specific commit. Used to mark release versions (v0.9, v1.0) so you can easily find and roll back to them.",
+  "worktree": "A git feature that creates a separate working copy of the repo. Allows working on a feature branch without switching away from main.",
+  "thread-safe": "Code that can be safely called from multiple threads simultaneously without data corruption. Important when analyzing multiple camera streams in parallel.",
+  "mutex": "Mutual exclusion — a lock that ensures only one thread can access a resource at a time. Prevents two camera threads from writing to the database simultaneously.",
+  "escalation ladder": "A series of increasingly aggressive recovery steps when an RTSP stream fails: retry → refresh URLs → try low-res → switch cameras → give up.",
+  "flush window": "The time period (6 seconds) during which the overlap confirmation system collects detections before deciding whether to accept or reject them.",
+  "cross-camera dedup": "When the same bird species is detected on two different camera microphones within 10 seconds, it's flagged as a multi-source confirmation — definitely real.",
+  "Merlin Bird ID": "Cornell Lab's phone app that identifies birds from audio in real time. Uses the same BirdNET model. The gold standard for the user experience we're building toward."
+};
+
+// ── Documentation structure ──
+var DOC_SECTIONS = [
+  {
+    title: "System",
+    docs: [
+      {id: "01-architecture", title: "Architecture"},
+      {id: "02-hardware", title: "Hardware"},
+      {id: "03-network", title: "Network"},
+    ]
+  },
+  {
+    title: "Visual Pipeline",
+    docs: [
+      {id: "04-snapshot-capture", title: "Snapshot Capture"},
+      {id: "05-snapshot-sync", title: "Snapshot Sync"},
+      {id: "06-yolov8-detection", title: "YOLOv8 Detection"},
+      {id: "07-aiy-classification", title: "Species Classification"},
+      {id: "08-classify-pipeline", title: "Classification Pipeline"},
+      {id: "09-regional-filter", title: "Regional Filter"},
+    ]
+  },
+  {
+    title: "Audio Pipeline",
+    docs: [
+      {id: "25-audio-analyzer", title: "Audio Analyzer"},
+      {id: "26-enhanced-audio", title: "Enhanced Audio Stream"},
+      {id: "14-birdnet-go", title: "BirdNET-Go"},
+      {id: "15-birdnet-export", title: "BirdNET Export"},
+    ]
+  },
+  {
+    title: "Dashboard & API",
+    docs: [
+      {id: "11-api-endpoints", title: "API Endpoints"},
+      {id: "12-dashboard-ui", title: "Dashboard UI"},
+      {id: "13-species-images", title: "Species Images"},
+      {id: "16-sse-streaming", title: "SSE Streaming"},
+      {id: "23-live-detection", title: "Live Detection Overlay"},
+    ]
+  },
+  {
+    title: "Data & Storage",
+    docs: [
+      {id: "10-jsonl-data", title: "Data Storage"},
+    ]
+  },
+  {
+    title: "Operations",
+    docs: [
+      {id: "18-launchagents", title: "LaunchAgents"},
+      {id: "19-nas-services", title: "NAS Services"},
+      {id: "20-deployment", title: "Deployment"},
+      {id: "21-syncthing", title: "Syncthing"},
+      {id: "17-auth", title: "Authentication"},
+      {id: "22-gotchas", title: "Gotchas & Lessons"},
+    ]
+  },
+  {
+    title: "Advanced",
+    docs: [
+      {id: "24-custom-yolo-training", title: "Custom YOLO Training"},
+      {id: "27-quality-audit", title: "Quality Audit"},
+      {id: "wildlife-pipeline-plan", title: "Wildlife Pipeline Plan"},
+    ]
+  },
+  {
+    title: "System State",
+    docs: [
+      {id: "migration/system-state-2026-03-23", title: "Current State (Mar 23)"},
+      {id: "migration/HANDOFF", title: "Handoff Notes"},
+    ]
+  }
+];
+
+// ── Build sidebar ──
+function buildNav() {
+  var nav = document.getElementById('docs-nav');
+  var html = '';
+  DOC_SECTIONS.forEach(function(section) {
+    html += '<div class="docs-nav-section">';
+    html += '<div class="docs-nav-section-title">' + section.title + '</div>';
+    section.docs.forEach(function(doc) {
+      html += '<a class="docs-nav-item" data-doc="' + doc.id + '" onclick="loadDoc(\'' + doc.id + '\')">' + doc.title + '</a>';
+    });
+    html += '</div>';
+  });
+  nav.innerHTML = html;
+}
+
+// ── Load and render a document ──
+var _currentDoc = null;
+
+function loadDoc(id) {
+  _currentDoc = id;
+
+  // Update active state
+  document.querySelectorAll('.docs-nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.doc === id);
+  });
+
+  // Close mobile sidebar
+  document.getElementById('docs-sidebar').classList.remove('open');
+  document.getElementById('docs-overlay').classList.remove('visible');
+
+  var content = document.getElementById('docs-content');
+  content.innerHTML = '<div class="docs-loading">Loading...</div>';
+
+  fetch('/api/docs/' + id)
+    .then(function(r) {
+      if (!r.ok) throw new Error('Not found');
+      return r.text();
+    })
+    .then(function(md) {
+      var html = marked.parse(md);
+      content.innerHTML = html;
+      applyGlossary(content);
+      window.scrollTo(0, 0);
+      // Update URL hash
+      history.replaceState(null, '', '#' + id);
+    })
+    .catch(function(e) {
+      content.innerHTML = '<div class="docs-loading">Document not found: ' + id + '</div>';
+    });
+}
+
+// ── Apply glossary tooltips ──
+function applyGlossary(container) {
+  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  var textNodes = [];
+  while (walker.nextNode()) {
+    // Skip nodes inside code/pre
+    var parent = walker.currentNode.parentNode;
+    if (parent.tagName === 'CODE' || parent.tagName === 'PRE' || parent.classList.contains('glossary-term')) continue;
+    textNodes.push(walker.currentNode);
+  }
+
+  // Sort terms by length (longest first) to avoid partial matches
+  var terms = Object.keys(GLOSSARY).sort(function(a, b) { return b.length - a.length; });
+
+  textNodes.forEach(function(node) {
+    var text = node.textContent;
+    var replaced = false;
+
+    terms.forEach(function(term) {
+      // Case-insensitive match but preserve original case
+      var regex = new RegExp('\\b(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')\\b', 'i');
+      if (regex.test(text) && !replaced) {
+        var span = document.createElement('span');
+        span.innerHTML = text.replace(regex, '<span class="glossary-term" data-term="' + term + '">$1</span>');
+        node.parentNode.replaceChild(span, node);
+        replaced = true;
+      }
+    });
+  });
+
+  // Add event listeners for glossary terms
+  container.querySelectorAll('.glossary-term').forEach(function(el) {
+    el.addEventListener('mouseenter', showGlossary);
+    el.addEventListener('mouseleave', hideGlossary);
+    el.addEventListener('click', function(e) {
+      // Toggle on mobile
+      var tip = document.getElementById('glossary-tooltip');
+      if (tip.classList.contains('visible')) {
+        hideGlossary();
+      } else {
+        showGlossary.call(this, e);
+      }
+    });
+  });
+}
+
+function showGlossary(e) {
+  var term = this.dataset.term;
+  var def = GLOSSARY[term];
+  if (!def) return;
+
+  var tip = document.getElementById('glossary-tooltip');
+  document.getElementById('glossary-tooltip-title').textContent = term;
+  document.getElementById('glossary-tooltip-body').textContent = def;
+
+  var rect = this.getBoundingClientRect();
+  var tipWidth = 340;
+
+  // Position below the term, centered
+  var left = rect.left + rect.width / 2 - tipWidth / 2;
+  left = Math.max(10, Math.min(left, window.innerWidth - tipWidth - 10));
+  var top = rect.bottom + 8;
+  if (top + 120 > window.innerHeight) {
+    top = rect.top - 8;
+    tip.style.transform = 'translateY(-100%)';
+  } else {
+    tip.style.transform = 'none';
+  }
+
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+  tip.classList.add('visible');
+}
+
+function hideGlossary() {
+  document.getElementById('glossary-tooltip').classList.remove('visible');
+}
+
+// ── Search/filter ──
+function filterDocs(query) {
+  query = query.toLowerCase();
+  document.querySelectorAll('.docs-nav-item').forEach(function(el) {
+    var match = !query || el.textContent.toLowerCase().includes(query);
+    el.style.display = match ? '' : 'none';
+  });
+  // Show/hide section titles
+  document.querySelectorAll('.docs-nav-section').forEach(function(section) {
+    var hasVisible = section.querySelector('.docs-nav-item:not([style*="display: none"])');
+    section.style.display = hasVisible ? '' : 'none';
+  });
+}
+
+// ── Mobile sidebar toggle ──
+function toggleSidebar() {
+  document.getElementById('docs-sidebar').classList.toggle('open');
+  document.getElementById('docs-overlay').classList.toggle('visible');
+}
+
+// ── Init ──
+buildNav();
+
+// Load doc from URL hash or default to architecture
+var hash = window.location.hash.slice(1);
+if (hash) {
+  loadDoc(hash);
+} else {
+  loadDoc('01-architecture');
+}
+</script>
+</body>
+</html>

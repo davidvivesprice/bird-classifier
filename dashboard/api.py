@@ -1288,6 +1288,47 @@ def birdnet_clip(clip_path: str):
     )
 
 
+# ── Documentation Viewer ──
+
+DOCS_DIR = Path(os.path.expanduser("~/docs/bird-observatory"))
+DOCS_HTML = Path(__file__).parent / "docs.html"
+
+
+@app.get("/docs")
+def docs_page():
+    """Serve the documentation viewer HTML page."""
+    if not DOCS_HTML.exists():
+        raise HTTPException(status_code=404, detail="Docs page not found")
+    return FileResponse(str(DOCS_HTML), media_type="text/html")
+
+
+@app.get("/api/docs/{doc_path:path}")
+def get_doc(doc_path: str):
+    """Serve a markdown documentation file."""
+    # Sanitize path
+    safe_path = Path(doc_path)
+    if ".." in safe_path.parts:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    # Try with and without .md extension
+    full_path = (DOCS_DIR / safe_path).resolve()
+    if not full_path.exists():
+        full_path = (DOCS_DIR / (str(safe_path) + ".md")).resolve()
+
+    # Verify path stays within docs directory
+    if not str(full_path).startswith(str(DOCS_DIR.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        full_path.read_text(),
+        media_type="text/plain; charset=utf-8",
+    )
+
+
 # ── Culling System ──
 
 def load_cull_config() -> dict:

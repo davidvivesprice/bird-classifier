@@ -115,9 +115,20 @@
   .sse-status.disconnected { color: var(--accent-red); }
 
   /* Status dots (topbar health indicators) */
+  .docs-link {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-left: auto;
+    text-decoration: none;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .docs-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); text-decoration: none; }
+
   .status-dots {
     display: flex; align-items: center; gap: 2px;
-    margin-left: auto; margin-right: 12px; cursor: pointer;
+    margin-right: 12px; cursor: pointer;
     padding: 4px 8px; border-radius: 6px;
     transition: background 0.2s;
   }
@@ -1969,6 +1980,7 @@
       <span>Loading stats...</span>
     </div>
   </div>
+  <a class="docs-link" href="/docs" title="Documentation">&#x1F4D6; Docs</a>
   <div class="status-dots" id="status-dots" onclick="toggleStatusDropdown(event)">
     <span class="sdot" id="sdot-api" title="API">●</span><span class="sdot-label">API</span>
     <span class="sdot" id="sdot-cams" title="Cameras">●</span><span class="sdot-label">Cams</span>
