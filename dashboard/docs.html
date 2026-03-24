@@ -264,7 +264,7 @@
       <span style="font-size:1.2rem">&#x1F426;</span>
       <a href="#">Bird Observatory Docs</a>
     </div>
-    <a class="docs-sidebar-back" href="/">&#8592; Back to Dashboard</a>
+    <a class="docs-sidebar-back" href="/" onclick="if(window.location.port!=='8099')this.href='/index.html'">&#8592; Back to Dashboard</a>
     <div class="docs-search">
       <input type="text" id="docs-search" placeholder="Search docs..." oninput="filterDocs(this.value)">
     </div>
@@ -438,7 +438,7 @@ function loadDoc(id) {
   var content = document.getElementById('docs-content');
   content.innerHTML = '<div class="docs-loading">Loading...</div>';
 
-  fetch('/api/docs/' + id)
+  fetch((window.location.port === '8099' ? '/api' : '/bird-api') + '/docs/' + id)
     .then(function(r) {
       if (!r.ok) throw new Error('Not found');
       return r.text();
