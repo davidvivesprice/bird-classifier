@@ -139,6 +139,7 @@ def _rtsp_reader():
                                 log.info("Stream ready, first chunk processed")
 
                             chunks_produced += 1
+                            stream_mgr.heartbeat()
                             if chunks_produced % 60 == 0:
                                 log.info("Processed %d chunks (%.0fs)", chunks_produced, chunks_produced * CHUNK_SECONDS)
 

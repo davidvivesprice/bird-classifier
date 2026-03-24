@@ -627,6 +627,9 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                         last_cleanup = now_ts
                         threading.Thread(target=cleanup_old_clips, daemon=True).start()
 
+                    # Health heartbeat (updates timestamp every 60s)
+                    stream_mgr.heartbeat()
+
                     # Log progress periodically
                     if chunks_processed % 100 == 0:
                         log.info(

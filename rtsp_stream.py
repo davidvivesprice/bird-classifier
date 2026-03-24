@@ -301,6 +301,20 @@ class RTSPStreamManager:
         except Exception as e:
             log.warning("Failed to write health file: %s", e)
 
+    _last_heartbeat = 0
+
+    def heartbeat(self):
+        """Periodically update the health file timestamp. Call from analysis loop.
+        Rate-limited to once per 60 seconds to avoid disk thrash."""
+        now = time.time()
+        if now - self._last_heartbeat < 60:
+            return
+        self._last_heartbeat = now
+        status = "connected" if self._current_stream == self.preferred_stream else "fallback"
+        if self._level == 6:
+            status = "down"
+        self._write_health(status)
+
     def get_health(self):
         """Read and return health status from file."""
         try:
