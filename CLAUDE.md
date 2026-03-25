@@ -1,0 +1,42 @@
+# Bird Observatory — CLAUDE.md
+
+## Mission
+
+Build a bird identification system that is **delightful to use, deadly accurate, and tells beautiful stories with data**.
+
+### Who it's for
+- **Casual curious observers**: "What bird is that?" → instant, visual, fun answer
+- **Obsessive birders**: Deep data, trends, rare species alerts, seasonal patterns
+- **The system itself**: Data that feeds back to make identification more accurate over time
+
+### What matters (in order)
+1. **Accuracy** — If it says "Cardinal," there better be a Cardinal
+2. **Experience** — Simple, fun, beautiful on a phone. Non-techy people get it instantly
+3. **Reliability** — Just works. Self-heals. Never needs babysitting
+4. **Rich data** — Stories, not just numbers. First arrivals, peak hours, rare visitors
+
+### What we're NOT building
+- A developer debugging tool (engineering stays invisible)
+- A system that needs babysitting
+- Something complicated
+
+### Technical principles
+- Light on the processor
+- Modular and simple — each piece does one thing
+- Self-healing — breaks fix themselves
+- Ground truth — known-good data validates continuously
+- Data feeds accuracy — reviews retrain the model
+
+## Architecture
+
+Two machines: iMac (classification engine) + Synology NAS (cameras, dashboard hosting).
+SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio).
+9 LaunchAgent services with KeepAlive.
+
+## Key Rules
+
+- Read the mission above before every session
+- Small modular changes, verify end-to-end before moving on
+- Don't assume data structures — read the actual code
+- Test wherever possible
+- Honesty over optimism
