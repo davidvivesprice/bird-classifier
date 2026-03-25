@@ -84,6 +84,7 @@ class RTSPStreamManager:
         self._last_sync_time = 0
         self._recovery_successes = 0
         self._last_probe_time = 0
+        self._last_heartbeat = 0
         self._connected_since = None
         self._last_error = None
 
@@ -300,8 +301,6 @@ class RTSPStreamManager:
             os.replace(tmp, self.health_file)
         except Exception as e:
             log.warning("Failed to write health file: %s", e)
-
-    _last_heartbeat = 0
 
     def heartbeat(self):
         """Periodically update the health file timestamp. Call from analysis loop.

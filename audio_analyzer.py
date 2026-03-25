@@ -652,6 +652,14 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
             log.error("[%s] Stream error: %s", camera_name, e)
             stream_mgr.report_failure(e)
         finally:
+            # Flush any pending detections before reconnecting
+            if confirmer and confirmer.pending_count > 0:
+                for det in confirmer.flush_all():
+                    try:
+                        insert_detection(det, "", source=camera_name,
+                                         confirmations=det.get("confirmations", 1))
+                    except Exception:
+                        pass
             if container:
                 try:
                     container.close()

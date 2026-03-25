@@ -43,14 +43,14 @@ class OverlapConfirmation:
                 "first_seen": now,
                 "count": 1,
                 "best_conf": confidence,
-                "best_det": det_dict,
+                "best_det": dict(det_dict),  # copy to avoid mutation
             }
         else:
             entry = self._pending[species]
             entry["count"] += 1
             if confidence > entry["best_conf"]:
                 entry["best_conf"] = confidence
-                entry["best_det"] = det_dict
+                entry["best_det"] = dict(det_dict)  # copy to avoid mutation
 
         return self.flush(now)
 
@@ -85,3 +85,18 @@ class OverlapConfirmation:
             del self._pending[species]
 
         return accepted
+
+    def flush_all(self):
+        """Force-flush all pending detections regardless of window age.
+
+        Call when the analysis stream disconnects to avoid losing
+        detections that were accumulating when the stream dropped.
+        Returns accepted detections (same as flush).
+        """
+        far_future = time.time() + self.flush_window + 1
+        return self.flush(far_future)
+
+    @property
+    def pending_count(self):
+        """Number of species currently accumulating."""
+        return len(self._pending)
