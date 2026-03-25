@@ -177,6 +177,10 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
         is_best = (i == best_idx)
         preds = all_predictions[i] if i < len(all_predictions) else []
 
+        # Skip detections with invalid bounding boxes
+        if x2 <= x1 or y2 <= y1:
+            continue
+
         # Box color: green for best detection, cycle colors for others
         if is_best:
             color = (0, 255, 0)
@@ -220,8 +224,8 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
             bg_top = max(0, block_top)
             bg_bottom = min(img.height, block_top + total_h)
 
-            # Guard: skip label if coordinates are invalid
-            if bg_right <= bg_left or bg_bottom <= bg_top:
+            # Guard: skip label drawing if coordinates are invalid (edge-case detections)
+            if bg_right <= bg_left or bg_bottom <= bg_top or x2 <= x1 or y2 <= y1:
                 continue
 
             # Use semi-transparent black background for contrast
@@ -232,7 +236,6 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
                 img.paste(Image.alpha_composite(img.convert('RGBA'), overlay).convert(img.mode))
                 draw = ImageDraw.Draw(img)
             else:
-                # For RGB images, use solid dark background
                 draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], fill=(0, 0, 0))
 
             # Draw text with contrasting color
@@ -692,9 +695,18 @@ def process_all(range_filter=None):
             shutil.move(str(fpath), str(SKIPPED_DIR / fpath.name))
             motion_skipped += 1
             continue
-        r = process_file(fpath, range_filter)
-        if r:
-            results.append(r)
+        try:
+            r = process_file(fpath, range_filter)
+            if r:
+                results.append(r)
+        except Exception as e:
+            logging.error("Failed to process %s: %s", fpath.name, e)
+            # Move bad file to trash so it doesn't block the queue
+            try:
+                TRASH_DIR.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(fpath), str(TRASH_DIR / fpath.name))
+            except Exception:
+                pass
 
     if motion_skipped:
         logging.info("Motion gate: skipped %d static frames (%.0f%% skip rate)",
@@ -735,9 +747,13 @@ def watch_mode(range_filter=None):
             if was_night:
                 logging.info("Daytime resumed — restarting classification")
                 was_night = False
-            n = process_all(range_filter)
-            if n > 0:
-                logging.info("Processed %d file(s), waiting for more...", n)
+            try:
+                n = process_all(range_filter)
+                if n > 0:
+                    logging.info("Processed %d file(s), waiting for more...", n)
+            except Exception as e:
+                logging.error("process_all() crashed: %s", e, exc_info=True)
+                time.sleep(30)  # back off before retrying
             time.sleep(WATCH_INTERVAL)
     except KeyboardInterrupt:
         logging.info("Watch mode stopped")
