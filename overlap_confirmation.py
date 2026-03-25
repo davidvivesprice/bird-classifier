@@ -50,7 +50,7 @@ class OverlapConfirmation:
             entry["count"] += 1
             if confidence > entry["best_conf"]:
                 entry["best_conf"] = confidence
-                entry["best_det"] = dict(det_dict)  # copy to avoid mutation
+                entry["best_det"] = dict(det_dict)
 
         return self.flush(now)
 

@@ -377,6 +377,46 @@ def cleanup_old_clips():
                 pass
 
 
+def _extract_clip(raw_pcm, start_sec):
+    """Extract a 3-second clip from raw PCM bytes at the given offset."""
+    clip_start = int(start_sec * SAMPLE_RATE * 2)
+    clip_end = clip_start + CHUNK_BYTES
+    if clip_end > len(raw_pcm):
+        clip_start = max(0, len(raw_pcm) - CHUNK_BYTES)
+        clip_end = len(raw_pcm)
+    return raw_pcm[clip_start:clip_end]
+
+
+def _accept_detection(det, raw_pcm, camera_name, range_filter, dyn_thresh,
+                      confirmations=1):
+    """Validate, save clip, write to DB. Returns clip_name or None if rejected."""
+    species = det["common_name"]
+    conf = det["confidence"]
+
+    if range_filter:
+        validation = range_filter.is_species_valid_at_location(
+            species, confidence=conf, date=datetime.datetime.now())
+        if not validation["valid"]:
+            _metrics.counter("rejected_range").inc()
+            log.info("[%s] Range filter rejected: %s (%.0f%%) — %s",
+                     camera_name, species, conf * 100, validation["reason"])
+            return None
+
+    if dyn_thresh:
+        dyn_thresh.record_detection(species, conf)
+
+    clip_raw = _extract_clip(raw_pcm, det.get("start_time", 0))
+    try:
+        clip_name = save_clip(clip_raw, det)
+    except Exception as e:
+        log.warning("[%s] Failed to save clip: %s", camera_name, e)
+        clip_name = ""
+
+    insert_detection(det, clip_name, source=camera_name, confirmations=confirmations)
+    _metrics.counter("accepted").inc()
+    return clip_name
+
+
 # ── Main Analysis Loop ─────────────────────────────────────────────────────
 def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                    range_filter, test_mode=False):
@@ -513,7 +553,7 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                             best_per_slice[slice_key] = det
 
                     # Collect confirmed detections from overlap confirmation
-                    confirmed_from_add = []
+                    auto_flushed = []
 
                     for det in best_per_slice.values():
                         species = det["common_name"]
@@ -527,111 +567,41 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                             det["_raw_pcm"] = raw
                             flushed = confirmer.add(species, conf, det, now_time)
                             if flushed:
-                                confirmed_from_add.extend(flushed)
+                                auto_flushed.extend(flushed)
                             continue  # additional flushing happens below
 
-                        # Range filter: reject impossible species for this location/habitat
-                        if range_filter:
-                            validation = range_filter.is_species_valid_at_location(
-                                species, confidence=conf,
-                                date=datetime.datetime.now()
-                            )
-                            if not validation["valid"]:
-                                _metrics.counter("rejected_range").inc()
-                                log.info(
-                                    "[%s] Range filter rejected: %s (%.0f%%) — %s",
-                                    camera_name, species, conf * 100, validation["reason"],
-                                )
-                                continue
-
-                        # Record for dynamic threshold learning
-                        if dyn_thresh:
-                            dyn_thresh.record_detection(species, conf)
-
-                        # Extract the 3s clip from the analysis buffer
-                        start_sec = det.get("start_time", 0)
-                        clip_start = int(start_sec * SAMPLE_RATE * 2)
-                        clip_end = clip_start + CHUNK_BYTES
-                        if clip_end > len(raw):
-                            clip_start = max(0, len(raw) - CHUNK_BYTES)
-                            clip_end = len(raw)
-                        clip_raw = raw[clip_start:clip_end]
-
-                        try:
-                            clip_name = save_clip(clip_raw, det)
-                        except Exception as e:
-                            log.warning("[%s] Failed to save clip: %s", camera_name, e)
-                            clip_name = ""
-                        t_db = time.monotonic()
-                        insert_detection(det, clip_name, source=camera_name)
-                        _metrics.histogram("db_write_ms").record((time.monotonic() - t_db) * 1000)
-                        _metrics.counter("accepted").inc()
-                        _metrics.histogram("accepted_confidence").record(conf)
+                        clip_name = _accept_detection(
+                            det, raw, camera_name, range_filter, dyn_thresh)
+                        if clip_name is None:
+                            continue
                         total_detections += 1
-                        log.info(
-                            "[%s] Detection #%d: %s (%.0f%%) — %s",
-                            camera_name, total_detections,
-                            species,
-                            conf * 100,
-                            clip_name,
-                        )
-
+                        log.info("[%s] Detection #%d: %s (%.0f%%) — %s",
+                                 camera_name, total_detections, species, conf * 100, clip_name)
                         if MULTI_CAMERA_ENABLED:
                             if check_cross_camera(species, camera_name):
-                                log.info("[%s] Multi-source confirmation: %s also on another camera",
-                                         camera_name, species)
+                                log.info("[%s] Multi-source: %s", camera_name, species)
 
-                    # Process all confirmed detections (from auto-flush in add() + explicit flush())
+                    # Process confirmed detections from overlap confirmation
                     if confirmer:
-                        all_confirmed = confirmed_from_add + confirmer.flush(now_time)
+                        all_confirmed = auto_flushed + confirmer.flush(now_time)
                         for confirmed_det in all_confirmed:
-                            species = confirmed_det["common_name"]
-                            conf = confirmed_det["confidence"]
-                            confirmations = confirmed_det.get("confirmations", 1)
-
-                            # Range filter
-                            if range_filter:
-                                validation = range_filter.is_species_valid_at_location(
-                                    species, confidence=conf,
-                                    date=datetime.datetime.now()
-                                )
-                                if not validation["valid"]:
-                                    _metrics.counter("rejected_range").inc()
-                                    log.info("[%s] Range filter rejected: %s (%.0f%%) — %s",
-                                             camera_name, species, conf * 100, validation["reason"])
-                                    continue
-
-                            if dyn_thresh:
-                                dyn_thresh.record_detection(species, conf)
-
-                            # Use the raw PCM from when the detection was originally captured
-                            # (not the current buffer, which is from a later window)
                             det_raw = confirmed_det.pop("_raw_pcm", raw)
-                            start_sec = confirmed_det.get("start_time", 0)
-                            clip_start = int(start_sec * SAMPLE_RATE * 2)
-                            clip_end = clip_start + CHUNK_BYTES
-                            if clip_end > len(det_raw):
-                                clip_start = max(0, len(det_raw) - CHUNK_BYTES)
-                                clip_end = len(det_raw)
-                            clip_raw = det_raw[clip_start:clip_end]
-
-                            try:
-                                clip_name = save_clip(clip_raw, confirmed_det)
-                            except Exception as e:
-                                log.warning("[%s] Failed to save clip: %s", camera_name, e)
-                                clip_name = ""
-                            insert_detection(confirmed_det, clip_name,
-                                             source=camera_name, confirmations=confirmations)
-                            _metrics.counter("accepted").inc()
+                            confirmations = confirmed_det.get("confirmations", 1)
+                            clip_name = _accept_detection(
+                                confirmed_det, det_raw, camera_name,
+                                range_filter, dyn_thresh, confirmations)
+                            if clip_name is None:
+                                continue
                             total_detections += 1
                             log.info("[%s] Detection #%d: %s (%.0f%%, %d confirms) — %s",
-                                     camera_name, total_detections, species, conf * 100,
+                                     camera_name, total_detections,
+                                     confirmed_det["common_name"],
+                                     confirmed_det["confidence"] * 100,
                                      confirmations, clip_name)
-
                             if MULTI_CAMERA_ENABLED:
-                                if check_cross_camera(species, camera_name):
-                                    log.info("[%s] Multi-source confirmation: %s also on another camera",
-                                             camera_name, species)
+                                if check_cross_camera(confirmed_det["common_name"], camera_name):
+                                    log.info("[%s] Multi-source: %s",
+                                             camera_name, confirmed_det["common_name"])
 
                     if test_mode:
                         log.info("[%s] Test mode: processed 1 analysis window, exiting",

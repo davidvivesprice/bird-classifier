@@ -2,10 +2,6 @@
 
 Provides RTSPStreamManager for audio services. Handles URL loading,
 multi-stream fallback, on-demand URL refresh, and health reporting.
-
-Used by:
-  - audio_analyzer.py    (preferred=ground, fallback=birds)
-  - enhanced_audio_stream.py (preferred=birds, fallback=ground)
 """
 
 import json
