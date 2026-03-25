@@ -25,7 +25,7 @@ from PIL import Image
 
 # Config (all overridable via env)
 PROTECT_HOST = os.environ.get('PROTECT_HOST', '192.168.4.9')
-API_KEY = os.environ.get('UNIFI_PROTECT_API_KEY', '9X1Ua2_GyZHsvW2jRTkO1-zcM-S2F_g-')
+API_KEY = os.environ.get('UNIFI_PROTECT_API_KEY', '')
 
 # Camera config: comma-separated name:id pairs
 CAMERAS_STR = os.environ.get(

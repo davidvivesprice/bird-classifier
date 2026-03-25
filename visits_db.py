@@ -218,7 +218,7 @@ def end_stale_visits(max_age_seconds=300):
     conn.execute(
         "UPDATE visits SET status='ended' "
         "WHERE status='active' "
-        "AND (julianday('now') - julianday(end_time)) * 86400 > ?",
+        "AND (julianday('now', 'localtime') - julianday(end_time)) * 86400 > ?",
         (max_age_seconds,),
     )
     conn.commit()

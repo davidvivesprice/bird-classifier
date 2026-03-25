@@ -75,8 +75,9 @@ def is_nighttime(lat=DEFAULT_LAT, lon=DEFAULT_LON, offset_minutes=30):
     sunrise_local = sunrise_utc + offset
     sunset_local = sunset_utc + offset
     current_hours = now.hour + now.minute / 60.0
+    sunrise_cutoff = sunrise_local - offset_minutes / 60.0
     sunset_cutoff = sunset_local + offset_minutes / 60.0
-    return current_hours >= sunset_cutoff or current_hours < sunrise_local
+    return current_hours >= sunset_cutoff or current_hours < sunrise_cutoff
 
 
 def is_twilight_window(lat=DEFAULT_LAT, lon=DEFAULT_LON, window_minutes=30):

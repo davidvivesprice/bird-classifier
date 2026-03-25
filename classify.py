@@ -425,7 +425,9 @@ def process_file(image_path, range_filter=None):
         return None
 
     try:
-        img = Image.open(image_path).convert("RGB")
+        img = Image.open(image_path)
+        img.load()  # force full decode — catch corrupt JPEGs early
+        img = img.convert("RGB")
     except Exception as e:
         logging.error("Failed to open %s: %s", fname, e)
         FAILED_DIR.mkdir(parents=True, exist_ok=True)
@@ -623,7 +625,7 @@ def process_file(image_path, range_filter=None):
                 except Exception as exc:
                     logging.warning("Failed to trash %s: %s", fname, exc)
                 logging.info("CULL %s — %s over cap (%d/%d)", fname, species_name, existing, cap)
-                return
+                return result
     except Exception as exc:
         logging.warning("Auto-cull check failed for %s, continuing with normal classification: %s", fname, exc)
 
@@ -672,10 +674,16 @@ def get_pending_files():
     if not INCOMING_DIR.exists():
         return []
     now = time.time()
-    files = sorted(INCOMING_DIR.glob("*.jpg"))
-    return [f for f in files
-            if not f.name.endswith(".tmp")
-            and (now - f.stat().st_mtime) > 2.0]
+    result = []
+    for f in sorted(INCOMING_DIR.glob("*.jpg")):
+        if f.name.endswith(".tmp"):
+            continue
+        try:
+            if (now - f.stat().st_mtime) > 2.0:
+                result.append(f)
+        except OSError:
+            pass  # file moved/deleted between glob and stat
+    return result
 
 
 def process_all(range_filter=None):

@@ -109,7 +109,7 @@ NIGHT_OFFSET_MINUTES = 30  # keep running after sunset
 from solar_utils import solar_times, is_nighttime
 
 # Auth cookie for NAS proxy
-AUTH_COOKIE = os.environ.get("BIRDS_AUTH_COOKIE", "pW3nRj5vKz")
+AUTH_COOKIE = os.environ.get("BIRDS_AUTH_COOKIE", "")
 
 
 # ──────────────────────────────────────────────────
