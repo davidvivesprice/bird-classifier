@@ -2365,6 +2365,10 @@
             <div class="sp-photo-links" id="sp-photo-links"></div>
           </div>
           <div class="sp-summary" id="sp-summary"></div>
+          <div id="sp-yard-stats" style="display:none;margin-top:12px;padding:12px;background:var(--bg-primary);border-radius:6px;font-size:0.85rem;line-height:1.7;">
+            <div style="font-weight:600;color:var(--accent-green);margin-bottom:6px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.05em;">In Your Yard</div>
+            <div id="sp-yard-content"></div>
+          </div>
         </div>
         <div class="sp-audio-section" id="sp-audio-section" style="display:none">
           <div class="sp-audio-title">Bird Calls &amp; Songs</div>
@@ -3496,6 +3500,41 @@
     // Summary
     var summaryEl = document.getElementById('sp-summary');
     summaryEl.textContent = data.summary || 'No description available.';
+
+    // Your Yard stats
+    var yardEl = document.getElementById('sp-yard-stats');
+    var yardContent = document.getElementById('sp-yard-content');
+    yardEl.style.display = 'none';
+    fetch('/bird-api/species-profile/' + encodeURIComponent(name))
+      .then(function(r) { return r.json(); })
+      .then(function(p) {
+        if (!p.found) return;
+        yardEl.style.display = '';
+        var lines = [];
+        lines.push('First seen: <strong>' + p.first_seen + '</strong>');
+        lines.push('Total sightings: <strong>' + p.total_sightings + '</strong>' +
+          (p.audio_detections > 0 ? ' (+ ' + p.audio_detections + ' audio)' : ''));
+        lines.push('Active on <strong>' + p.days_active + '</strong> days');
+        if (p.total_visits > 0) {
+          var dur = p.avg_visit_seconds >= 60 ?
+            Math.round(p.avg_visit_seconds / 60) + ' min' :
+            p.avg_visit_seconds + ' sec';
+          lines.push('Visits: <strong>' + p.total_visits + '</strong>, avg ' + dur + ' each');
+          if (p.avg_flock_size > 1.2) {
+            lines.push('Usually comes in groups of <strong>' + p.avg_flock_size.toFixed(1) + '</strong>' +
+              (p.max_flock_size > 2 ? ' (max ' + p.max_flock_size + ')' : ''));
+          }
+        }
+        if (p.peak_hours && p.peak_hours.length > 0) {
+          var hrs = p.peak_hours.slice(0, 2).map(function(h) {
+            var ampm = h.hour >= 12 ? 'PM' : 'AM';
+            return (h.hour % 12 || 12) + ' ' + ampm;
+          });
+          lines.push('Most active at <strong>' + hrs.join('</strong> and <strong>') + '</strong>');
+        }
+        yardContent.innerHTML = lines.join('<br>');
+      })
+      .catch(function() {});
 
     // Audio
     var audioSection = document.getElementById('sp-audio-section');

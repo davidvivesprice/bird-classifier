@@ -902,6 +902,95 @@ def available_dates():
     return cached_result("dates:all", 60, _compute)
 
 
+@app.get("/api/species-profile/{name}")
+def species_profile(name: str):
+    """Your yard's data for a species — first seen, visits, peak hours, flock size."""
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+        n = normalize_species(name)
+
+        # First and last seen
+        dates = conn.execute(
+            "SELECT MIN(source_date) as first, MAX(source_date) as last, COUNT(*) as total "
+            "FROM classifications WHERE action='classified' AND common_name=?", (n,)
+        ).fetchone()
+
+        if not dates or not dates[0]:
+            return {"species": n, "found": False}
+
+        # Days active
+        days = conn.execute(
+            "SELECT COUNT(DISTINCT source_date) FROM classifications "
+            "WHERE action='classified' AND common_name=?", (n,)
+        ).fetchone()[0]
+
+        # Peak hour
+        peak = conn.execute(
+            "SELECT CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hr, COUNT(*) as cnt "
+            "FROM classifications WHERE action='classified' AND common_name=? "
+            "GROUP BY hr ORDER BY cnt DESC LIMIT 3", (n,)
+        ).fetchall()
+        peak_hours = [{"hour": r[0], "count": r[1]} for r in peak]
+
+        # Visit stats
+        avg_visit = None
+        avg_flock = None
+        total_visits = 0
+        try:
+            vconn = vdb.get_conn(readonly=True)
+            vstats = vconn.execute(
+                "SELECT COUNT(*) as visits, ROUND(AVG(duration_sec)) as avg_dur, "
+                "ROUND(AVG(bird_count),1) as avg_flock, MAX(bird_count) as max_flock "
+                "FROM visits WHERE species=?", (n,)
+            ).fetchone()
+            if vstats and vstats[0]:
+                total_visits = vstats[0]
+                avg_visit = int(vstats[1] or 0)
+                avg_flock = float(vstats[2] or 1)
+                max_flock = vstats[3] or 1
+        except Exception:
+            max_flock = 1
+
+        # Audio detections
+        audio_count = 0
+        bconn = _birdnet_db()
+        if bconn:
+            try:
+                arow = bconn.execute(
+                    "SELECT COUNT(*) FROM notes WHERE common_name=?", (n,)
+                ).fetchone()
+                audio_count = arow[0] if arow else 0
+            except Exception:
+                pass
+
+        # Recent trend (last 7 days by day)
+        recent = conn.execute(
+            "SELECT source_date, COUNT(*) FROM classifications "
+            "WHERE action='classified' AND common_name=? "
+            "AND source_date >= date('now', '-7 days') "
+            "GROUP BY source_date ORDER BY source_date", (n,)
+        ).fetchall()
+        recent_trend = [{"date": r[0], "count": r[1]} for r in recent]
+
+        return {
+            "species": n,
+            "found": True,
+            "first_seen": dates[0],
+            "last_seen": dates[1],
+            "total_sightings": dates[2],
+            "days_active": days,
+            "audio_detections": audio_count,
+            "total_visits": total_visits,
+            "avg_visit_seconds": avg_visit,
+            "avg_flock_size": avg_flock,
+            "max_flock_size": max_flock if total_visits else None,
+            "peak_hours": peak_hours,
+            "recent_trend": recent_trend,
+        }
+
+    return cached_result(f"profile:{name}", 120, _compute)
+
+
 @app.get("/api/species-info/{name}")
 def species_info(name: str):
     """Return cached species info (description, photos, audio)."""
