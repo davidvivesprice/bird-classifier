@@ -469,6 +469,81 @@ def daily_highlights(date: Optional[str] = Query(None)):
     return cached_result(f"highlights:{today}", 60, _compute)
 
 
+@app.get("/api/weekly-snapshot")
+def weekly_snapshot():
+    """Weekly trends and notable species behavior."""
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Daily species + sightings for past 7 days
+        daily = conn.execute(
+            "SELECT source_date, COUNT(DISTINCT common_name) as species, COUNT(*) as sightings "
+            "FROM classifications WHERE action='classified' AND common_name IS NOT NULL "
+            "AND source_date >= date(?, '-7 days') "
+            "GROUP BY source_date ORDER BY source_date", (today,)
+        ).fetchall()
+        trend = [{"date": r[0], "species": r[1], "sightings": r[2]} for r in daily]
+
+        # New arrivals this week (first-ever sightings)
+        arrivals = conn.execute(
+            "SELECT common_name, MIN(source_date) as first_seen "
+            "FROM classifications WHERE action='classified' AND common_name IS NOT NULL "
+            "GROUP BY common_name HAVING first_seen >= date(?, '-7 days') "
+            "ORDER BY first_seen", (today,)
+        ).fetchall()
+        new_arrivals = [{"species": r[0], "date": r[1]} for r in arrivals]
+
+        # Most active hour (all-time)
+        peak = conn.execute(
+            "SELECT CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hour, COUNT(*) as cnt "
+            "FROM classifications WHERE action='classified' "
+            "GROUP BY hour ORDER BY cnt DESC LIMIT 1"
+        ).fetchone()
+
+        # Visit behavior — most interesting patterns
+        try:
+            vconn = vdb.get_conn(readonly=True)
+            visitors = vconn.execute(
+                "SELECT species, ROUND(AVG(duration_sec)) as avg_dur, "
+                "ROUND(AVG(bird_count),1) as avg_flock, COUNT(*) as visits "
+                "FROM visits WHERE source_date >= date(?, '-7 days') "
+                "GROUP BY species HAVING visits >= 3 "
+                "ORDER BY avg_dur DESC LIMIT 5", (today,)
+            ).fetchall()
+            longest_visitors = [
+                {"species": r[0], "avg_seconds": int(r[1] or 0),
+                 "avg_flock": float(r[2] or 1), "visits": r[3]}
+                for r in visitors
+            ]
+
+            # Biggest flocks
+            flocks = vconn.execute(
+                "SELECT species, MAX(bird_count) as max_flock, "
+                "ROUND(AVG(bird_count),1) as avg_flock, COUNT(*) as visits "
+                "FROM visits WHERE source_date >= date(?, '-7 days') AND bird_count > 1 "
+                "GROUP BY species ORDER BY max_flock DESC LIMIT 5", (today,)
+            ).fetchall()
+            biggest_flocks = [
+                {"species": r[0], "max_flock": r[1],
+                 "avg_flock": float(r[2] or 1), "visits": r[3]}
+                for r in flocks
+            ]
+        except Exception:
+            longest_visitors = []
+            biggest_flocks = []
+
+        return {
+            "trend": trend,
+            "new_arrivals": new_arrivals,
+            "all_time_peak_hour": peak[0] if peak else None,
+            "longest_visitors": longest_visitors,
+            "biggest_flocks": biggest_flocks,
+        }
+
+    return cached_result("weekly_snapshot", 300, _compute)
+
+
 @app.get("/api/stats")
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):

@@ -2102,6 +2102,27 @@
       </div>
     </div>
 
+    <!-- Weekly Snapshot -->
+    <div class="highlights" id="weekly-snapshot" style="display:none">
+      <div class="highlights-main" style="grid-column:1/-1">
+        <div>
+          <span class="highlights-label" style="font-size:0.92rem;color:#fff;font-weight:600">This Week</span>
+        </div>
+      </div>
+      <div class="highlights-section" id="ws-trend">
+        <div class="highlights-section-title">Daily trend</div>
+        <div id="ws-trend-bars" style="display:flex;align-items:flex-end;gap:3px;height:40px;margin-top:4px;"></div>
+      </div>
+      <div class="highlights-section" id="ws-visitors">
+        <div class="highlights-section-title">Longest visitors</div>
+        <div id="ws-visitors-list">—</div>
+      </div>
+      <div class="highlights-section" id="ws-arrivals">
+        <div class="highlights-section-title">New arrivals</div>
+        <div id="ws-arrivals-list">None this week</div>
+      </div>
+    </div>
+
     <!-- Row 1: Live + Recent -->
     <div class="row-live">
       <div class="panel">
@@ -5912,7 +5933,54 @@
       .catch(function() {});
   }
   loadHighlights();
-  setInterval(loadHighlights, 120000); // refresh every 2 min
+  setInterval(loadHighlights, 120000);
+
+  // ── Weekly Snapshot ──
+  function loadWeeklySnapshot() {
+    fetch('/bird-api/weekly-snapshot')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var el = document.getElementById('weekly-snapshot');
+        el.style.display = '';
+
+        // Mini bar chart for daily trend
+        var bars = document.getElementById('ws-trend-bars');
+        if (d.trend && d.trend.length > 0) {
+          var maxSpecies = Math.max.apply(null, d.trend.map(function(t) { return t.species; }));
+          bars.innerHTML = d.trend.map(function(t) {
+            var pct = maxSpecies > 0 ? (t.species / maxSpecies * 100) : 0;
+            var day = t.date.slice(5); // MM-DD
+            return '<div style="flex:1;text-align:center;" title="' + t.date + ': ' + t.species + ' species, ' + t.sightings + ' sightings">' +
+              '<div style="background:var(--accent-green);border-radius:2px;height:' + Math.max(4, pct * 0.36) + 'px;margin:0 auto;width:80%;"></div>' +
+              '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px;">' + day + '</div>' +
+            '</div>';
+          }).join('');
+        }
+
+        // Longest visitors
+        var visitors = document.getElementById('ws-visitors-list');
+        if (d.longest_visitors && d.longest_visitors.length > 0) {
+          visitors.innerHTML = d.longest_visitors.slice(0, 3).map(function(v) {
+            var dur = v.avg_seconds >= 60 ? Math.round(v.avg_seconds / 60) + 'm' : v.avg_seconds + 's';
+            var flock = v.avg_flock > 1.2 ? ' (' + v.avg_flock.toFixed(1) + ' avg)' : '';
+            return v.species + ' <span style="color:var(--text-muted)">' + dur + flock + '</span>';
+          }).join('<br>');
+        }
+
+        // New arrivals
+        var arrivals = document.getElementById('ws-arrivals-list');
+        if (d.new_arrivals && d.new_arrivals.length > 0) {
+          arrivals.innerHTML = d.new_arrivals.map(function(a) {
+            return '<span class="highlights-new">' + a.species + '</span> <span style="color:var(--text-muted)">' + a.date.slice(5) + '</span>';
+          }).join(', ');
+        } else {
+          arrivals.textContent = 'No new species this week';
+        }
+      })
+      .catch(function() {});
+  }
+  loadWeeklySnapshot();
+  setInterval(loadWeeklySnapshot, 300000); // refresh every 5 min
 
   // ── Audio Detection Browser ──
   var _audioOffset = 0;
