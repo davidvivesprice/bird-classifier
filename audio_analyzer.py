@@ -516,6 +516,10 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
 
                         # Overlap confirmation — add to pending, collect any auto-flushed results
                         if confirmer:
+                            # Attach raw PCM bytes to detection so the correct clip
+                            # can be saved when the detection is flushed (possibly
+                            # seconds later from a different buffer)
+                            det["_raw_pcm"] = raw
                             flushed = confirmer.add(species, conf, det, now_time)
                             if flushed:
                                 confirmed_from_add.extend(flushed)
@@ -595,13 +599,16 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                             if dyn_thresh:
                                 dyn_thresh.record_detection(species, conf)
 
+                            # Use the raw PCM from when the detection was originally captured
+                            # (not the current buffer, which is from a later window)
+                            det_raw = confirmed_det.pop("_raw_pcm", raw)
                             start_sec = confirmed_det.get("start_time", 0)
                             clip_start = int(start_sec * SAMPLE_RATE * 2)
                             clip_end = clip_start + CHUNK_BYTES
-                            if clip_end > len(raw):
-                                clip_start = max(0, len(raw) - CHUNK_BYTES)
-                                clip_end = len(raw)
-                            clip_raw = raw[clip_start:clip_end]
+                            if clip_end > len(det_raw):
+                                clip_start = max(0, len(det_raw) - CHUNK_BYTES)
+                                clip_end = len(det_raw)
+                            clip_raw = det_raw[clip_start:clip_end]
 
                             try:
                                 clip_name = save_clip(clip_raw, confirmed_det)

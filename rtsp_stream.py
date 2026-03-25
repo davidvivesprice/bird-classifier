@@ -399,6 +399,7 @@ class RTSPStreamManager:
             self.record_probe_failure()
             return False
 
+        container = None
         try:
             container = av.open(url, options={
                 "rtsp_transport": "tcp",
@@ -411,13 +412,11 @@ class RTSPStreamManager:
                     audio_stream = s
                     break
             if audio_stream is None:
-                container.close()
                 self.record_probe_failure()
                 return False
 
             for frame in container.decode(audio_stream):
                 break  # got one frame, enough
-            container.close()
             self.record_probe_success()
             return True
 
@@ -425,6 +424,12 @@ class RTSPStreamManager:
             log.debug("Recovery probe failed: %s", e)
             self.record_probe_failure()
             return False
+        finally:
+            if container:
+                try:
+                    container.close()
+                except Exception:
+                    pass
 
     def wait_backoff(self, shutdown_event=None):
         """Wait for the current backoff duration. Interruptible via shutdown_event."""
