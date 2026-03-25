@@ -5730,7 +5730,7 @@
   let _audioWarningDismissed = null;
 
   function pollAudioHealth() {
-    fetch('/api/audio-health')
+    fetch('/bird-api/audio-health')
       .then(r => r.json())
       .then(data => {
         const analyzer = data.analyzer || data.enhanced || {};
@@ -5795,7 +5795,7 @@
     if (species) params += '&species=' + encodeURIComponent(species);
     if (source) params += '&source=' + encodeURIComponent(source);
 
-    fetch('/api/audio-detections?' + params)
+    fetch('/bird-api/audio-detections?' + params)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         _audioDetections = append ? _audioDetections.concat(data.detections) : data.detections;
@@ -5810,7 +5810,7 @@
           data.detections.forEach(function(d) { seen[d.species] = true; });
           var sel = document.getElementById('audio-species-filter');
           // Also fetch full species list from summary
-          fetch('/api/birdnet-summary')
+          fetch('/bird-api/birdnet-summary')
             .then(function(r) { return r.json(); })
             .then(function(summary) {
               var todayDate = new Date().toISOString().slice(0, 10);
@@ -5864,7 +5864,7 @@
 
   window.playAudioBrowser = function(clipName, btn) {
     var audio = document.getElementById('audio-browser-player');
-    var url = '/api/birdnet-clip/' + clipName;
+    var url = '/bird-api/birdnet-clip/' + clipName;
 
     // Toggle off if same clip
     if (_audioPlayerClip === clipName && !audio.paused) {
