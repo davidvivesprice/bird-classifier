@@ -149,8 +149,8 @@ class RangeFilter:
             result["caution_level"] = "high"
             return result
 
-        # If we got here, species is valid
-        result["valid"] = species_info.get("valid", False)
+        # If we got here, species passed all checks — it's valid
+        result["valid"] = True
         result["reason"] = "Valid detection"
 
         # Add caution level if present

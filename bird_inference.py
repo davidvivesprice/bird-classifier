@@ -57,6 +57,9 @@ def crop_bird(image, box, pad_ratio=0.15):
     cy1 = max(0, y1 - pad_y)
     cx2 = min(w, x2 + pad_x)
     cy2 = min(h, y2 + pad_y)
+    # Guard against zero-size crops (degenerate boxes at image edge)
+    if cx2 <= cx1 or cy2 <= cy1:
+        cx1, cy1, cx2, cy2 = 0, 0, min(w, 10), min(h, 10)
     if isinstance(image, PILImage.Image):
         return image.crop((cx1, cy1, cx2, cy2))
     return image[cy1:cy2, cx1:cx2]
@@ -111,7 +114,7 @@ def _nms(boxes, scores, iou_threshold):
         yy2 = np.minimum(y2[i], y2[order[1:]])
 
         inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
-        iou = inter / (areas[i] + areas[order[1:]] - inter)
+        iou = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
 
         remaining = np.where(iou <= iou_threshold)[0]
         order = order[remaining + 1]

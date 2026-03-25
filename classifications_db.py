@@ -180,6 +180,16 @@ def insert_classification(entry: dict):
     conn.commit()
 
 
+def _safe_json(s):
+    """Parse JSON string, returning None on error instead of crashing."""
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 # ── Read helpers (used by api.py) ──
 
 def _row_to_entry(row):
@@ -201,22 +211,27 @@ def _row_to_entry(row):
         "detections": row["detections"],
     }
 
-    if row["best_detection_json"]:
-        d["best_detection"] = json.loads(row["best_detection_json"])
-    if row["top_prediction_json"]:
-        d["top_prediction"] = json.loads(row["top_prediction_json"])
-        if "common_name" in d["top_prediction"]:
-            d["top_prediction"]["common_name"] = normalize_species(d["top_prediction"]["common_name"])
-    if row["top3_json"]:
-        d["top3"] = json.loads(row["top3_json"])
-        for t in d["top3"]:
+    bd = _safe_json(row["best_detection_json"])
+    if bd:
+        d["best_detection"] = bd
+    tp = _safe_json(row["top_prediction_json"])
+    if tp:
+        d["top_prediction"] = tp
+        if "common_name" in tp:
+            tp["common_name"] = normalize_species(tp["common_name"])
+    top3 = _safe_json(row["top3_json"])
+    if top3:
+        d["top3"] = top3
+        for t in top3:
             if "common_name" in t:
                 t["common_name"] = normalize_species(t["common_name"])
-    if row["raw_top3_json"]:
-        d["raw_top3"] = json.loads(row["raw_top3_json"])
-    if row["birds_json"]:
-        d["birds"] = json.loads(row["birds_json"])
-        for b in d["birds"]:
+    raw_top3 = _safe_json(row["raw_top3_json"])
+    if raw_top3:
+        d["raw_top3"] = raw_top3
+    birds = _safe_json(row["birds_json"])
+    if birds:
+        d["birds"] = birds
+        for b in birds:
             if "common_name" in b:
                 b["common_name"] = normalize_species(b["common_name"])
             for t in b.get("top3", []):
@@ -230,9 +245,9 @@ def _row_to_entry(row):
         if row["filter_reason"]:
             d["filter_reason"] = row["filter_reason"]
 
-    # Merge extra fields back in
-    if row["extra_json"]:
-        d.update(json.loads(row["extra_json"]))
+    extra = _safe_json(row["extra_json"])
+    if extra and isinstance(extra, dict):
+        d.update(extra)
 
     return d
 

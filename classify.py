@@ -139,6 +139,24 @@ def load_regional_filter(path):
 # Annotation: draw bounding boxes + labels on image
 # ──────────────────────────────────────────────────
 
+_font_cache = [None, None]
+
+def _get_cached_fonts():
+    """Load fonts once, cache for reuse across all images."""
+    if _font_cache[0] is not None:
+        return _font_cache
+    for size, small_size in [(28, 18), (24, 16), (20, 14)]:
+        try:
+            _font_cache[0] = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
+            _font_cache[1] = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", small_size)
+            return _font_cache
+        except (OSError, IOError):
+            continue
+    _font_cache[0] = ImageFont.load_default()
+    _font_cache[1] = _font_cache[0]
+    return _font_cache
+
+
 def annotate_image(image, detections, all_predictions, best_idx=0):
     """
     Draw bounding boxes and species labels on a copy of the image.
@@ -150,18 +168,7 @@ def annotate_image(image, detections, all_predictions, best_idx=0):
     draw = ImageDraw.Draw(img)
 
     # Try to get a readable font, fall back to default
-    font = None
-    font_small = None
-    for size, small_size in [(28, 18), (24, 16), (20, 14)]:
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
-            font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", small_size)
-            break
-        except (OSError, IOError):
-            continue
-    if font is None:
-        font = ImageFont.load_default()
-        font_small = font
+    font, font_small = _get_cached_fonts()
 
     # Color palette for multiple birds — best is green, rest cycle through colors
     OTHER_COLORS = [
