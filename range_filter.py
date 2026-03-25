@@ -6,6 +6,7 @@ Filters out impossible detections (e.g., Carolina Chickadees in Cape Cod, seabir
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 
@@ -27,10 +28,16 @@ class RangeFilter:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             ranges_file = os.path.join(base_dir, "models", "species_ranges.json")
 
-        with open(ranges_file, "r") as f:
-            self.data = json.load(f)
+        try:
+            with open(ranges_file, "r") as f:
+                self.data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logging.warning("Range filter data unavailable (%s), allowing all species", e)
+            self.data = {"species": {}, "metadata": {}}
 
-        self.species_db = self.data.get("species", {})
+        # Normalize species names to title case for case-insensitive lookup
+        raw_db = self.data.get("species", {})
+        self.species_db = {k.title(): v for k, v in raw_db.items()}
         self.location = self.data.get("metadata", {})
         self.default_lat = self.location.get("latitude", DEFAULT_LATITUDE)
         self.default_lon = self.location.get("longitude", DEFAULT_LONGITUDE)
@@ -83,6 +90,8 @@ class RangeFilter:
             "caution_level": "none"
         }
 
+        # Normalize species name for case-insensitive lookup
+        species_name = species_name.title()
         # Look up species in database — if not present, allow through (no data = no rejection)
         if species_name not in self.species_db:
             result["valid"] = True

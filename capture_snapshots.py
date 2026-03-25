@@ -145,7 +145,9 @@ def camera_loop(camera_name: str, camera_id: str) -> None:
                 if day_count(OUTPUT_DIR, camera_name) < MAX_PER_DAY:
                     ts = time.strftime('%Y-%m-%d_%H-%M-%S')
                     fname = OUTPUT_DIR / f'{camera_name}_{ts}.jpg'
-                    fname.write_bytes(data)
+                    tmp = fname.with_suffix('.tmp')
+                    tmp.write_bytes(data)
+                    tmp.rename(fname)  # atomic on same filesystem
                     last_save = now
                     sys.stdout.write(
                         f'[{camera_name}] saved: {fname.name} '
