@@ -180,10 +180,15 @@ class DynamicThreshold:
 
     def __init__(self):
         self._species = {}  # species_name -> {"count": int, "last_seen": float}
+        self._last_expire = 0
 
     def _expire(self):
-        """Remove entries older than DYNAMIC_THRESHOLD_HOURS."""
-        cutoff = time.time() - DYNAMIC_THRESHOLD_HOURS * 3600
+        """Remove entries older than DYNAMIC_THRESHOLD_HOURS. Rate-limited to once/min."""
+        now = time.time()
+        if now - self._last_expire < 60:
+            return
+        self._last_expire = now
+        cutoff = now - DYNAMIC_THRESHOLD_HOURS * 3600
         expired = [k for k, v in self._species.items() if v["last_seen"] < cutoff]
         for k in expired:
             del self._species[k]
@@ -439,12 +444,22 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
     chunks_processed = 0
     last_cleanup = 0
 
+    # Cache nighttime check — recalculated at most once per 60s
+    _night_cache = [0, False]  # [last_check_time, is_night]
+
+    def _is_night():
+        now = time.time()
+        if now - _night_cache[0] < 60:
+            return _night_cache[1]
+        _night_cache[1] = is_nighttime(offset_minutes=NIGHT_OFFSET_MINUTES)
+        _night_cache[0] = now
+        return _night_cache[1]
+
     while not _shutdown.is_set():
-        # Sleep during nighttime — no birds calling, save CPU
-        if is_nighttime():
+        if _is_night():
             log.info("[%s] Nighttime — pausing analysis until sunrise", camera_name)
-            while is_nighttime() and not _shutdown.is_set():
-                _shutdown.wait(60)  # check every minute
+            while _is_night() and not _shutdown.is_set():
+                _shutdown.wait(60)
             if _shutdown.is_set():
                 break
             log.info("[%s] Sunrise — resuming analysis", camera_name)
@@ -460,8 +475,8 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
             for frame in container.decode(audio_stream):
                 if _shutdown.is_set():
                     break
-                if is_nighttime():
-                    break  # exit decode loop → outer loop will sleep
+                if _is_night():
+                    break
 
                 # Decode to numpy, take channel 0 (stereo channels are identical),
                 # convert to s16le bytes — no resampler needed, avoids frame-boundary artifacts
@@ -583,7 +598,9 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
 
                     # Process confirmed detections from overlap confirmation
                     if confirmer:
-                        all_confirmed = auto_flushed + confirmer.flush(now_time)
+                        # Explicit flush catches windows expiring when no new detections arrive
+                        auto_flushed.extend(confirmer.flush(now_time))
+                        all_confirmed = auto_flushed
                         for confirmed_det in all_confirmed:
                             det_raw = confirmed_det.pop("_raw_pcm", raw)
                             confirmations = confirmed_det.get("confirmations", 1)
