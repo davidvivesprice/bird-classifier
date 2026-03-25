@@ -389,6 +389,86 @@ def cameras_list():
     return cdb.get_cameras()
 
 
+@app.get("/api/daily-highlights")
+def daily_highlights(date: Optional[str] = Query(None)):
+    """Today's story — highlights, firsts, audio-visual comparison.
+
+    Returns data for the highlights card on the dashboard.
+    """
+    today = date or datetime.now().strftime("%Y-%m-%d")
+
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+
+        # Visual species today
+        visual = conn.execute(
+            "SELECT common_name, COUNT(*) as cnt FROM classifications "
+            "WHERE action='classified' AND source_date=? AND common_name IS NOT NULL "
+            "GROUP BY common_name ORDER BY cnt DESC", (today,)
+        ).fetchall()
+        visual_species = {r[0] for r in visual}
+        visual_total = sum(r[1] for r in visual)
+
+        # Peak hour
+        hours = conn.execute(
+            "SELECT CAST(SUBSTR(source_timestamp, 12, 2) AS INTEGER) as hr, COUNT(*) as cnt "
+            "FROM classifications WHERE action='classified' AND source_date=? "
+            "GROUP BY hr ORDER BY cnt DESC LIMIT 1", (today,)
+        ).fetchone()
+        peak_hour = hours[0] if hours else None
+        peak_count = hours[1] if hours else 0
+
+        # First-ever sightings (species seen today that have never been seen before today)
+        firsts = conn.execute(
+            "SELECT common_name, MIN(source_date) as first_date "
+            "FROM classifications WHERE action='classified' AND common_name IS NOT NULL "
+            "GROUP BY common_name HAVING first_date = ?", (today,)
+        ).fetchall()
+        new_species = [r[0] for r in firsts]
+
+        # Audio species today
+        audio_species = set()
+        audio_total = 0
+        birdnet_conn = _birdnet_db()
+        if birdnet_conn:
+            try:
+                audio_rows = birdnet_conn.execute(
+                    "SELECT common_name, COUNT(*) as cnt FROM notes "
+                    "WHERE date=? GROUP BY common_name", (today,)
+                ).fetchall()
+                audio_species = {r[0] for r in audio_rows}
+                audio_total = sum(r[1] for r in audio_rows)
+            except Exception:
+                pass
+
+        # Audio-visual comparison
+        heard_not_seen = sorted(audio_species - visual_species)
+        seen_not_heard = sorted(visual_species - audio_species)
+        both = sorted(visual_species & audio_species)
+
+        # Top visual species
+        top_visual = [{"species": r[0], "count": r[1]} for r in visual[:5]]
+
+        result = {
+            "date": today,
+            "visual_species": len(visual_species),
+            "visual_total": visual_total,
+            "audio_species": len(audio_species),
+            "audio_total": audio_total,
+            "total_species": len(visual_species | audio_species),
+            "peak_hour": peak_hour,
+            "peak_count": peak_count,
+            "new_species": new_species,
+            "heard_not_seen": heard_not_seen,
+            "seen_not_heard": seen_not_heard,
+            "confirmed_both": both,
+            "top_visual": top_visual,
+        }
+        return result
+
+    return cached_result(f"highlights:{today}", 60, _compute)
+
+
 @app.get("/api/stats")
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):

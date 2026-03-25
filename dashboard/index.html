@@ -1305,6 +1305,69 @@
   }
   .audio-load-more:hover { background: var(--bg-hover); }
 
+  /* Daily highlights card */
+  .highlights {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #1a2535 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .highlights-main {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .highlights-big {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent-green);
+    line-height: 1;
+  }
+  .highlights-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  .highlights-stat {
+    text-align: center;
+  }
+  .highlights-stat-value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #fff;
+  }
+  .highlights-stat-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .highlights-section {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .highlights-section-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent-green);
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .highlights-new {
+    color: var(--accent-green);
+    font-weight: 600;
+  }
+  @media (max-width: 768px) {
+    .highlights { grid-template-columns: 1fr; padding: 12px 14px; gap: 10px; }
+    .highlights-big { font-size: 1.5rem; }
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -2004,6 +2067,40 @@
 
   <!-- Dashboard Tab -->
   <div class="tab-content active" id="tab-dashboard">
+
+    <!-- Daily Highlights -->
+    <div class="highlights" id="highlights" style="display:none">
+      <div class="highlights-main">
+        <div>
+          <span class="highlights-big" id="hl-total-species">—</span>
+          <span class="highlights-label">species today</span>
+        </div>
+        <div class="highlights-stat">
+          <div class="highlights-stat-value" id="hl-visual">—</div>
+          <div class="highlights-stat-label">seen on camera</div>
+        </div>
+        <div class="highlights-stat">
+          <div class="highlights-stat-value" id="hl-audio">—</div>
+          <div class="highlights-stat-label">heard singing</div>
+        </div>
+        <div class="highlights-stat">
+          <div class="highlights-stat-value" id="hl-peak">—</div>
+          <div class="highlights-stat-label">peak hour</div>
+        </div>
+      </div>
+      <div class="highlights-section" id="hl-new" style="display:none">
+        <div class="highlights-section-title">New this season</div>
+        <div id="hl-new-list"></div>
+      </div>
+      <div class="highlights-section" id="hl-heard">
+        <div class="highlights-section-title">Heard but not seen</div>
+        <div id="hl-heard-list">—</div>
+      </div>
+      <div class="highlights-section" id="hl-seen">
+        <div class="highlights-section-title">Seen but not heard</div>
+        <div id="hl-seen-list">—</div>
+      </div>
+    </div>
 
     <!-- Row 1: Live + Recent -->
     <div class="row-live">
@@ -5779,6 +5876,43 @@
 
   setInterval(pollAudioHealth, 60000);
   pollAudioHealth();
+
+  // ── Daily Highlights ──
+  function loadHighlights() {
+    fetch('/bird-api/daily-highlights')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var el = document.getElementById('highlights');
+        el.style.display = '';
+
+        document.getElementById('hl-total-species').textContent = d.total_species;
+        document.getElementById('hl-visual').textContent = d.visual_total;
+        document.getElementById('hl-audio').textContent = d.audio_total;
+
+        if (d.peak_hour !== null) {
+          var ampm = d.peak_hour >= 12 ? 'PM' : 'AM';
+          var hr = d.peak_hour % 12 || 12;
+          document.getElementById('hl-peak').textContent = hr + ' ' + ampm;
+        }
+
+        if (d.new_species && d.new_species.length > 0) {
+          document.getElementById('hl-new').style.display = '';
+          document.getElementById('hl-new-list').innerHTML =
+            d.new_species.map(function(s) { return '<span class="highlights-new">' + s + '</span>'; }).join(', ');
+        }
+
+        document.getElementById('hl-heard-list').textContent =
+          d.heard_not_seen.length > 0 ? d.heard_not_seen.slice(0, 5).join(', ') +
+            (d.heard_not_seen.length > 5 ? ' +' + (d.heard_not_seen.length - 5) + ' more' : '') : 'None';
+
+        document.getElementById('hl-seen-list').textContent =
+          d.seen_not_heard.length > 0 ? d.seen_not_heard.slice(0, 5).join(', ') +
+            (d.seen_not_heard.length > 5 ? ' +' + (d.seen_not_heard.length - 5) + ' more' : '') : 'None';
+      })
+      .catch(function() {});
+  }
+  loadHighlights();
+  setInterval(loadHighlights, 120000); // refresh every 2 min
 
   // ── Audio Detection Browser ──
   var _audioOffset = 0;
