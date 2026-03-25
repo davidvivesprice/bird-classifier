@@ -507,14 +507,19 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                         if existing is None or conf > existing["confidence"]:
                             best_per_slice[slice_key] = det
 
+                    # Collect confirmed detections from overlap confirmation
+                    confirmed_from_add = []
+
                     for det in best_per_slice.values():
                         species = det["common_name"]
                         conf = det["confidence"]
 
-                        # Overlap confirmation — add to pending, don't process directly
+                        # Overlap confirmation — add to pending, collect any auto-flushed results
                         if confirmer:
-                            confirmer.add(species, conf, det, now_time)
-                            continue  # processing happens in flush below
+                            flushed = confirmer.add(species, conf, det, now_time)
+                            if flushed:
+                                confirmed_from_add.extend(flushed)
+                            continue  # additional flushing happens below
 
                         # Range filter: reject impossible species for this location/habitat
                         if range_filter:
@@ -567,9 +572,10 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                                 log.info("[%s] Multi-source confirmation: %s also on another camera",
                                          camera_name, species)
 
-                    # Flush confirmed detections from overlap confirmation
+                    # Process all confirmed detections (from auto-flush in add() + explicit flush())
                     if confirmer:
-                        for confirmed_det in confirmer.flush(now_time):
+                        all_confirmed = confirmed_from_add + confirmer.flush(now_time)
+                        for confirmed_det in all_confirmed:
                             species = confirmed_det["common_name"]
                             conf = confirmed_det["confidence"]
                             confirmations = confirmed_det.get("confirmations", 1)
