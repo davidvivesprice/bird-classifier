@@ -1207,7 +1207,9 @@ async def birdnet_events():
                     }
                     yield f"data: {json.dumps(event)}\n\n"
                     last_id = det_id
-                    _birdnet_last_id = det_id
+                    # Note: do NOT write _birdnet_last_id here — multiple SSE
+                    # clients would race on the global. Each generator tracks
+                    # its own local last_id independently.
 
                     # Invalidate summary cache on new detection
                     global _birdnet_summary_mtime
@@ -1311,7 +1313,7 @@ def birdnet_clip(clip_path: str):
 
     full_path = (BIRDNET_CLIPS_DIR / safe_path).resolve()
     # Verify resolved path stays within allowed directory
-    if not str(full_path).startswith(str(BIRDNET_CLIPS_DIR.resolve())):
+    if not full_path.is_relative_to(BIRDNET_CLIPS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not full_path.exists():
@@ -1351,8 +1353,8 @@ def get_doc(doc_path: str):
     if not full_path.exists():
         full_path = (DOCS_DIR / (str(safe_path) + ".md")).resolve()
 
-    # Verify path stays within docs directory
-    if not str(full_path).startswith(str(DOCS_DIR.resolve())):
+    # Verify path stays within docs directory (is_relative_to prevents prefix collisions)
+    if not full_path.is_relative_to(DOCS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not full_path.exists():
