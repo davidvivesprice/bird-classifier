@@ -433,6 +433,7 @@ def process_file(image_path, range_filter=None):
         FAILED_DIR.mkdir(parents=True, exist_ok=True)
         shutil.move(str(image_path), str(FAILED_DIR / fname))
         return None
+    _images_to_close = [img]  # track for cleanup in finally block
 
     # Auto-trash infrared/grayscale frames during twilight
     if is_twilight_window():
@@ -450,6 +451,7 @@ def process_file(image_path, range_filter=None):
             TRASH_DIR.mkdir(parents=True, exist_ok=True)
             shutil.move(str(image_path), str(TRASH_DIR / fname))
             logging.info("TRASH-IR %s — infrared frame (saturation=%.4f, threshold=%.4f)", fname, mean_sat, IR_SATURATION_THRESHOLD)
+            img.close()
             return result
 
     t0 = time.monotonic()
@@ -642,6 +644,13 @@ def process_file(image_path, range_filter=None):
     annotated = annotate_image(img, detections, all_predictions, best_idx)
     ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
     annotated.save(str(ANNOTATED_DIR / fname), quality=90)
+    annotated.close()
+    # Close all tracked PIL images to prevent memory leak in watch mode
+    for _img in _images_to_close:
+        try:
+            _img.close()
+        except Exception:
+            pass
 
     try:
         shutil.move(str(image_path), str(species_dir / fname))
@@ -787,45 +796,43 @@ def reprocess(range_filter=None):
 
 
 def print_summary():
-    """Print summary of all classification results."""
-    jsonl_file = LOG_DIR / "classifications.jsonl"
-    if not jsonl_file.exists():
+    """Print summary of classification results from SQLite."""
+    import classifications_db as cdb
+    total = cdb.count_total()
+    species_count = cdb.count_species()
+    if total == 0:
         print("No classification results yet.")
         return
 
-    species_counts = {}
-    total = 0
-    skipped = 0
-
-    with open(jsonl_file) as f:
-        for line in f:
-            r = json.loads(line)
-            total += 1
-            if r["action"] == "classified":
-                name = r["top_prediction"]["common_name"]
-                score = r["top_prediction"]["raw_score"]
-                conf = r.get("best_detection", {}).get("confidence", 0)
-                species_counts.setdefault(name, []).append((score, conf))
-            elif r["action"].startswith("skipped"):
-                skipped += 1
+    conn = cdb.get_conn(readonly=True)
+    classified = conn.execute(
+        "SELECT COUNT(*) FROM classifications WHERE action='classified'"
+    ).fetchone()[0]
+    skipped = conn.execute(
+        "SELECT COUNT(*) FROM classifications WHERE action LIKE 'skipped%'"
+    ).fetchone()[0]
 
     print(f"\n{'='*65}")
-    print(f"Bird Classifier Summary (detect → classify)")
+    print(f"Bird Classifier Summary")
     print(f"{'='*65}")
     print(f"Total processed:  {total}")
-    print(f"Birds detected:   {total - skipped}")
+    print(f"Birds detected:   {classified}")
     print(f"No bird (skipped): {skipped}")
+    print(f"Species:          {species_count}")
     print()
 
-    if species_counts:
+    rows = conn.execute(
+        "SELECT common_name, COUNT(*) as cnt, "
+        "ROUND(AVG(confidence)*100, 1) as avg_conf, "
+        "ROUND(AVG(raw_score), 1) as avg_score "
+        "FROM classifications WHERE action='classified' AND common_name IS NOT NULL "
+        "GROUP BY common_name ORDER BY cnt DESC"
+    ).fetchall()
+    if rows:
         print(f"{'Species':<30} {'Count':>5}  {'Avg Det%':>8}  {'Avg Score':>9}")
         print(f"{'-'*30} {'-'*5}  {'-'*8}  {'-'*9}")
-        for name, data in sorted(species_counts.items(), key=lambda x: -len(x[1])):
-            scores = [d[0] for d in data]
-            confs = [d[1] for d in data]
-            avg_score = sum(scores) / len(scores)
-            avg_conf = sum(confs) / len(confs) * 100 if confs else 0
-            print(f"{name:<30} {len(data):>5}  {avg_conf:>7.1f}%  {avg_score:>9.1f}")
+        for r in rows:
+            print(f"{r[0]:<30} {r[1]:>5}  {r[2] or 0:>7.1f}%  {r[3] or 0:>9.1f}")
     print()
 
 

@@ -172,8 +172,10 @@ class YOLODetector:
         pad_y = (size - new_h) // 2
         padded = PILImage.new("RGB", (size, size), (114, 114, 114))
         padded.paste(resized, (pad_x, pad_y))
+        resized.close()  # free intermediate image
 
         arr = np.array(padded, dtype=np.float32) / 255.0
+        padded.close()  # free after converting to numpy
         arr = arr.transpose(2, 0, 1)[np.newaxis]  # NCHW
         return arr, scale, pad_x, pad_y
 
