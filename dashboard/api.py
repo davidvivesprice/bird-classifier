@@ -122,6 +122,7 @@ def serve_docs_html():
 # ── Result cache with TTL ──
 
 _result_cache: dict[str, tuple[float, object]] = {}
+_RESULT_CACHE_MAX = 200  # evict oldest when exceeded
 
 
 def cached_result(key: str, ttl: float, fn):
@@ -131,6 +132,16 @@ def cached_result(key: str, ttl: float, fn):
         return _result_cache[key][1]
     result = fn()
     _result_cache[key] = (now + ttl, result)
+    # Evict expired and oldest entries if cache grows too large
+    if len(_result_cache) > _RESULT_CACHE_MAX:
+        expired = [k for k, (exp, _) in _result_cache.items() if exp <= now]
+        for k in expired:
+            del _result_cache[k]
+        if len(_result_cache) > _RESULT_CACHE_MAX:
+            # Still too big — remove oldest by expiry time
+            oldest = sorted(_result_cache.items(), key=lambda x: x[1][0])
+            for k, _ in oldest[:len(_result_cache) - _RESULT_CACHE_MAX // 2]:
+                del _result_cache[k]
     return result
 
 
@@ -229,9 +240,6 @@ _health_cache = {"data": None, "time": 0}
 _HEALTH_CACHE_TTL = 10  # seconds
 _HEALTH_TIMEOUT = 3     # per-service timeout
 
-_SSL_CTX = ssl.create_default_context()
-_SSL_CTX.check_hostname = False
-_SSL_CTX.verify_mode = ssl.CERT_NONE
 
 
 def _fetch_service(url, name):

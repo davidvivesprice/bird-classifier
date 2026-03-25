@@ -452,7 +452,11 @@ function loadDoc(id) {
       history.replaceState(null, '', '#' + id);
     })
     .catch(function(e) {
-      content.innerHTML = '<div class="docs-loading">Document not found: ' + id + '</div>';
+      var errDiv = document.createElement('div');
+        errDiv.className = 'docs-loading';
+        errDiv.textContent = 'Document not found: ' + id;
+        content.innerHTML = '';
+        content.appendChild(errDiv);
     });
 }
 

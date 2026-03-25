@@ -294,7 +294,7 @@ def insert_detection(det, clip_name, source="ground", preprocessing="raw", confi
         _db_conn.commit()
 
 
-def check_cross_camera(species, source, detection_time):
+def check_cross_camera(species, source):
     """Check if same species was detected on a different camera within ±10s.
     If so, mark both as multi_source."""
     now = datetime.datetime.now()
@@ -415,6 +415,7 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
             stream_mgr.report_success()
 
             pcm_buf = bytearray()
+            max_buf_bytes = SAMPLE_RATE * 2 * CHANNELS * 30  # cap at 30s
 
             for frame in container.decode(audio_stream):
                 if _shutdown.is_set():
@@ -428,6 +429,13 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                 mono = arr[0]  # take first channel
                 pcm_samples = (mono * 32768.0).clip(-32768, 32767).astype(np.int16)
                 pcm_buf.extend(pcm_samples.tobytes())
+
+                # Cap buffer to prevent unbounded memory growth if analysis is slower than real-time
+                if len(pcm_buf) > max_buf_bytes:
+                    excess = len(pcm_buf) - ANALYSIS_BYTES
+                    del pcm_buf[:excess]
+                    log.warning("[%s] Buffer overflow (%d bytes), dropped oldest audio",
+                                camera_name, excess)
 
                 # Process when we have a full analysis window
                 while len(pcm_buf) >= ANALYSIS_BYTES:
@@ -462,21 +470,18 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                             min_conf=0.25,  # pre-filter low to feed confirmer
                             overlap=0.0,  # no internal overlap — we handle it via sliding window
                         )
-                        inference_result = [False]
-
-                        def _run_inference():
-                            with _inference_lock:
-                                with contextlib.redirect_stdout(io.StringIO()):
-                                    recording.analyze()
-                            inference_result[0] = True
-
-                        t_inf = threading.Thread(target=_run_inference, daemon=True)
-                        t_inf.start()
-                        t_inf.join(timeout=30)  # 30s max for inference
-                        if not inference_result[0]:
-                            log.error("[%s] Inference timed out (30s), skipping chunk", camera_name)
+                        # Serialize inference across camera threads.
+                        # Use acquire(timeout=) to prevent deadlock if a previous
+                        # inference thread is stuck (daemon threads can't be killed).
+                        if not _inference_lock.acquire(timeout=35):
+                            log.error("[%s] Inference lock timeout — previous inference may be stuck", camera_name)
                             _metrics.counter("inference_timeouts").inc()
                             continue
+                        try:
+                            with contextlib.redirect_stdout(io.StringIO()):
+                                recording.analyze()
+                        finally:
+                            _inference_lock.release()
                     except Exception as e:
                         log.error("[%s] Inference error: %s", camera_name, e)
                         _metrics.counter("inference_errors").inc()
@@ -572,7 +577,7 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                         )
 
                         if MULTI_CAMERA_ENABLED:
-                            if check_cross_camera(species, camera_name, None):
+                            if check_cross_camera(species, camera_name):
                                 log.info("[%s] Multi-source confirmation: %s also on another camera",
                                          camera_name, species)
 
@@ -624,7 +629,7 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
                                      confirmations, clip_name)
 
                             if MULTI_CAMERA_ENABLED:
-                                if check_cross_camera(species, camera_name, None):
+                                if check_cross_camera(species, camera_name):
                                     log.info("[%s] Multi-source confirmation: %s also on another camera",
                                              camera_name, species)
 

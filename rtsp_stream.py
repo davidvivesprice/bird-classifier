@@ -147,6 +147,7 @@ class RTSPStreamManager:
 
         if self._current_stream == self.preferred_stream:
             self._level = 1
+            self._current_quality = "high"  # reset from low-res if that's how we connected
             self._recovery_successes = 0
             self._write_health("connected")
         else:
@@ -217,7 +218,7 @@ class RTSPStreamManager:
             log.warning("Level 2: URL refresh triggered, retrying with fresh URLs")
             self._write_health("refreshing_urls")
 
-        elif total < RETRY_MAX + 1 + LOW_RES_MAX:
+        elif total <= RETRY_MAX + 1 + LOW_RES_MAX:
             self._level = 3
             self._current_quality = "low"
             self._backoff = min(BACKOFF_BASE * (2 ** (total - RETRY_MAX - 2)), BACKOFF_MAX)
@@ -369,20 +370,23 @@ class RTSPStreamManager:
 
         container = av.open(url, options=PYAV_OPTIONS)
 
-        # Find best audio stream (prefer highest sample rate)
-        audio_stream = None
-        for s in container.streams:
-            if s.type == "audio":
-                if audio_stream is None or s.rate > audio_stream.rate:
-                    audio_stream = s
+        try:
+            # Find best audio stream (prefer highest sample rate)
+            audio_stream = None
+            for s in container.streams:
+                if s.type == "audio":
+                    if audio_stream is None or s.rate > audio_stream.rate:
+                        audio_stream = s
 
-        if audio_stream is None:
+            if audio_stream is None:
+                raise RuntimeError("No audio stream found in RTSP feed")
+
+            log.info("Audio stream: %s %dHz %dch",
+                     audio_stream.codec_context.name,
+                     audio_stream.rate, audio_stream.channels)
+        except Exception:
             container.close()
-            raise RuntimeError("No audio stream found in RTSP feed")
-
-        log.info("Audio stream: %s %dHz %dch",
-                 audio_stream.codec_context.name,
-                 audio_stream.rate, audio_stream.channels)
+            raise
 
         return container, audio_stream
 

@@ -182,11 +182,17 @@ class TestEscalation:
         """After low-res fails, switch to fallback camera."""
         from rtsp_stream import RETRY_MAX, LOW_RES_MAX
         mgr = self._make_manager(urls_dir)
+        # Level 1: RETRY_MAX retries
         for _ in range(RETRY_MAX):
             mgr.report_failure(Exception("test"))
+        # Level 2: refresh
         mgr.report_failure(Exception("test"))
+        # Level 3: LOW_RES_MAX attempts
         for _ in range(LOW_RES_MAX):
             mgr.report_failure(Exception("test"))
+        assert mgr._level == 3  # still in low-res
+        # One more triggers fallback
+        mgr.report_failure(Exception("test"))
         assert mgr._level == 4
         assert mgr._current_stream == "birds"
 
@@ -206,7 +212,7 @@ class TestEscalation:
         """Successful connection on fallback stays at level 4, enables probes."""
         from rtsp_stream import RETRY_MAX, LOW_RES_MAX
         mgr = self._make_manager(urls_dir)
-        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 1):
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
             mgr.report_failure(Exception("test"))
         assert mgr._current_stream == "birds"
         mgr.report_success()
@@ -228,10 +234,10 @@ class TestEscalation:
         """After fallback exhausts all levels, enter down state."""
         from rtsp_stream import RETRY_MAX, LOW_RES_MAX
         mgr = self._make_manager(urls_dir)
-        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 1):
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
             mgr.report_failure(Exception("test"))
         assert mgr._current_stream == "birds"
-        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 1):
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
             mgr.report_failure(Exception("test"))
         assert mgr._level == 6
         assert mgr._current_stream == "ground"
@@ -294,7 +300,7 @@ class TestHealth:
     def test_health_file_on_fallback(self, urls_dir):
         from rtsp_stream import RETRY_MAX, LOW_RES_MAX
         mgr = self._make_manager(urls_dir)
-        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 1):
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
             mgr.report_failure(Exception("test"))
         health_path = urls_dir / "audio-stream-health-test.json"
         data = json.loads(health_path.read_text())
