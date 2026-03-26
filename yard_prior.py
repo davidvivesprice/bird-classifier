@@ -41,6 +41,7 @@ class YardPrior:
     def __init__(self):
         self._confusion = {}     # classified_as -> {actually_was: count}
         self._species_freq = {}  # species -> total confirmed count
+        self._species_hours = {} # species -> (earliest_hour, latest_hour)
         self._total_reviews = 0
         self._last_refresh = 0
         self._refresh_interval = 300  # rebuild every 5 min
@@ -80,6 +81,22 @@ class YardPrior:
             self._confusion = dict(confusion)
             self._species_freq = dict(species_freq)
             self._total_reviews = len(rows)
+
+            # Build activity hours from confirmed detections
+            hour_rows = conn.execute("""
+                SELECT c.common_name,
+                    MIN(CAST(SUBSTR(c.source_timestamp, 12, 2) AS INTEGER)) as earliest,
+                    MAX(CAST(SUBSTR(c.source_timestamp, 12, 2) AS INTEGER)) as latest
+                FROM classifications c
+                JOIN reviews r ON r.file = c.file
+                WHERE r.verdict = 'correct' AND c.source_timestamp IS NOT NULL
+                GROUP BY c.common_name
+                HAVING COUNT(*) >= 3
+            """).fetchall()
+            self._species_hours = {
+                r["common_name"]: (r["earliest"], r["latest"])
+                for r in hour_rows
+            }
             conn.close()
 
             if self._total_reviews >= MIN_REVIEWS_FOR_PRIOR:
@@ -139,6 +156,24 @@ class YardPrior:
                             f"Prior: {classified_as} is usually {most_likely[0]} "
                             f"({most_likely[1]}/{total} reviews)"
                         )
+
+        # Time-of-day plausibility check
+        if source_timestamp and len(source_timestamp) >= 13:
+            try:
+                hour = int(source_timestamp[11:13])
+                hours = self._species_hours.get(classified_as)
+                if hours:
+                    earliest, latest = hours
+                    # Add 1 hour buffer on each side
+                    if hour < earliest - 1 or hour > latest + 1:
+                        result["time_implausible"] = True
+                        result["trust_level"] = "probably_wrong"
+                        result["correction_reason"] = (
+                            f"Time implausible: {classified_as} seen {earliest}:00-{latest}:00, "
+                            f"detected at {hour}:00"
+                        )
+            except (ValueError, IndexError):
+                pass
 
         # Set trust level based on yard frequency
         if classified_as in self._species_freq:
