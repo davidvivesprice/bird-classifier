@@ -185,8 +185,8 @@ def get_pending_classifications(species=None, multibird=False, offset=0, limit=5
     extra, params = _pending_where(species, multibird)
     sql = (
         "SELECT c.file, c.common_name, c.scientific_name, c.confidence, "
-        "c.source_timestamp, c.best_detection_json, c.top3_json, "
-        "c.raw_top3_json, c.birds_json, c.camera, c.raw_score "
+        "c.source_timestamp, c.source_date, c.best_detection_json, c.top3_json, "
+        "c.raw_top3_json, c.birds_json, c.extra_json, c.camera, c.raw_score "
         + _PENDING_BASE + extra
         + " ORDER BY c.timestamp DESC LIMIT ? OFFSET ?"
     )

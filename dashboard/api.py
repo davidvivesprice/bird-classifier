@@ -33,6 +33,7 @@ import classifications_db as cdb
 import reviews_db as rdb
 import visits_db as vdb
 from bird_inference import SPECIES_ALIASES, normalize_species
+from classifications_db import _safe_json
 
 # --- Paths ---
 BASE_DIR = Path("/Users/vives/bird-snapshots")
@@ -624,7 +625,7 @@ def audio_verified(date: Optional[str] = Query(None),
                 pass
         rw_conn.commit()
         if auto_confirmed:
-            invalidate_cache("pending", "stats", "species")
+            invalidate_cache("pending", "stats", "species", "highlights", "profile", "weekly_snapshot")
 
     return {
         "date": today,
@@ -637,6 +638,9 @@ def audio_verified(date: Optional[str] = Query(None),
 @app.get("/api/bulk-reclassify/preview")
 def bulk_reclassify_preview(from_species: str, to_species: str, limit: int = 20):
     """Preview images that would be reclassified. Shows sample images for spot-checking."""
+    from_species = normalize_species(from_species)
+    to_species = normalize_species(to_species)
+    limit = min(limit, 100)
     conn = cdb.get_conn(readonly=True)
     # Count total
     total = conn.execute(
@@ -678,6 +682,8 @@ def bulk_reclassify(from_species: str, to_species: str):
     This creates review entries with verdict='wrong' and correct_species set,
     which feeds into the retraining pipeline.
     """
+    from_species = normalize_species(from_species)
+    to_species = normalize_species(to_species)
     conn = cdb.get_conn(readonly=True)
     # Get all unreviewed files for this species
     files = conn.execute(
@@ -705,7 +711,7 @@ def bulk_reclassify(from_species: str, to_species: str):
         except Exception:
             pass
     rw_conn.commit()
-    invalidate_cache("pending", "stats", "species")
+    invalidate_cache("pending", "stats", "species", "highlights", "profile", "weekly_snapshot")
 
     return {
         "reclassified": count,
@@ -1030,7 +1036,7 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     """Submit a review verdict for a classification."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
     rdb.insert_review(review)
-    invalidate_cache("stats:", "species:", "goals:")
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
 
     # Move trashed images out of annotated dir
     if verdict == "trash":
@@ -1115,7 +1121,7 @@ def update_review(filename: str, verdict: str, correct_species: str = "", missed
     """Update an existing review verdict (INSERT OR REPLACE in SQLite)."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
     rdb.insert_review(review)
-    invalidate_cache("stats:", "species:", "goals:")
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
     return {"status": "ok", "review": review}
 
 
