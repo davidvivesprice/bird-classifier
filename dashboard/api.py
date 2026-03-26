@@ -715,12 +715,16 @@ def bulk_reclassify(from_species: str, to_species: str):
     }
 
 
+_yard_prior_instance = None
+
 @app.get("/api/yard-prior")
 def yard_prior_stats():
     """View the yard prior's current state — what corrections it would make."""
-    from yard_prior import YardPrior
-    prior = YardPrior()
-    return prior.get_stats()
+    global _yard_prior_instance
+    if _yard_prior_instance is None:
+        from yard_prior import YardPrior
+        _yard_prior_instance = YardPrior()
+    return _yard_prior_instance.get_stats()
 
 
 @app.get("/api/stats")

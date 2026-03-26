@@ -53,23 +53,22 @@ def check_visit_consensus(camera, species, timestamp, source_date):
     if not timestamp or not source_date:
         return None
 
+    conn = None
     try:
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=3)
         conn.row_factory = sqlite3.Row
 
-        # Get recent classifications from the same camera
+        # Get recent classifications from the same camera within time window
         rows = conn.execute("""
             SELECT common_name, COUNT(*) as cnt
             FROM classifications
             WHERE action = 'classified'
             AND camera = ?
-            AND source_date = ?
             AND common_name IS NOT NULL
             AND julianday(?) - julianday(source_timestamp) BETWEEN 0 AND ?
             GROUP BY common_name
             ORDER BY cnt DESC
-        """, (camera, source_date, timestamp, VOTE_WINDOW_SEC / 86400.0)).fetchall()
-        conn.close()
+        """, (camera, timestamp, VOTE_WINDOW_SEC / 86400.0)).fetchall()
 
         if not rows:
             return None
@@ -110,3 +109,9 @@ def check_visit_consensus(camera, species, timestamp, source_date):
     except Exception as e:
         log.debug("Visit consensus check failed: %s", e)
         return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass

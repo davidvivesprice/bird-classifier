@@ -593,6 +593,7 @@ def process_file(image_path, range_filter=None):
         "file": fname,
         "timestamp": datetime.now().isoformat(),
         "source_timestamp": extract_timestamp(fname),
+        "source_date": (extract_timestamp(fname) or "")[:10] or None,
         "camera": extract_camera(fname),
         "action": "classified",
         "detect_ms": round(detect_ms, 1),

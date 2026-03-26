@@ -51,8 +51,6 @@ class YardPrior:
         now = time.time()
         if now - self._last_refresh < self._refresh_interval:
             return
-        self._last_refresh = now
-
         try:
             conn = sqlite3.connect(f"file:{CLASSIFICATIONS_DB}?mode=ro", uri=True, timeout=5)
             conn.row_factory = sqlite3.Row
@@ -97,13 +95,18 @@ class YardPrior:
                 r["common_name"]: (r["earliest"], r["latest"])
                 for r in hour_rows
             }
-            conn.close()
 
+            self._last_refresh = now  # only mark refreshed on success
             if self._total_reviews >= MIN_REVIEWS_FOR_PRIOR:
                 log.info("Yard prior loaded: %d reviews, %d species in confusion matrix",
                          self._total_reviews, len(confusion))
         except Exception as e:
             log.warning("Failed to refresh yard prior: %s", e)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def correct(self, classified_as, confidence, top3, source_timestamp=None, source_date=None):
         """Apply yard prior to a classification result.
@@ -201,7 +204,7 @@ class YardPrior:
                     # Audio agrees with original classifier, disagrees with prior correction
                     # Trust audio over prior
                     result["corrected_species"] = classified_as
-                    result["corrected_confidence"] = confidence + AUDIO_MATCH_BOOST
+                    result["corrected_confidence"] = min(1.0, confidence + AUDIO_MATCH_BOOST)
                     result["audio_corroborated"] = True
                     result["correction_reason"] = "Audio overrides prior correction"
                 elif audio_species != result["corrected_species"]:
@@ -213,6 +216,7 @@ class YardPrior:
 
     def _check_audio(self, date, timestamp):
         """Check if BirdNET heard anything within ±30s of this timestamp."""
+        conn = None
         try:
             conn = sqlite3.connect(f"file:{BIRDNET_DB}?mode=ro", uri=True, timeout=3)
             conn.row_factory = sqlite3.Row
@@ -229,10 +233,15 @@ class YardPrior:
                 ) <= 30
                 ORDER BY confidence DESC LIMIT 1
             """, (date, timestamp, timestamp, timestamp)).fetchone()
-            conn.close()
             return row["common_name"] if row else None
         except Exception:
             return None
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_stats(self):
         """Return current prior stats for debugging/display."""
