@@ -2251,6 +2251,7 @@
           </select>
           <span id="batch-count" style="color:var(--text-muted);font-size:0.82rem;"></span>
         </div>
+        <div id="batch-progress" style="display:none;margin-bottom:8px;"></div>
         <div id="batch-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:8px 0;"></div>
         <div id="batch-actions" style="display:none;padding:8px 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
           <button onclick="batchConfirmSelected()" style="padding:8px 20px;background:#065f46;color:#6ee7b7;border:none;border-radius:6px;cursor:pointer;font-size:0.9rem;">Confirm Selected</button>
@@ -6064,6 +6065,34 @@
           _batchSelected.clear();
           document.getElementById('batch-count').textContent =
             data.total_review_queue + ' to review (' + data.skipped + ' skipped)';
+
+          // Render species progress bars
+          var progEl = document.getElementById('batch-progress');
+          if (data.species_progress) {
+            var entries = Object.entries(data.species_progress)
+              .filter(function(e) { return e[1].need > 0; })
+              .sort(function(a, b) { return a[1].have - b[1].have; })
+              .slice(0, 8);
+            if (entries.length > 0) {
+              progEl.style.display = '';
+              progEl.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;">Training progress (50 per species)</div>' +
+                entries.map(function(e) {
+                  var sp = e[0], p = e[1];
+                  var pct = Math.min(100, Math.round(p.have / 50 * 100));
+                  var color = pct >= 60 ? 'var(--accent-green)' : pct >= 20 ? '#f0ad4e' : '#ef4444';
+                  return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">' +
+                    '<span style="width:130px;font-size:0.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sp + '</span>' +
+                    '<div style="flex:1;height:6px;background:var(--bg-primary);border-radius:3px;overflow:hidden;">' +
+                      '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;transition:width 0.3s;"></div>' +
+                    '</div>' +
+                    '<span style="font-size:0.7rem;color:var(--text-muted);width:35px;text-align:right;">' + p.have + '/50</span>' +
+                  '</div>';
+                }).join('');
+            } else {
+              progEl.style.display = 'none';
+            }
+          }
+
           renderBatchGrid();
         })
         .catch(function() {});
@@ -6138,7 +6167,8 @@
     })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        showToast('Confirmed ' + (data.confirmed || 0) + ' images', 'success');
+        var cnt = data.confirmed || 0;
+        showToast('Confirmed ' + cnt + ' images', 'success');
         // Remove confirmed from grid
         _batchItems = _batchItems.filter(function(item) { return !_batchSelected.has(item.file); });
         _batchSelected.clear();
@@ -6147,6 +6177,8 @@
         } else {
           renderBatchGrid();
         }
+        // Refresh highlights to show updated data
+        if (typeof loadHighlights === 'function') loadHighlights();
       })
       .catch(function() { showToast('Failed to confirm', 'error'); });
   }
