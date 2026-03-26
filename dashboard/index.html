@@ -1310,41 +1310,46 @@
     background: linear-gradient(135deg, var(--bg-card) 0%, #1a2535 100%);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px 20px;
+    padding: 20px 24px;
     margin-bottom: 16px;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 16px;
   }
   .highlights-main {
-    grid-column: 1 / -1;
     display: flex;
-    align-items: baseline;
-    gap: 16px;
+    align-items: center;
+    gap: 24px;
     flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .highlights-big {
-    font-size: 2rem;
+    font-size: 2.2rem;
     font-weight: 700;
     color: var(--accent-green);
     line-height: 1;
   }
   .highlights-label {
-    font-size: 0.85rem;
+    font-size: 0.88rem;
     color: var(--text-muted);
   }
   .highlights-stat {
     text-align: center;
+    padding: 0 12px;
   }
   .highlights-stat-value {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     font-weight: 600;
     color: #fff;
   }
   .highlights-stat-label {
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
     margin-top: 2px;
+  }
+  .highlights-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
   }
   .highlights-section {
     font-size: 0.82rem;
@@ -1352,11 +1357,11 @@
     line-height: 1.6;
   }
   .highlights-section-title {
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--accent-green);
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     font-weight: 600;
   }
   .highlights-new {
@@ -1364,8 +1369,10 @@
     font-weight: 600;
   }
   @media (max-width: 768px) {
-    .highlights { grid-template-columns: 1fr; padding: 12px 14px; gap: 10px; }
-    .highlights-big { font-size: 1.5rem; }
+    .highlights { padding: 14px 16px; }
+    .highlights-main { gap: 16px; margin-bottom: 12px; padding-bottom: 10px; }
+    .highlights-details { grid-template-columns: 1fr; gap: 10px; }
+    .highlights-big { font-size: 1.6rem; }
   }
 
   /* Scrollbar styling */
@@ -2088,38 +2095,42 @@
           <div class="highlights-stat-label">peak hour</div>
         </div>
       </div>
-      <div class="highlights-section" id="hl-new" style="display:none">
-        <div class="highlights-section-title">New this season</div>
-        <div id="hl-new-list"></div>
-      </div>
-      <div class="highlights-section" id="hl-heard">
-        <div class="highlights-section-title">Heard but not seen</div>
-        <div id="hl-heard-list">—</div>
-      </div>
-      <div class="highlights-section" id="hl-seen">
-        <div class="highlights-section-title">Seen but not heard</div>
-        <div id="hl-seen-list">—</div>
+      <div class="highlights-details">
+        <div class="highlights-section" id="hl-new" style="display:none">
+          <div class="highlights-section-title">New this season</div>
+          <div id="hl-new-list"></div>
+        </div>
+        <div class="highlights-section" id="hl-heard">
+          <div class="highlights-section-title">Heard but not seen</div>
+          <div id="hl-heard-list">—</div>
+        </div>
+        <div class="highlights-section" id="hl-seen">
+          <div class="highlights-section-title">Seen but not heard</div>
+          <div id="hl-seen-list">—</div>
+        </div>
       </div>
     </div>
 
     <!-- Weekly Snapshot -->
     <div class="highlights" id="weekly-snapshot" style="display:none">
-      <div class="highlights-main" style="grid-column:1/-1">
+      <div class="highlights-main">
         <div>
-          <span class="highlights-label" style="font-size:0.92rem;color:#fff;font-weight:600">This Week</span>
+          <span class="highlights-label" style="font-size:0.95rem;color:#fff;font-weight:600">This Week</span>
         </div>
       </div>
-      <div class="highlights-section" id="ws-trend">
-        <div class="highlights-section-title">Daily trend</div>
-        <div id="ws-trend-bars" style="display:flex;align-items:flex-end;gap:3px;height:40px;margin-top:4px;"></div>
-      </div>
-      <div class="highlights-section" id="ws-visitors">
-        <div class="highlights-section-title">Longest visitors</div>
-        <div id="ws-visitors-list">—</div>
-      </div>
-      <div class="highlights-section" id="ws-arrivals">
-        <div class="highlights-section-title">New arrivals</div>
-        <div id="ws-arrivals-list">None this week</div>
+      <div class="highlights-details">
+        <div class="highlights-section" id="ws-trend">
+          <div class="highlights-section-title">Daily trend</div>
+          <div id="ws-trend-bars" style="display:flex;align-items:flex-end;gap:4px;height:44px;margin-top:6px;"></div>
+        </div>
+        <div class="highlights-section" id="ws-visitors">
+          <div class="highlights-section-title">Longest visitors</div>
+          <div id="ws-visitors-list">—</div>
+        </div>
+        <div class="highlights-section" id="ws-arrivals">
+          <div class="highlights-section-title">New arrivals</div>
+          <div id="ws-arrivals-list">None this week</div>
+        </div>
       </div>
     </div>
 
@@ -2147,7 +2158,8 @@
           </button>
           <div class="live-offline" id="live-offline">
             <span class="big">&#x1F4F7;</span>
-            <div>Connecting to camera...</div>
+            <div id="live-offline-text">Connecting to camera...</div>
+            <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network or NAS proxy access</div>
           </div>
         </div>
       </div>
@@ -2949,6 +2961,16 @@
     var video = document.getElementById('live-video');
     var offline = document.getElementById('live-offline');
     if (!video) return;
+
+    // Show helpful hint if camera doesn't connect within 10s
+    setTimeout(function() {
+      var hint = document.getElementById('live-offline-hint');
+      var text = document.getElementById('live-offline-text');
+      if (hint && offline && offline.style.display !== 'none') {
+        text.textContent = 'Camera offline';
+        hint.style.display = '';
+      }
+    }, 10000);
 
     var hasMSE = 'MediaSource' in window || 'ManagedMediaSource' in window;
     var hasNativeHLS = video.canPlayType('application/vnd.apple.mpegurl') !== '';
