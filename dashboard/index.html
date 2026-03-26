@@ -2243,11 +2243,11 @@
       </div>
 
       <!-- Skipped Frames sub-tab -->
-      <!-- Batch review sub-tab -->
+      <!-- Batch review sub-tab (smart queue) -->
       <div class="review-subtab-content" id="subtab-batch">
         <div style="padding:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <select id="batch-species" onchange="loadBatchReview()" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
-            <option value="">Select species to review...</option>
+            <option value="">Smart Queue (all species)</option>
           </select>
           <span id="batch-count" style="color:var(--text-muted);font-size:0.82rem;"></span>
         </div>
@@ -6024,29 +6024,50 @@
 
   function loadBatchReview() {
     var species = document.getElementById('batch-species').value;
-    fetch('/bird-api/review/batch?species=' + encodeURIComponent(species) + '&limit=24')
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        _batchItems = data.items || [];
-        _batchSelected.clear();
 
-        // Populate species dropdown if empty
-        var sel = document.getElementById('batch-species');
-        if (sel.options.length <= 1 && data.species_queue) {
-          data.species_queue.forEach(function(s) {
-            var opt = document.createElement('option');
-            opt.value = s.species;
-            opt.textContent = s.species + ' (' + s.count + ')';
-            sel.appendChild(opt);
-          });
-        }
+    if (species) {
+      // Species selected — load from batch endpoint
+      fetch('/bird-api/review/batch?species=' + encodeURIComponent(species) + '&limit=24')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          _batchItems = data.items || [];
+          _batchSelected.clear();
+          document.getElementById('batch-count').textContent =
+            _batchItems.length + ' images loaded';
+          renderBatchGrid();
+        })
+        .catch(function() {});
+    } else {
+      // No species — load smart queue
+      fetch('/bird-api/review/smart-queue')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          // Flatten all queue items, prioritized
+          var all = (data.queue.corrections || [])
+            .concat(data.queue.uncertain || [])
+            .concat(data.queue.training || []);
 
-        document.getElementById('batch-count').textContent =
-          data.total_unreviewed + ' unreviewed total';
+          // Populate species dropdown from progress
+          var sel = document.getElementById('batch-species');
+          if (sel.options.length <= 1 && data.species_progress) {
+            Object.keys(data.species_progress).forEach(function(sp) {
+              var p = data.species_progress[sp];
+              var opt = document.createElement('option');
+              opt.value = sp;
+              opt.textContent = sp + ' (' + p.have + '/50, ' + p.unreviewed + ' waiting)';
+              sel.appendChild(opt);
+            });
+          }
 
-        renderBatchGrid();
-      })
-      .catch(function() {});
+          // Show first 24 items
+          _batchItems = all.slice(0, 24);
+          _batchSelected.clear();
+          document.getElementById('batch-count').textContent =
+            data.total_review_queue + ' to review (' + data.skipped + ' skipped)';
+          renderBatchGrid();
+        })
+        .catch(function() {});
+    }
   }
 
   function renderBatchGrid() {
@@ -6094,6 +6115,18 @@
     _batchSelected.clear();
     renderBatchGrid();
   }
+
+  // Keyboard shortcuts for batch review
+  document.addEventListener('keydown', function(e) {
+    // Only when batch tab is visible
+    var batchTab = document.getElementById('subtab-batch');
+    if (!batchTab || !batchTab.classList.contains('active')) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    if (e.key === 'a' || e.key === 'A') { batchSelectAll(); e.preventDefault(); }
+    else if (e.key === 'c' || e.key === 'Enter') { batchConfirmSelected(); e.preventDefault(); }
+    else if (e.key === 'd' || e.key === 'D') { batchDeselectAll(); e.preventDefault(); }
+  });
 
   function batchConfirmSelected() {
     if (_batchSelected.size === 0) return;
