@@ -2114,6 +2114,64 @@ def get_doc(doc_path: str):
     )
 
 
+# ── go2rtc WebSocket Proxy (for camera feeds through Cloudflare tunnel) ──
+
+GO2RTC_HOST = "192.168.5.92"  # NAS local IP
+GO2RTC_PORT = 80              # nginx proxy to go2rtc
+
+from fastapi import WebSocket as FastAPIWebSocket
+
+
+@app.websocket("/api/ws")
+async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
+    """Proxy WebSocket connections to go2rtc on the NAS.
+
+    The dashboard's live camera feed connects via MSE over WebSocket.
+    When accessed through Cloudflare tunnel, the NAS isn't directly
+    reachable, so this proxy forwards the connection.
+    """
+    import websockets
+
+    await websocket.accept()
+
+    go2rtc_url = f"ws://{GO2RTC_HOST}:{GO2RTC_PORT}/api/ws?src={src}"
+
+    try:
+        async with websockets.connect(go2rtc_url) as upstream:
+            import asyncio
+
+            async def client_to_upstream():
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if "text" in data:
+                            await upstream.send(data["text"])
+                        elif "bytes" in data:
+                            await upstream.send(data["bytes"])
+                except Exception:
+                    pass
+
+            async def upstream_to_client():
+                try:
+                    async for msg in upstream:
+                        if isinstance(msg, bytes):
+                            await websocket.send_bytes(msg)
+                        else:
+                            await websocket.send_text(msg)
+                except Exception:
+                    pass
+
+            await asyncio.gather(client_to_upstream(), upstream_to_client())
+
+    except Exception as e:
+        logging.warning("[WS Proxy] go2rtc connection failed: %s", e)
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ── Culling System ──
 
 def load_cull_config() -> dict:
