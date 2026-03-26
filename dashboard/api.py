@@ -715,6 +715,14 @@ def bulk_reclassify(from_species: str, to_species: str):
     }
 
 
+@app.get("/api/yard-prior")
+def yard_prior_stats():
+    """View the yard prior's current state — what corrections it would make."""
+    from yard_prior import YardPrior
+    prior = YardPrior()
+    return prior.get_stats()
+
+
 @app.get("/api/stats")
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):

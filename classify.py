@@ -40,6 +40,9 @@ from bird_inference import (
     YOLODetector, SpeciesClassifier, normalize_species,
     parse_label, crop_bird, get_providers,
 )
+from yard_prior import YardPrior
+
+_yard_prior = YardPrior()
 
 # Visit tracking
 import visits_db as vdb
@@ -637,6 +640,25 @@ def process_file(image_path, range_filter=None):
                 return result
     except Exception as exc:
         logging.warning("Auto-cull check failed for %s, continuing with normal classification: %s", fname, exc)
+
+    # Apply yard prior — adds trust signals, doesn't change the prediction
+    if result.get("action") == "classified" and result.get("top_prediction"):
+        try:
+            correction = _yard_prior.correct(
+                classified_as=result["top_prediction"]["common_name"],
+                confidence=result.get("best_detection", {}).get("confidence", 0),
+                top3=result.get("top3", []),
+                source_timestamp=result.get("source_timestamp"),
+                source_date=result.get("source_date"),
+            )
+            # Don't change the prediction — add signals for review
+            if correction["audio_corroborated"]:
+                result["audio_corroborated"] = True
+            if correction["correction_reason"]:
+                result["prior_suggestion"] = correction["corrected_species"]
+                result["prior_reason"] = correction["correction_reason"]
+        except Exception as e:
+            logging.debug("Yard prior error: %s", e)
 
     append_result(result)
 
