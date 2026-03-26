@@ -2207,6 +2207,7 @@
       <!-- Sub-tabs for Classify vs Skipped -->
       <div class="review-subtabs">
         <button class="review-subtab active" data-subtab="classify" onclick="switchReviewSubtab('classify')">Classify</button>
+        <button class="review-subtab" data-subtab="batch" onclick="switchReviewSubtab('batch');loadBatchReview()">Batch</button>
         <button class="review-subtab" data-subtab="skipped" onclick="switchReviewSubtab('skipped')">Skipped <span id="skipped-count-badge" class="badge" style="display:none">0</span></button>
         <button class="review-subtab" data-subtab="classified" onclick="switchReviewSubtab('classified')">Classified <span id="classified-count-badge" class="badge" style="display:none">0</span></button>
         <button class="review-subtab" data-subtab="manage" onclick="switchReviewSubtab('manage')">Manage</button>
@@ -2242,6 +2243,22 @@
       </div>
 
       <!-- Skipped Frames sub-tab -->
+      <!-- Batch review sub-tab -->
+      <div class="review-subtab-content" id="subtab-batch">
+        <div style="padding:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="batch-species" onchange="loadBatchReview()" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
+            <option value="">Select species to review...</option>
+          </select>
+          <span id="batch-count" style="color:var(--text-muted);font-size:0.82rem;"></span>
+        </div>
+        <div id="batch-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:8px 0;"></div>
+        <div id="batch-actions" style="display:none;padding:8px 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+          <button onclick="batchConfirmSelected()" style="padding:8px 20px;background:#065f46;color:#6ee7b7;border:none;border-radius:6px;cursor:pointer;font-size:0.9rem;">Confirm Selected</button>
+          <button onclick="batchSelectAll()" style="padding:8px 20px;background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:0.9rem;">Select All</button>
+          <button onclick="batchDeselectAll()" style="padding:8px 20px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:0.9rem;">Deselect All</button>
+        </div>
+      </div>
+
       <div class="review-subtab-content" id="subtab-skipped">
         <div class="skipped-header">
           <p class="skipped-info">Frames you manually skipped during review.</p>
@@ -6000,6 +6017,106 @@
   }
   loadHighlights();
   setInterval(loadHighlights, 120000);
+
+  // ── Batch Review ──
+  var _batchItems = [];
+  var _batchSelected = new Set();
+
+  function loadBatchReview() {
+    var species = document.getElementById('batch-species').value;
+    fetch('/bird-api/review/batch?species=' + encodeURIComponent(species) + '&limit=24')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _batchItems = data.items || [];
+        _batchSelected.clear();
+
+        // Populate species dropdown if empty
+        var sel = document.getElementById('batch-species');
+        if (sel.options.length <= 1 && data.species_queue) {
+          data.species_queue.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.species;
+            opt.textContent = s.species + ' (' + s.count + ')';
+            sel.appendChild(opt);
+          });
+        }
+
+        document.getElementById('batch-count').textContent =
+          data.total_unreviewed + ' unreviewed total';
+
+        renderBatchGrid();
+      })
+      .catch(function() {});
+  }
+
+  function renderBatchGrid() {
+    var grid = document.getElementById('batch-grid');
+    if (!_batchItems.length) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px;">Select a species above to review in batch</div>';
+      document.getElementById('batch-actions').style.display = 'none';
+      return;
+    }
+    document.getElementById('batch-actions').style.display = '';
+
+    grid.innerHTML = _batchItems.map(function(item, i) {
+      var selected = _batchSelected.has(item.file);
+      var imgUrl = '/bird-api/image/' + encodeURIComponent(item.file);
+      var border = selected ? '3px solid var(--accent-green)' : '2px solid var(--border)';
+      var badges = '';
+      if (item.also_heard) badges += '<span style="position:absolute;top:4px;left:4px;background:#065f46;color:#6ee7b7;padding:1px 5px;border-radius:8px;font-size:0.6rem;">HEARD</span>';
+      if (item.trust_level === 'probably_wrong') badges += '<span style="position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:1px 5px;border-radius:8px;font-size:0.6rem;">WRONG?</span>';
+      if (item.prior_suggestion && item.prior_suggestion !== item.species) badges += '<span style="position:absolute;bottom:4px;left:4px;background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:8px;font-size:0.6rem;">' + item.prior_suggestion + '</span>';
+
+      return '<div onclick="toggleBatchSelect(' + i + ')" style="position:relative;cursor:pointer;border:' + border + ';border-radius:8px;overflow:hidden;aspect-ratio:4/3;background:var(--bg-card);">' +
+        '<img src="' + imgUrl + '" loading="lazy" style="width:100%;height:100%;object-fit:cover;">' +
+        badges +
+        (selected ? '<div style="position:absolute;inset:0;background:rgba(74,222,128,0.2);display:flex;align-items:center;justify-content:center;font-size:2rem;">&#x2705;</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function toggleBatchSelect(idx) {
+    var file = _batchItems[idx].file;
+    if (_batchSelected.has(file)) {
+      _batchSelected.delete(file);
+    } else {
+      _batchSelected.add(file);
+    }
+    renderBatchGrid();
+  }
+
+  function batchSelectAll() {
+    _batchItems.forEach(function(item) { _batchSelected.add(item.file); });
+    renderBatchGrid();
+  }
+
+  function batchDeselectAll() {
+    _batchSelected.clear();
+    renderBatchGrid();
+  }
+
+  function batchConfirmSelected() {
+    if (_batchSelected.size === 0) return;
+    var files = Array.from(_batchSelected);
+    fetch('/bird-api/review/batch-confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(files),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        showToast('Confirmed ' + (data.confirmed || 0) + ' images', 'success');
+        // Remove confirmed from grid
+        _batchItems = _batchItems.filter(function(item) { return !_batchSelected.has(item.file); });
+        _batchSelected.clear();
+        if (_batchItems.length === 0) {
+          loadBatchReview(); // load next batch
+        } else {
+          renderBatchGrid();
+        }
+      })
+      .catch(function() { showToast('Failed to confirm', 'error'); });
+  }
 
   // ── Weekly Snapshot ──
   function loadWeeklySnapshot() {

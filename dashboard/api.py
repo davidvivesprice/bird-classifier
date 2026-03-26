@@ -712,6 +712,144 @@ def yard_prior_stats():
     return _yard_prior_instance.get_stats()
 
 
+@app.get("/api/review/batch")
+def review_batch(species: str = "", trust: str = "", limit: int = 12):
+    """Get a batch of same-species images for fast grid review.
+
+    Args:
+        species: Filter to one species (required for batch mode)
+        trust: Filter by trust level: "likely_correct", "audio_confirmed", "uncertain", "probably_wrong"
+        limit: Number of images (default 12, max 48)
+    """
+    limit = min(limit, 48)
+    conn = cdb.get_conn(readonly=True)
+
+    where = ["c.action='classified'", "c.common_name IS NOT NULL",
+             "r.file IS NULL"]
+    params = []
+
+    if species:
+        sp = normalize_species(species)
+        where.append("c.common_name = ?")
+        params.append(sp)
+
+    sql = (
+        "SELECT c.file, c.common_name, c.confidence, c.raw_score, "
+        "c.source_timestamp, c.source_date, c.extra_json, c.camera "
+        "FROM classifications c "
+        "LEFT JOIN reviews r ON r.file = c.file "
+        "WHERE " + " AND ".join(where) + " "
+        "ORDER BY c.confidence DESC "
+        "LIMIT ?"
+    )
+    params.append(limit)
+
+    rows = conn.execute(sql, params).fetchall()
+
+    # Enrich with trust signals
+    bconn = _birdnet_db()
+    items = []
+    for r in rows:
+        extra = _safe_json(r["extra_json"]) if r["extra_json"] else {}
+        if not isinstance(extra, dict):
+            extra = {}
+
+        also_heard = False
+        if bconn and r["source_timestamp"] and r["source_date"] and r["common_name"]:
+            ts = r["source_timestamp"]
+            try:
+                match = bconn.execute(
+                    "SELECT 1 FROM notes WHERE date=? AND common_name=? "
+                    "AND ABS("
+                    "(CAST(SUBSTR(?,12,2) AS INTEGER)*3600+"
+                    "CAST(SUBSTR(?,15,2) AS INTEGER)*60+"
+                    "CAST(SUBSTR(?,18,2) AS INTEGER))"
+                    "-"
+                    "(CAST(SUBSTR(time,1,2) AS INTEGER)*3600+"
+                    "CAST(SUBSTR(time,4,2) AS INTEGER)*60+"
+                    "CAST(SUBSTR(time,7,2) AS INTEGER))"
+                    ") <= 30 LIMIT 1",
+                    (r["source_date"], r["common_name"], ts, ts, ts),
+                ).fetchone()
+                also_heard = match is not None
+            except Exception:
+                pass
+
+        items.append({
+            "file": r["file"],
+            "species": r["common_name"],
+            "confidence": round(r["confidence"] or 0, 3),
+            "timestamp": r["source_timestamp"] or "",
+            "also_heard": also_heard,
+            "trust_level": extra.get("trust_level", "normal"),
+            "prior_suggestion": extra.get("prior_suggestion"),
+        })
+
+    # Species summary for the batch
+    species_counts = conn.execute(
+        "SELECT c.common_name, COUNT(*) as cnt "
+        "FROM classifications c "
+        "LEFT JOIN reviews r ON r.file = c.file "
+        "WHERE c.action='classified' AND c.common_name IS NOT NULL AND r.file IS NULL "
+        "GROUP BY c.common_name ORDER BY cnt DESC LIMIT 20"
+    ).fetchall()
+
+    return {
+        "items": items,
+        "species_queue": [{"species": r[0], "count": r[1]} for r in species_counts],
+        "total_unreviewed": sum(r[1] for r in species_counts),
+    }
+
+
+@app.post("/api/review/batch-confirm")
+def batch_confirm(files: list = [], species: str = ""):
+    """Confirm multiple images at once. All files marked as 'correct'."""
+    if not files:
+        return {"confirmed": 0}
+    rw_conn = rdb.get_conn(readonly=False)
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    count = 0
+    for f in files:
+        try:
+            rw_conn.execute(
+                "INSERT OR IGNORE INTO reviews (file, verdict, timestamp, reviewer) "
+                "VALUES (?, 'correct', ?, 'batch-review')",
+                (f, now_ts),
+            )
+            count += 1
+        except Exception:
+            pass
+    rw_conn.commit()
+    if count:
+        invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+    return {"confirmed": count}
+
+
+@app.post("/api/review/batch-reject")
+def batch_reject(files: list = [], correct_species: str = ""):
+    """Reject multiple images and optionally set the correct species."""
+    if not files:
+        return {"rejected": 0}
+    correct = normalize_species(correct_species) if correct_species else ""
+    rw_conn = rdb.get_conn(readonly=False)
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    count = 0
+    for f in files:
+        try:
+            rw_conn.execute(
+                "INSERT OR IGNORE INTO reviews (file, verdict, correct_species, timestamp, reviewer) "
+                "VALUES (?, 'wrong', ?, ?, 'batch-review')",
+                (f, correct, now_ts),
+            )
+            count += 1
+        except Exception:
+            pass
+    rw_conn.commit()
+    if count:
+        invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+    return {"rejected": count, "correct_species": correct}
+
+
 @app.get("/api/stats")
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
