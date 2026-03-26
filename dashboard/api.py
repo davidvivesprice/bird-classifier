@@ -392,9 +392,8 @@ def cameras_list():
 
 @app.get("/api/daily-highlights")
 def daily_highlights(date: Optional[str] = Query(None)):
-    """Today's story — highlights, firsts, audio-visual comparison.
-
-    Returns data for the highlights card on the dashboard.
+    """Today's story — highlights, firsts, audio-visual comparison."""
+    _validate_date(date)
     """
     today = date or datetime.now().strftime("%Y-%m-%d")
 
@@ -546,8 +545,7 @@ def weekly_snapshot():
 
 
 @app.get("/api/audio-verified")
-def audio_verified(date: Optional[str] = Query(None),
-                   auto_confirm: bool = Query(False)):
+def audio_verified(date: Optional[str] = Query(None)):
     """Find visual detections corroborated by audio within ±30 seconds.
 
     When auto_confirm=true, automatically inserts 'correct' reviews for
@@ -609,29 +607,10 @@ def audio_verified(date: Optional[str] = Query(None),
         except Exception:
             pass
 
-    auto_confirmed = 0
-    if auto_confirm and verified:
-        rw_conn = rdb.get_conn(readonly=False)
-        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for v in verified:
-            try:
-                rw_conn.execute(
-                    "INSERT OR IGNORE INTO reviews (file, verdict, timestamp, reviewer) "
-                    "VALUES (?, 'correct', ?, 'audio-verify')",
-                    (v["file"], now_ts),
-                )
-                auto_confirmed += 1
-            except Exception:
-                pass
-        rw_conn.commit()
-        if auto_confirmed:
-            invalidate_cache("pending", "stats", "species", "highlights", "profile", "weekly_snapshot")
-
     return {
         "date": today,
         "verified": len(verified),
-        "auto_confirmed": auto_confirmed,
-        "matches": verified[:20],  # return first 20 for display
+        "matches": verified[:20],
     }
 
 

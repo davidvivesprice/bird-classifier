@@ -76,9 +76,9 @@ class YardPrior:
                     confusion[r["classified_as"]][r["actually_was"]] += 1
                     species_freq[r["actually_was"]] += 1
 
-            self._confusion = dict(confusion)
+            self._confusion = {k: dict(v) for k, v in confusion.items()}
             self._species_freq = dict(species_freq)
-            self._total_reviews = len(rows)
+            self._total_reviews = sum(1 for r in rows if r["actually_was"])
 
             # Build activity hours from confirmed detections
             hour_rows = conn.execute("""
@@ -160,27 +160,10 @@ class YardPrior:
                             f"({most_likely[1]}/{total} reviews)"
                         )
 
-        # Time-of-day plausibility check
-        if source_timestamp and len(source_timestamp) >= 13:
-            try:
-                hour = int(source_timestamp[11:13])
-                hours = self._species_hours.get(classified_as)
-                if hours:
-                    earliest, latest = hours
-                    # Add 1 hour buffer on each side
-                    if hour < earliest - 1 or hour > latest + 1:
-                        result["time_implausible"] = True
-                        result["trust_level"] = "probably_wrong"
-                        result["correction_reason"] = (
-                            f"Time implausible: {classified_as} seen {earliest}:00-{latest}:00, "
-                            f"detected at {hour}:00"
-                        )
-            except (ValueError, IndexError):
-                pass
-
-        # Set trust level based on yard frequency
-        if classified_as in self._species_freq:
-            freq = self._species_freq[classified_as]
+        # Set trust level based on yard frequency (before time check, so time can override)
+        check_species = result["corrected_species"]
+        if check_species in self._species_freq:
+            freq = self._species_freq[check_species]
             if freq >= 20:
                 result["trust_level"] = "likely_correct"
             elif freq >= 5:
@@ -188,8 +171,30 @@ class YardPrior:
             else:
                 result["trust_level"] = "unusual"
         else:
-            # Never confirmed in this yard — could be real but worth checking
             result["trust_level"] = "unusual"
+
+        # Time-of-day plausibility check (only for daytime species)
+        if source_timestamp and len(source_timestamp) >= 13:
+            try:
+                hour = int(source_timestamp[11:13])
+                hours = self._species_hours.get(check_species)
+                if hours:
+                    earliest, latest = hours
+                    # Only check daytime species (avoids nocturnal wrap-around)
+                    if earliest >= 5 and latest <= 22:
+                        if hour < earliest - 1 or hour > latest + 1:
+                            result["time_implausible"] = True
+                            result["trust_level"] = "probably_wrong"
+                            if result.get("correction_reason"):
+                                result["correction_reason"] += (
+                                    f"; also time-implausible ({hour}:00, "
+                                    f"normal {earliest}:00-{latest}:00)")
+                            else:
+                                result["correction_reason"] = (
+                                    f"Time implausible: {check_species} seen "
+                                    f"{earliest}:00-{latest}:00, detected at {hour}:00")
+            except (ValueError, IndexError):
+                pass
 
         # Step 2: Audio corroboration
         if source_timestamp and source_date:

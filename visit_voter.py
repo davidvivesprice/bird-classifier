@@ -86,24 +86,12 @@ def check_visit_consensus(camera, species, timestamp, source_date):
         is_outlier = (species != consensus_species and
                       consensus_ratio >= MIN_CONSENSUS_RATIO)
 
-        # Confidence adjustment
-        if species == consensus_species:
-            # Agrees with consensus — boost proportional to strength
-            confidence_boost = 0.05 * min(consensus_ratio, 0.95)
-        elif is_outlier:
-            # Disagrees with strong consensus — penalty
-            confidence_boost = -0.15
-        else:
-            # Mixed results, no clear consensus
-            confidence_boost = 0
-
         return {
             "consensus_species": consensus_species,
             "consensus_count": consensus_count,
             "total_frames": total,
             "consensus_ratio": round(consensus_ratio, 2),
             "is_outlier": is_outlier,
-            "confidence_boost": confidence_boost,
         }
 
     except Exception as e:
