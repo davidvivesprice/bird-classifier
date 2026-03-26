@@ -544,6 +544,177 @@ def weekly_snapshot():
     return cached_result("weekly_snapshot", 300, _compute)
 
 
+@app.get("/api/audio-verified")
+def audio_verified(date: Optional[str] = Query(None),
+                   auto_confirm: bool = Query(False)):
+    """Find visual detections corroborated by audio within ±30 seconds.
+
+    When auto_confirm=true, automatically inserts 'correct' reviews for
+    unreviewed detections that have audio corroboration. This is safe
+    because both systems independently agree on the species.
+
+    Returns count of verified and (optionally) auto-confirmed detections.
+    """
+    today = date or datetime.now().strftime("%Y-%m-%d")
+    conn = cdb.get_conn(readonly=True)
+    bconn = _birdnet_db()
+    if not bconn:
+        return {"verified": 0, "auto_confirmed": 0, "error": "BirdNET DB unavailable"}
+
+    # Find visual detections with matching audio within ±30s
+    # Only look at unreviewed classifications
+    try:
+        matches = conn.execute("""
+            SELECT c.file, c.common_name, c.source_timestamp, c.confidence
+            FROM classifications c
+            LEFT JOIN reviews r ON r.file = c.file
+            WHERE c.action = 'classified'
+            AND c.common_name IS NOT NULL
+            AND c.source_date = ?
+            AND r.file IS NULL
+        """, (today,)).fetchall()
+    except Exception as e:
+        return {"verified": 0, "auto_confirmed": 0, "error": str(e)}
+
+    verified = []
+    for m in matches:
+        species = m["common_name"]
+        ts = m["source_timestamp"]
+        if not ts:
+            continue
+        try:
+            audio_match = bconn.execute("""
+                SELECT common_name, confidence, time
+                FROM notes
+                WHERE date = ? AND common_name = ?
+                AND ABS(
+                    (CAST(SUBSTR(?, 12, 2) AS INTEGER)*3600 +
+                     CAST(SUBSTR(?, 15, 2) AS INTEGER)*60 +
+                     CAST(SUBSTR(?, 18, 2) AS INTEGER))
+                    -
+                    (CAST(SUBSTR(time, 1, 2) AS INTEGER)*3600 +
+                     CAST(SUBSTR(time, 4, 2) AS INTEGER)*60 +
+                     CAST(SUBSTR(time, 7, 2) AS INTEGER))
+                ) <= 30
+                LIMIT 1
+            """, (today, species, ts, ts, ts)).fetchone()
+            if audio_match:
+                verified.append({
+                    "file": m["file"],
+                    "species": species,
+                    "visual_confidence": round(m["confidence"] or 0, 3),
+                    "audio_confidence": round(audio_match["confidence"], 3),
+                })
+        except Exception:
+            pass
+
+    auto_confirmed = 0
+    if auto_confirm and verified:
+        rw_conn = rdb.get_conn(readonly=False)
+        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for v in verified:
+            try:
+                rw_conn.execute(
+                    "INSERT OR IGNORE INTO reviews (file, verdict, timestamp, reviewer) "
+                    "VALUES (?, 'correct', ?, 'audio-verify')",
+                    (v["file"], now_ts),
+                )
+                auto_confirmed += 1
+            except Exception:
+                pass
+        rw_conn.commit()
+        if auto_confirmed:
+            invalidate_cache("pending", "stats", "species")
+
+    return {
+        "date": today,
+        "verified": len(verified),
+        "auto_confirmed": auto_confirmed,
+        "matches": verified[:20],  # return first 20 for display
+    }
+
+
+@app.get("/api/bulk-reclassify/preview")
+def bulk_reclassify_preview(from_species: str, to_species: str, limit: int = 20):
+    """Preview images that would be reclassified. Shows sample images for spot-checking."""
+    conn = cdb.get_conn(readonly=True)
+    # Count total
+    total = conn.execute(
+        "SELECT COUNT(*) FROM classifications "
+        "WHERE action='classified' AND common_name=?", (from_species,)
+    ).fetchone()[0]
+    # Already reviewed count
+    reviewed = conn.execute(
+        "SELECT COUNT(*) FROM classifications c "
+        "JOIN reviews r ON r.file = c.file "
+        "WHERE c.action='classified' AND c.common_name=?", (from_species,)
+    ).fetchone()[0]
+    # Sample images (newest first, mix of confidence levels)
+    samples = conn.execute(
+        "SELECT file, source_timestamp, confidence, raw_score "
+        "FROM classifications "
+        "WHERE action='classified' AND common_name=? "
+        "ORDER BY RANDOM() LIMIT ?", (from_species, limit)
+    ).fetchall()
+    return {
+        "from_species": from_species,
+        "to_species": to_species,
+        "total": total,
+        "already_reviewed": reviewed,
+        "unreviewed": total - reviewed,
+        "samples": [
+            {"file": r[0], "timestamp": r[1], "confidence": round(r[2] or 0, 3),
+             "raw_score": round(r[3] or 0, 1)}
+            for r in samples
+        ],
+    }
+
+
+@app.post("/api/bulk-reclassify")
+def bulk_reclassify(from_species: str, to_species: str):
+    """Bulk reclassify: mark all unreviewed images of from_species as wrong,
+    with correct_species=to_species. Only affects unreviewed images.
+
+    This creates review entries with verdict='wrong' and correct_species set,
+    which feeds into the retraining pipeline.
+    """
+    conn = cdb.get_conn(readonly=True)
+    # Get all unreviewed files for this species
+    files = conn.execute(
+        "SELECT c.file FROM classifications c "
+        "LEFT JOIN reviews r ON r.file = c.file "
+        "WHERE c.action='classified' AND c.common_name=? "
+        "AND r.file IS NULL", (from_species,)
+    ).fetchall()
+
+    if not files:
+        return {"reclassified": 0, "message": "No unreviewed images found"}
+
+    # Insert reviews
+    rw_conn = rdb.get_conn(readonly=False)
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    count = 0
+    for f in files:
+        try:
+            rw_conn.execute(
+                "INSERT OR IGNORE INTO reviews (file, verdict, correct_species, timestamp, reviewer) "
+                "VALUES (?, 'wrong', ?, ?, 'bulk-reclassify')",
+                (f[0], to_species, now_ts),
+            )
+            count += 1
+        except Exception:
+            pass
+    rw_conn.commit()
+    invalidate_cache("pending", "stats", "species")
+
+    return {
+        "reclassified": count,
+        "from_species": from_species,
+        "to_species": to_species,
+        "message": f"Marked {count} images as {to_species} (was {from_species})",
+    }
+
+
 @app.get("/api/stats")
 def stats(date: Optional[str] = Query(None, description="Filter by date YYYY-MM-DD, or 'all'"),
           camera: Optional[str] = Query(None, description="Filter by camera: feeder, ground, or all")):
@@ -671,22 +842,47 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     rows = rdb.get_pending_classifications(species=sp, multibird=mb, offset=offset, limit=limit)
     remaining = rdb.count_pending(species=sp, multibird=mb)
 
-    # Build response items from SQL rows
+    # Build response items from SQL rows, with audio corroboration check
+    bconn = _birdnet_db()
     pending = []
     for r in rows:
-        birds = json.loads(r["birds_json"]) if r.get("birds_json") else []
-        top3 = json.loads(r["top3_json"]) if r.get("top3_json") else []
-        raw_top3 = json.loads(r["raw_top3_json"]) if r.get("raw_top3_json") else []
-        pending.append({
+        birds = _safe_json(r["birds_json"]) if r.get("birds_json") else []
+        top3 = _safe_json(r["top3_json"]) if r.get("top3_json") else []
+        raw_top3 = _safe_json(r["raw_top3_json"]) if r.get("raw_top3_json") else []
+        item = {
             "file": r["file"],
             "timestamp": r.get("source_timestamp") or "",
             "species": r["common_name"],
             "confidence": r["confidence"],
             "raw_score": r.get("raw_score", 0),
-            "top3": top3,
-            "raw_top3": raw_top3,
-            "birds": birds,
-        })
+            "top3": top3 or [],
+            "raw_top3": raw_top3 or [],
+            "birds": birds or [],
+            "also_heard": False,
+        }
+        # Check if BirdNET heard the same species within ±30s
+        ts = r.get("source_timestamp") or ""
+        date_part = r.get("source_date") or ""
+        if bconn and ts and date_part and r["common_name"]:
+            try:
+                audio_match = bconn.execute(
+                    "SELECT 1 FROM notes WHERE date=? AND common_name=? "
+                    "AND ABS("
+                    "(CAST(SUBSTR(?,12,2) AS INTEGER)*3600+"
+                    "CAST(SUBSTR(?,15,2) AS INTEGER)*60+"
+                    "CAST(SUBSTR(?,18,2) AS INTEGER))"
+                    "-"
+                    "(CAST(SUBSTR(time,1,2) AS INTEGER)*3600+"
+                    "CAST(SUBSTR(time,4,2) AS INTEGER)*60+"
+                    "CAST(SUBSTR(time,7,2) AS INTEGER))"
+                    ") <= 30 LIMIT 1",
+                    (date_part, r["common_name"], ts, ts, ts),
+                ).fetchone()
+                if audio_match:
+                    item["also_heard"] = True
+            except Exception:
+                pass
+        pending.append(item)
 
     total_classified = cdb.count_classified()
     total_reviewed = rdb.count_reviews()
