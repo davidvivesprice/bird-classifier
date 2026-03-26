@@ -4753,6 +4753,32 @@
     var audioContext = getAudioContext(itemTimestamp, 5);
     var alsoHeardHtml = buildAlsoHeard(itemTimestamp);
 
+    // Intelligence signals
+    var signalsHtml = '';
+    var signals = [];
+    if (item.also_heard || item.audio_corroborated) {
+      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x1F3A4; Also heard</span>');
+    }
+    if (item.visit_outlier) {
+      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x26A0; Outlier — consensus: ' + escHtml(item.consensus_species || '?') + '</span>');
+    }
+    if (item.classifier_uncertain) {
+      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2753; Uncertain (gap: ' + (item.score_gap || '?') + ')</span>');
+    }
+    if (item.prior_suggestion && item.prior_suggestion !== item.species) {
+      signals.push('<span style="background:#1e3a5f;color:#93c5fd;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x1F4CA; Usually: ' + escHtml(item.prior_suggestion) + '</span>');
+    }
+    if (item.trust_level === 'probably_wrong') {
+      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x274C; Probably wrong</span>');
+    } else if (item.trust_level === 'unusual') {
+      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2728; Unusual — verify</span>');
+    } else if (item.trust_level === 'likely_correct') {
+      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2705; Likely correct</span>');
+    }
+    if (signals.length > 0) {
+      signalsHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;">' + signals.join('') + '</div>';
+    }
+
     // Normalize raw scores to percentages
     var scoreSum = top3.reduce(function(s, t) { return s + (t.raw_score || 0); }, 0);
 
@@ -4851,6 +4877,7 @@
           '<span class="review-conf-dot" style="background:' + confColor(conf) + '"></span>' +
           'Detection confidence: ' + confLabel(conf) +
         '</div>' +
+        signalsHtml +
         (alsoHeardHtml || '') +
         (birdSelectorHtml || '') +
         (predictionSection || '') +

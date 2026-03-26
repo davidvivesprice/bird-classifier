@@ -857,6 +857,10 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
         birds = _safe_json(r["birds_json"]) if r.get("birds_json") else []
         top3 = _safe_json(r["top3_json"]) if r.get("top3_json") else []
         raw_top3 = _safe_json(r["raw_top3_json"]) if r.get("raw_top3_json") else []
+        # Extract intelligence signals from extra_json
+        extra = _safe_json(r.get("extra_json")) if r.get("extra_json") else {}
+        if not isinstance(extra, dict):
+            extra = {}
         item = {
             "file": r["file"],
             "timestamp": r.get("source_timestamp") or "",
@@ -867,7 +871,20 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
             "raw_top3": raw_top3 or [],
             "birds": birds or [],
             "also_heard": False,
+            # Intelligence signals (from classify.py's yard_prior + visit_voter)
+            "trust_level": extra.get("trust_level", "normal"),
+            "prior_suggestion": extra.get("prior_suggestion"),
+            "prior_reason": extra.get("prior_reason"),
+            "classifier_uncertain": extra.get("classifier_uncertain", False),
+            "score_gap": extra.get("score_gap"),
+            "audio_corroborated": extra.get("audio_corroborated", False),
         }
+        # Visit consensus
+        vc = extra.get("visit_consensus")
+        if vc and vc.get("is_outlier"):
+            item["visit_outlier"] = True
+            item["consensus_species"] = vc.get("consensus_species")
+            item["trust_level"] = "probably_wrong"
         # Check if BirdNET heard the same species within ±30s
         ts = r.get("source_timestamp") or ""
         date_part = r.get("source_date") or ""
