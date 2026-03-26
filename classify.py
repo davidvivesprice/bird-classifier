@@ -41,6 +41,7 @@ from bird_inference import (
     parse_label, crop_bird, get_providers,
 )
 from yard_prior import YardPrior
+from visit_voter import check_visit_consensus
 
 _yard_prior = YardPrior()
 
@@ -583,6 +584,11 @@ def process_file(image_path, range_filter=None):
                 ],
             })
 
+    # Classifier uncertainty: how far apart are the top predictions?
+    top3_scores = [p["raw_score"] for p in all_predictions[0][:3]] if all_predictions[0] else [0]
+    score_gap = top3_scores[0] - top3_scores[1] if len(top3_scores) >= 2 else top3_scores[0]
+    classifier_uncertain = score_gap < 30  # top two predictions are close
+
     result = {
         "file": fname,
         "timestamp": datetime.now().isoformat(),
@@ -614,6 +620,9 @@ def process_file(image_path, range_filter=None):
         ],
         # All birds in this frame
         "birds": birds,
+        # Intelligence signals
+        "score_gap": score_gap,
+        "classifier_uncertain": classifier_uncertain,
     }
     # Add range filter info if present
     if range_filter_info:
@@ -641,24 +650,48 @@ def process_file(image_path, range_filter=None):
     except Exception as exc:
         logging.warning("Auto-cull check failed for %s, continuing with normal classification: %s", fname, exc)
 
-    # Apply yard prior — adds trust signals, doesn't change the prediction
+    # Apply intelligence layers — add trust signals without changing predictions
     if result.get("action") == "classified" and result.get("top_prediction"):
+        species = result["top_prediction"]["common_name"]
+        camera = result.get("camera", "feeder")
+
+        # Layer 1: Yard prior (historical accuracy + audio corroboration)
         try:
             correction = _yard_prior.correct(
-                classified_as=result["top_prediction"]["common_name"],
+                classified_as=species,
                 confidence=result.get("best_detection", {}).get("confidence", 0),
                 top3=result.get("top3", []),
                 source_timestamp=result.get("source_timestamp"),
                 source_date=result.get("source_date"),
             )
-            # Don't change the prediction — add signals for review
             if correction["audio_corroborated"]:
                 result["audio_corroborated"] = True
             if correction["correction_reason"]:
                 result["prior_suggestion"] = correction["corrected_species"]
                 result["prior_reason"] = correction["correction_reason"]
+            result["trust_level"] = correction.get("trust_level", "normal")
         except Exception as e:
             logging.debug("Yard prior error: %s", e)
+
+        # Layer 2: Visit consensus voting
+        try:
+            vote = check_visit_consensus(
+                camera=camera,
+                species=species,
+                timestamp=result.get("source_timestamp"),
+                source_date=result.get("source_date"),
+            )
+            if vote:
+                result["visit_consensus"] = vote
+                if vote["is_outlier"]:
+                    result["trust_level"] = "probably_wrong"
+                    logging.info("OUTLIER %s — %s (consensus: %s, %d/%d frames)",
+                                 result["file"], species,
+                                 vote["consensus_species"],
+                                 vote["consensus_count"],
+                                 vote["total_frames"])
+        except Exception as e:
+            logging.debug("Visit voter error: %s", e)
 
     append_result(result)
 
