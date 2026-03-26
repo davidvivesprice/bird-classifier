@@ -394,7 +394,6 @@ def cameras_list():
 def daily_highlights(date: Optional[str] = Query(None)):
     """Today's story — highlights, firsts, audio-visual comparison."""
     _validate_date(date)
-    """
     today = date or datetime.now().strftime("%Y-%m-%d")
 
     def _compute():
@@ -546,7 +545,7 @@ def weekly_snapshot():
 
 @app.get("/api/audio-verified")
 def audio_verified(date: Optional[str] = Query(None)):
-    """Find visual detections corroborated by audio within ±30 seconds.
+    """Find visual detections corroborated by audio within +/-30 seconds.
 
     When auto_confirm=true, automatically inserts 'correct' reviews for
     unreviewed detections that have audio corroboration. This is safe
@@ -560,7 +559,7 @@ def audio_verified(date: Optional[str] = Query(None)):
     if not bconn:
         return {"verified": 0, "auto_confirmed": 0, "error": "BirdNET DB unavailable"}
 
-    # Find visual detections with matching audio within ±30s
+    # Find visual detections with matching audio within +/-30s
     # Only look at unreviewed classifications
     try:
         matches = conn.execute("""
@@ -712,6 +711,142 @@ def yard_prior_stats():
     return _yard_prior_instance.get_stats()
 
 
+@app.get("/api/review/smart-queue")
+def review_smart_queue():
+    """Smart review queue — surfaces only what needs human eyes.
+
+    Three categories, prioritized:
+    1. Corrections: prior/signals say it's wrong (~500-1000)
+    2. Training samples: best shot per species needing more data (~500)
+    3. Uncertain: classifier confused, need human judgment (~500)
+
+    Everything else is deprioritized (not deleted, just not shown).
+    Returns species-grouped batches for fast review.
+    """
+    conn = cdb.get_conn(readonly=True)
+
+    # How many confirmed per species?
+    confirmed = {}
+    for r in conn.execute(
+        "SELECT c.common_name, COUNT(*) as cnt "
+        "FROM classifications c JOIN reviews r ON r.file = c.file "
+        "WHERE r.verdict = 'correct' GROUP BY c.common_name"
+    ).fetchall():
+        confirmed[r[0]] = r[1]
+
+    TARGET_PER_SPECIES = 50  # enough for retraining
+
+    # Build the smart queue
+    queue = {"corrections": [], "training": [], "uncertain": []}
+    species_counts = {}
+
+    # 1. Corrections — visit hero shots where signals say "probably wrong"
+    #    Uses visits.best_file for one-per-visit dedup
+    correction_rows = conn.execute("""
+        SELECT v.best_file as file, v.species, v.best_confidence as confidence,
+               v.frame_count, c.extra_json, c.source_timestamp
+        FROM visits v
+        JOIN classifications c ON c.file = v.best_file
+        LEFT JOIN reviews r ON r.file = v.best_file
+        WHERE r.file IS NULL AND v.best_file IS NOT NULL
+        AND (c.extra_json LIKE '%probably_wrong%'
+             OR c.extra_json LIKE '%prior_suggestion%'
+             OR c.extra_json LIKE '%time_implausible%')
+        ORDER BY v.best_confidence ASC
+        LIMIT 500
+    """).fetchall()
+
+    for r in correction_rows:
+        extra = _safe_json(r["extra_json"]) or {}
+        queue["corrections"].append({
+            "file": r["file"],
+            "species": r["species"],
+            "confidence": round(r["confidence"] or 0, 3),
+            "frame_count": r["frame_count"],
+            "trust_level": extra.get("trust_level", "normal"),
+            "prior_suggestion": extra.get("prior_suggestion"),
+            "reason": "correction",
+        })
+
+    # 2. Training samples — best shot per species that needs more confirmed data
+    #    One per visit, highest confidence, for species below TARGET
+    for r in conn.execute("""
+        SELECT c.common_name, COUNT(DISTINCT v.id) as unreviewed_visits
+        FROM visits v
+        JOIN classifications c ON c.file = v.best_file
+        LEFT JOIN reviews r ON r.file = v.best_file
+        WHERE r.file IS NULL AND v.best_file IS NOT NULL AND c.common_name IS NOT NULL
+        GROUP BY c.common_name
+        ORDER BY unreviewed_visits DESC
+    """).fetchall():
+        species_name = r[0]
+        have = confirmed.get(species_name, 0)
+        need = max(0, TARGET_PER_SPECIES - have)
+        species_counts[species_name] = {"have": have, "need": need, "unreviewed": r[1]}
+
+        if need > 0:
+            # Get the best N unreviewed visit hero shots
+            samples = conn.execute("""
+                SELECT v.best_file as file, v.species, v.best_confidence as confidence,
+                       v.frame_count, c.source_timestamp
+                FROM visits v
+                JOIN classifications c ON c.file = v.best_file
+                LEFT JOIN reviews r ON r.file = v.best_file
+                WHERE r.file IS NULL AND c.common_name = ?
+                ORDER BY v.best_confidence DESC
+                LIMIT ?
+            """, (species_name, min(need, 30))).fetchall()
+
+            for s in samples:
+                queue["training"].append({
+                    "file": s["file"],
+                    "species": s["species"],
+                    "confidence": round(s["confidence"] or 0, 3),
+                    "frame_count": s["frame_count"],
+                    "reason": "training",
+                    "have": have,
+                    "need": need,
+                })
+
+    # 3. Uncertain — classifier confused (low score gap), one per visit
+    uncertain_rows = conn.execute("""
+        SELECT v.best_file as file, v.species, v.best_confidence as confidence,
+               v.frame_count, c.extra_json
+        FROM visits v
+        JOIN classifications c ON c.file = v.best_file
+        LEFT JOIN reviews r ON r.file = v.best_file
+        WHERE r.file IS NULL AND v.best_file IS NOT NULL
+        AND c.extra_json LIKE '%"classifier_uncertain": true%'
+        AND c.extra_json NOT LIKE '%probably_wrong%'
+        ORDER BY v.best_confidence ASC
+        LIMIT 500
+    """).fetchall()
+
+    for r in uncertain_rows:
+        queue["uncertain"].append({
+            "file": r["file"],
+            "species": r["species"],
+            "confidence": round(r["confidence"] or 0, 3),
+            "frame_count": r["frame_count"],
+            "reason": "uncertain",
+        })
+
+    total_queue = len(queue["corrections"]) + len(queue["training"]) + len(queue["uncertain"])
+
+    return {
+        "total_review_queue": total_queue,
+        "total_unreviewed_frames": sum(v["unreviewed"] for v in species_counts.values()),
+        "corrections": len(queue["corrections"]),
+        "training_samples": len(queue["training"]),
+        "uncertain": len(queue["uncertain"]),
+        "skipped": sum(v["unreviewed"] for v in species_counts.values()) - total_queue,
+        "species_progress": dict(sorted(
+            species_counts.items(), key=lambda x: -x[1]["need"]
+        )[:15]),
+        "queue": queue,
+    }
+
+
 @app.get("/api/review/batch")
 def review_batch(species: str = "", trust: str = "", limit: int = 12):
     """Get a batch of same-species images for fast grid review.
@@ -802,8 +937,14 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
 
 
 @app.post("/api/review/batch-confirm")
-def batch_confirm(files: list = [], species: str = ""):
+async def batch_confirm(request: StarletteRequest):
     """Confirm multiple images at once. All files marked as 'correct'."""
+    try:
+        files = await request.json()
+    except Exception:
+        files = []
+    if not isinstance(files, list):
+        files = []
     if not files:
         return {"confirmed": 0}
     rw_conn = rdb.get_conn(readonly=False)
@@ -826,8 +967,14 @@ def batch_confirm(files: list = [], species: str = ""):
 
 
 @app.post("/api/review/batch-reject")
-def batch_reject(files: list = [], correct_species: str = ""):
+async def batch_reject(request: StarletteRequest):
     """Reject multiple images and optionally set the correct species."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    files = body.get("files", []) if isinstance(body, dict) else body
+    correct_species = body.get("correct_species", "") if isinstance(body, dict) else ""
     if not files:
         return {"rejected": 0}
     correct = normalize_species(correct_species) if correct_species else ""
@@ -1012,7 +1159,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
             item["visit_outlier"] = True
             item["consensus_species"] = vc.get("consensus_species")
             item["trust_level"] = "probably_wrong"
-        # Check if BirdNET heard the same species within ±30s
+        # Check if BirdNET heard the same species within +/-30s
         ts = r.get("source_timestamp") or ""
         date_part = r.get("source_date") or ""
         if bconn and ts and date_part and r["common_name"]:
