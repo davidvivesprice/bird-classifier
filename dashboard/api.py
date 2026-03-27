@@ -1056,12 +1056,17 @@ def recent(limit: int = 50, camera: Optional[str] = Query(None, description="Fil
 
 @app.get("/api/image/{filename}")
 def get_image(filename: str):
-    """Serve an annotated image (with bounding boxes)."""
+    """Serve an annotated image, falling back to classified or raw image."""
     safe_name = os.path.basename(filename)
+    # Try annotated first (has bounding boxes)
     path = ANNOTATED_DIR / safe_name
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(str(path), media_type="image/jpeg")
+    if path.exists():
+        return FileResponse(str(path), media_type="image/jpeg")
+    # Fall back to classified directory (any species subdirectory)
+    classified = _find_classified_file(safe_name)
+    if classified:
+        return FileResponse(str(classified), media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="Image not found")
 
 
 @app.get("/api/image-raw/{filename}")
@@ -2117,7 +2122,7 @@ def get_doc(doc_path: str):
 # ── go2rtc WebSocket Proxy (for camera feeds through Cloudflare tunnel) ──
 
 GO2RTC_HOST = "192.168.5.92"  # NAS local IP
-GO2RTC_PORT = 80              # nginx proxy to go2rtc
+GO2RTC_PORT = 1984            # go2rtc API direct (no nginx auth needed)
 
 from fastapi import WebSocket as FastAPIWebSocket
 

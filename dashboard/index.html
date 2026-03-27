@@ -3837,22 +3837,25 @@
       return;
     }
     // Deduplicate: one per species, most recent wins
+    // Deduplicate: one per species, track original index for click handler
     var seen = {};
     var deduped = [];
+    var dedupedIdx = [];
     for (var di = 0; di < recentDetections.length && deduped.length < 10; di++) {
       var dd = recentDetections[di];
       var sp = dd.top_prediction ? dd.top_prediction.common_name : 'Unknown';
       if (!seen[sp]) {
         seen[sp] = true;
         deduped.push(dd);
+        dedupedIdx.push(di);
       }
     }
     el.innerHTML = deduped.map((d, i) => {
+      const origIdx = dedupedIdx[i];
       const name = d.top_prediction ? d.top_prediction.common_name : 'Unknown';
       const conf = d.best_detection ? d.best_detection.confidence : (d.top_prediction ? d.top_prediction.raw_score : 0);
       const ts = d.source_timestamp || d.timestamp;
       const isLive = d.action === 'live';
-      // Live detections: use species image; classified: use camera thumbnail
       const thumbUrl = isLive
         ? '/bird-api/species-image/' + encodeURIComponent(name)
         : (d.file ? '/bird-api/image/' + encodeURIComponent(d.file) : '');
@@ -3863,7 +3866,7 @@
                       : '';
       const liveClass = isLive ? ' live-sighting' : '';
       // Always open detection lightbox on click; species popup only via small info icon
-      const clickAction = isLive ? 'openSpeciesPopup(\'' + escAttr(name) + '\')' : 'openDetection(' + i + ')';
+      const clickAction = isLive ? 'openSpeciesPopup(\'' + escAttr(name) + '\')' : 'openDetection(' + origIdx + ')';
       return '<div class="recent-item' + liveClass + '" style="cursor:pointer" onclick="' + clickAction + '">' +
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
