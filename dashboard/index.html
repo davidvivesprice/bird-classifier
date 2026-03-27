@@ -3696,7 +3696,7 @@
         '<span><b>' + (data.species_count || 0) + '</b> species detected</span>' +
         '<span><b>' + (data.classified || 0) + '</b> birds classified</span>' +
         '<span>Updated: ' + updated + '</span>' +
-        '<span class="yard-now" id="yard-now" style="opacity:0.5">🎙️ Listening…</span>';
+        '<span class="yard-now" id="yard-now">🎙️ <span style="color:var(--text-muted)">Yard quiet</span></span>';
       renderYardPanel();
     } catch (e) {
       document.getElementById('topbar-stats').innerHTML = '<span style="color:var(--accent-red)">Stats unavailable</span>';
@@ -5545,13 +5545,19 @@
 
     var es = new EventSource('/live-detections/events');
     liveDetectionSource = es;
+    var _liveDetErrors = 0;
 
-    // Use addEventListener instead of onmessage for robustness
     es.addEventListener('open', function() {
       console.log('[LiveDet SSE] Connected');
+      _liveDetErrors = 0;
     });
     es.addEventListener('error', function() {
-      console.log('[LiveDet SSE] Connection error, will auto-reconnect');
+      _liveDetErrors++;
+      if (_liveDetErrors >= 3) {
+        console.log('[LiveDet SSE] Unavailable (live detector not reachable)');
+        es.close();
+        liveDetectionSource = null;
+      }
     });
     es.addEventListener('message', _handleLiveDetection);
   }

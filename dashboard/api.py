@@ -2129,48 +2129,47 @@ from fastapi import WebSocket as FastAPIWebSocket
 
 @app.websocket("/api/ws")
 async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
-    """Proxy WebSocket connections to go2rtc on the NAS.
-
-    The dashboard's live camera feed connects via MSE over WebSocket.
-    When accessed through Cloudflare tunnel, the NAS isn't directly
-    reachable, so this proxy forwards the connection.
-    """
+    """Proxy WebSocket connections to go2rtc on the NAS."""
+    import asyncio
     import websockets
 
     await websocket.accept()
-
     go2rtc_url = f"ws://{GO2RTC_HOST}:{GO2RTC_PORT}/api/ws?src={src}"
+    upstream = None
 
     try:
-        async with websockets.connect(go2rtc_url) as upstream:
-            import asyncio
+        upstream = await websockets.connect(go2rtc_url)
 
-            async def client_to_upstream():
-                try:
-                    while True:
-                        data = await websocket.receive()
-                        if "text" in data:
-                            await upstream.send(data["text"])
-                        elif "bytes" in data:
-                            await upstream.send(data["bytes"])
-                except Exception:
-                    pass
+        async def client_to_upstream():
+            try:
+                while True:
+                    msg = await websocket.receive_text()
+                    await upstream.send(msg)
+            except Exception:
+                pass
+            finally:
+                await upstream.close()
 
-            async def upstream_to_client():
-                try:
-                    async for msg in upstream:
-                        if isinstance(msg, bytes):
-                            await websocket.send_bytes(msg)
-                        else:
-                            await websocket.send_text(msg)
-                except Exception:
-                    pass
+        async def upstream_to_client():
+            try:
+                async for msg in upstream:
+                    if isinstance(msg, bytes):
+                        await websocket.send_bytes(msg)
+                    else:
+                        await websocket.send_text(msg)
+            except Exception:
+                pass
 
-            await asyncio.gather(client_to_upstream(), upstream_to_client())
+        await asyncio.gather(client_to_upstream(), upstream_to_client())
 
     except Exception as e:
-        logging.warning("[WS Proxy] go2rtc connection failed: %s", e)
+        logging.warning("[WS Proxy] go2rtc: %s", e)
     finally:
+        if upstream:
+            try:
+                await upstream.close()
+            except Exception:
+                pass
         try:
             await websocket.close()
         except Exception:
