@@ -285,23 +285,16 @@ def _check_audio_analyzer_health():
 
 
 def _check_nas():
-    """Check NAS reachability via /healthz endpoint.
-
-    Uses curl subprocess because Python urllib is blocked by macOS Application
-    Firewall when running from LaunchAgent (unsigned binary restriction).
-    """
+    """Check go2rtc reachability (runs locally now, NAS no longer used)."""
     import subprocess
     try:
         result = subprocess.run(
-            ["curl", "-sk", "--max-time", "3",
-             "https://192.168.5.92:9444/healthz",
-             "-H", "Host: birds.vivessyn.duckdns.org"],
+            ["curl", "-s", "--max-time", "3", "http://127.0.0.1:1984/api/streams"],
             capture_output=True, timeout=5,
         )
-        body = result.stdout.decode().strip()
-        if result.returncode == 0 and body == "ok":
-            return {"status": "ok", "detail": "NAS proxy healthy"}
-        return {"status": "warn", "detail": f"NAS returned: {body or 'empty'} (exit {result.returncode})"}
+        if result.returncode == 0:
+            return {"status": "ok", "detail": "go2rtc healthy (local)"}
+        return {"status": "warn", "detail": f"go2rtc not responding (exit {result.returncode})"}
     except Exception as e:
         err = str(e)
         detail = f"NAS unreachable ({err})"

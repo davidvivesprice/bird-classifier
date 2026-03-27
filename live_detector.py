@@ -69,12 +69,11 @@ SPECIES_TPU_PATH = MODEL_DIR / "aiy_birds_v1_edgetpu.tflite"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
 REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
 
-# go2rtc frame API (proxied via NAS nginx + Traefik)
-# Must use the correct hostname for Traefik's Host-based routing
-GO2RTC_HOST = os.environ.get("GO2RTC_HOST", "192.168.5.92")
-GO2RTC_PORT = os.environ.get("GO2RTC_PORT", "9444")
-GO2RTC_HOSTNAME = os.environ.get("GO2RTC_HOSTNAME", "birds.vivessyn.duckdns.org")
-GO2RTC_BASE = f"https://{GO2RTC_HOST}:{GO2RTC_PORT}"
+# go2rtc frame API (runs locally on iMac)
+GO2RTC_HOST = os.environ.get("GO2RTC_HOST", "127.0.0.1")
+GO2RTC_PORT = os.environ.get("GO2RTC_PORT", "1984")
+GO2RTC_HOSTNAME = os.environ.get("GO2RTC_HOSTNAME", "localhost")
+GO2RTC_BASE = f"http://{GO2RTC_HOST}:{GO2RTC_PORT}"
 
 # Camera stream names in go2rtc
 CAMERA_STREAMS = {
