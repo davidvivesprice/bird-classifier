@@ -4917,8 +4917,23 @@
         (birds.length <= 1 ? '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">Correct</button>' +
         '<button class="review-btn btn-wrong" onclick="toggleWrongDropdown()">Wrong</button>' +
         // Quick-swap buttons for commonly confused species pairs
-        (speciesName === 'Downy Woodpecker' ? '<button class="review-btn" style="background:#1e3a5f;color:#93c5fd;" onclick="submitReview(\'wrong\',\'Hairy Woodpecker\')">Actually Hairy</button>' : '') +
-        (speciesName === 'Hairy Woodpecker' ? '<button class="review-btn" style="background:#1e3a5f;color:#93c5fd;" onclick="submitReview(\'wrong\',\'Downy Woodpecker\')">Actually Downy</button>' : '') +
+        (function() {
+          var swaps = {
+            'Downy Woodpecker': 'Hairy Woodpecker',
+            'Hairy Woodpecker': 'Downy Woodpecker',
+            'White-crowned Sparrow': 'Song Sparrow',
+            'Lincoln\'s Sparrow': 'Song Sparrow',
+            'House Sparrow': 'Song Sparrow',
+            'Chipping Sparrow': 'Song Sparrow',
+            'Fox Sparrow': 'Song Sparrow',
+            'White-throated Sparrow': 'Song Sparrow',
+            'Rock Pigeon': 'Black-capped Chickadee',
+            'Gray Catbird': 'Tufted Titmouse',
+            'Northern Mockingbird': 'Black-capped Chickadee',
+          };
+          var swap = swaps[speciesName];
+          return swap ? '<button class="review-btn" style="background:#1e3a5f;color:#93c5fd;" onclick="submitReview(\'wrong\',\'' + swap.replace(/'/g, "\\'") + '\')">Actually ' + swap + '</button>' : '';
+        })() +
         '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">No Bird</button>' : '') +
         '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">Trash</button>' +
         '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">Missed</button>' +
