@@ -284,7 +284,7 @@ def _check_audio_analyzer_health():
     return metrics
 
 
-def _check_nas():
+def _check_go2rtc():
     """Check go2rtc reachability (runs locally now, NAS no longer used)."""
     import subprocess
     try:
@@ -325,7 +325,7 @@ def system_health():
             "live_detector": _fetch_service("http://localhost:8097/metrics", "Live Detector"),
             "enhanced_audio": _fetch_service("http://localhost:8096/metrics", "Enhanced Audio"),
             "audio_analyzer": _check_audio_analyzer_health(),
-            "nas": _check_nas(),
+            "go2rtc": _check_go2rtc(),
         },
     }
 
@@ -2120,12 +2120,19 @@ GO2RTC_PORT = int(os.environ.get("GO2RTC_PORT", "1984"))
 from fastapi import WebSocket as FastAPIWebSocket
 
 
+ALLOWED_STREAMS = {"feeder-main", "ground-main"}
+
+
 @app.websocket("/api/ws")
 async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
-    """Proxy WebSocket connections to go2rtc on the NAS."""
+    """Proxy WebSocket connections to local go2rtc for camera streaming."""
     import asyncio
     import websockets
     from starlette.websockets import WebSocketDisconnect
+
+    if src not in ALLOWED_STREAMS:
+        await websocket.close(code=1008, reason="Invalid stream")
+        return
 
     await websocket.accept()
     go2rtc_url = f"ws://{GO2RTC_HOST}:{GO2RTC_PORT}/api/ws?src={src}"
@@ -2133,12 +2140,10 @@ async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main")
     done = asyncio.Event()
 
     try:
-        logging.info("[WS Proxy] Connecting to %s", go2rtc_url)
         upstream = await asyncio.wait_for(
-            websockets.connect(go2rtc_url),
+            websockets.connect(go2rtc_url, max_size=16 * 1024 * 1024),
             timeout=5,
         )
-        logging.info("[WS Proxy] Connected to go2rtc")
 
         async def client_to_upstream():
             try:
@@ -2153,8 +2158,8 @@ async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main")
                         await upstream.send(data["text"])
                     elif "bytes" in data and data["bytes"]:
                         await upstream.send(data["bytes"])
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.debug("[WS Proxy] client→upstream: %s", exc)
             finally:
                 done.set()
 
@@ -2167,8 +2172,8 @@ async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main")
                         await websocket.send_bytes(msg)
                     else:
                         await websocket.send_text(msg)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.debug("[WS Proxy] upstream→client: %s", exc)
             finally:
                 done.set()
 

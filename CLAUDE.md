@@ -29,9 +29,9 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 
 ## Architecture
 
-Two machines: iMac (classification engine) + Synology NAS (cameras, dashboard hosting).
+Single machine: iMac runs everything. CloudKey Gen 2+ manages cameras.
 SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio).
-9 LaunchAgent services with KeepAlive.
+10 LaunchAgent services with KeepAlive. Cloudflare tunnel for external access.
 
 ## Key Rules
 

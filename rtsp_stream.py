@@ -7,6 +7,7 @@ multi-stream fallback, on-demand URL refresh, and health reporting.
 import json
 import logging
 import os
+import sys
 import subprocess
 import time
 from datetime import datetime
@@ -19,7 +20,7 @@ _DEFAULT_URLS_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "rtsp_urls.json"
 )
 _DEFAULT_SYNC_SCRIPT = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "sync_rtsp_urls.sh"
+    os.path.dirname(os.path.abspath(__file__)), "refresh_rtsp.py"
 )
 
 # Escalation constants
@@ -247,21 +248,22 @@ class RTSPStreamManager:
     # ── Sync trigger ──
 
     def _trigger_sync(self):
-        """Run sync_rtsp_urls.sh to refresh URLs. Rate-limited."""
+        """Run refresh_rtsp.py to get fresh RTSP tokens from CloudKey. Rate-limited."""
         now = time.time()
         if now - self._last_sync_time < REFRESH_COOLDOWN:
             log.info("Sync rate-limited (last sync %.0fs ago)", now - self._last_sync_time)
             return False
 
         if not os.path.isfile(self.sync_script):
-            log.warning("Sync script not found: %s", self.sync_script)
+            log.warning("Refresh script not found: %s", self.sync_script)
             return False
 
         self._last_sync_time = now
         try:
             result = subprocess.run(
-                ["bash", self.sync_script],
+                [sys.executable, self.sync_script],
                 capture_output=True, text=True, timeout=60,
+                env={**os.environ, "UNIFI_PROTECT_API_KEY": os.environ.get("UNIFI_PROTECT_API_KEY", "")},
             )
             if result.returncode == 0:
                 log.info("Sync script succeeded: %s", result.stdout.strip())

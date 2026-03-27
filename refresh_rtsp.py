@@ -111,11 +111,14 @@ def restart_go2rtc():
     """Restart go2rtc LaunchAgent."""
     try:
         uid = os.getuid()
-        subprocess.run(
+        result = subprocess.run(
             ["launchctl", "kickstart", "-k", f"gui/{uid}/com.vives.bird-go2rtc"],
             capture_output=True, timeout=10,
         )
-        log("Restarted go2rtc")
+        if result.returncode != 0:
+            log(f"Warning: launchctl returned {result.returncode}")
+        else:
+            log("Restarted go2rtc")
     except Exception as e:
         log(f"Warning: could not restart go2rtc: {e}")
 
@@ -128,23 +131,36 @@ def main():
     log(f"Fetching RTSP tokens from {PROTECT_HOST}...")
 
     tokens = {}
+    failures = []
     for name, cam_id in CAMERAS.items():
         try:
             tokens[name] = fetch_streams(cam_id)
             log(f"  {name}: OK")
         except Exception as e:
             log(f"  {name}: FAILED — {e}")
-            sys.exit(1)
+            failures.append(name)
 
-    # Check if tokens changed
-    old_urls = ""
+    if len(failures) == len(CAMERAS):
+        log("ERROR: All cameras failed")
+        sys.exit(1)
+    if failures:
+        log(f"Warning: {len(failures)} camera(s) failed, continuing with {len(tokens)}")
+
+    # Compare streams only (not the timestamp) to detect real changes
+    old_streams = {}
     if RTSP_URLS_FILE.exists():
-        old_urls = RTSP_URLS_FILE.read_text()
+        try:
+            old_streams = json.loads(RTSP_URLS_FILE.read_text()).get("streams", {})
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    new_streams = {
+        name: {"high": tokens[name]["high"], "low": tokens[name]["low"]}
+        for name in tokens
+    }
+    changed = old_streams != new_streams
 
     write_rtsp_urls(tokens)
-    new_urls = RTSP_URLS_FILE.read_text()
-
-    changed = old_urls != new_urls
     if changed:
         log("Tokens changed — updating go2rtc config")
         write_go2rtc_config(tokens)

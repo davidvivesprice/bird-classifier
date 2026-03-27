@@ -20,3 +20,4 @@ rtsp_urls.json
 test_clips/*.mp4
 test_clips/*.mkv
 test_clips/*.avi
+go2rtc.yaml

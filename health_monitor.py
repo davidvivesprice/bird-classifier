@@ -60,7 +60,8 @@ SERVICES = {
     "bird-dashboard": {"critical": True, "log": "dashboard-stderr.log"},
     "bird-livedetect": {"critical": False, "log": "live_detector_stderr.log"},
     "bird-capture": {"critical": True, "log": None},
-    "bird-sync": {"critical": False, "log": None},
+    "bird-go2rtc": {"critical": False, "log": "go2rtc-stderr.log"},
+    "bird-tunnel": {"critical": False, "log": None},
 }
 
 
