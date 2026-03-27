@@ -46,7 +46,9 @@ for species in confirmed_species:
         save to training_data/{species}/
 ```
 
-Minimum 10 images per species, target 20+. Skip species with fewer than 10.
+Minimum 15 images per species, target 20+. Skip species with fewer than 15.
+
+For "wrong" verdicts with `correct_species` set, locate the image file under `classified/{original_wrong_species}/` and map it to the corrected species for training. Reuse logic from `export_yolo_dataset.py` which already handles this file lookup.
 
 ### Step 2: Weight Imprinting
 
@@ -83,26 +85,43 @@ Save yard model to `models/yard_model.tflite` + `models/yard_model_labels.txt`. 
 
 ## Classifier Integration
 
-In `classify.py`, ~20 lines of change in the classification step:
+In `classify.py`, changes in the classification step:
+
+### Confidence Calibration
+
+AIY Birds V1 returns raw integer scores (0-255 quantized logits). The ImprintingEngine model returns L2-normalized cosine similarity scores (0.0-1.0 range). These CANNOT be compared directly. Both must be normalized before the pick-winner logic:
+
+- AIY scores: apply softmax over top-3 to get probabilities
+- Yard scores: already in probability space from L2-norm, use directly
+
+Threshold calibration happens during Step 3 (test phase): run both models on the holdout set and find the optimal confidence threshold for each by maximizing accuracy. Store thresholds in a config file, not hardcoded.
+
+### Label Mapping
+
+The yard model uses canonical common names (e.g., "Song Sparrow") matching `normalize_species()` output. The label file `yard_model_labels.txt` is written during training with the same names used in the review system. AIY predictions are already normalized through `parse_label()` → `normalize_species()`. Both models output the same label space after normalization.
+
+### Pick Winner Logic
 
 ```python
 # After YOLO detection and bird crop:
-aiy_predictions = aiy_classifier.classify(crop)
-yard_predictions = yard_classifier.classify(crop)  # new
+aiy_preds = aiy_classifier.classify(crop)
+aiy_conf = softmax(aiy_preds[:3])  # normalize to probabilities
 
-# Pick winner
-if yard_predictions and yard_predictions[0].confidence > 0.70:
-    final = yard_predictions[0]
-    final.source = "yard_model"
-elif aiy_predictions[0].confidence > 0.80:
-    final = aiy_predictions[0]
-    final.source = "aiy"
+yard_preds = yard_classifier.classify(crop) if yard_classifier else None
+
+# Pick winner (thresholds calibrated during training)
+if yard_preds and yard_preds[0].confidence > YARD_THRESHOLD:
+    final_species = yard_preds[0].common_name
+    model_source = "yard"
+elif aiy_conf[0] > AIY_THRESHOLD:
+    final_species = aiy_preds[0].common_name
+    model_source = "aiy"
 else:
-    final = aiy_predictions[0]
-    final.source = "aiy_uncertain"
+    final_species = aiy_preds[0].common_name
+    model_source = "aiy_uncertain"
 ```
 
-Result dict gets a `model_source` field so the dashboard can show which model made the call.
+Result dict gets a `model_source` field stored in `extra_json` (no schema migration needed).
 
 ## Dashboard Training Tab
 
@@ -149,12 +168,48 @@ New tab between "Audio" and "Review":
 4. Training can be triggered from the dashboard with one click
 5. Model can be rolled back to AIY-only with one click
 
+## Coral USB Contention
+
+The Coral USB is a single-device resource. During training, the live classifier cannot use it.
+
+**Handling:**
+1. Training endpoint sets a flag file (`/tmp/yard-model-training.lock`)
+2. `classify.py` checks the flag before each inference — if set, skips Coral classification and queues images in `incoming/` (they accumulate safely)
+3. Training completes in <60 seconds, flag is removed
+4. Classifier resumes and processes the backlog
+5. Timeout: if flag exists for >5 minutes, classifier ignores it (training assumed crashed)
+
+## Rollback Mechanism
+
+**File versioning:**
+- `models/yard_model.tflite` — current active yard model
+- `models/yard_model_prev.tflite` — previous version (auto-backed up before each training)
+- `models/yard_model_labels.txt` — current labels
+- `models/yard_model_prev_labels.txt` — previous labels
+
+**Rollback API:** `POST /api/training/rollback`
+- Swaps current ↔ prev model files
+- Restarts classifier
+- If no prev model exists, removes yard model entirely (AIY-only mode)
+
+**Graceful missing model:** The classifier checks if `yard_model.tflite` exists at startup. If not, runs AIY-only mode — no crash, no error, just logs "Yard model not found, using AIY only."
+
+## Test Methodology
+
+With ~500 images across 16 species, a fixed 20% holdout gives too few samples per species for meaningful evaluation. Instead:
+
+**Leave-one-out cross-validation:** For each species, train on all-but-one image, test on the held-out image, repeat. This maximizes both training and test data. Per-species accuracy is the fraction of held-out images correctly classified.
+
+**Pre-deploy preview:** After training, automatically run the yard model on the last 100 live-classified images and show a "what would have changed" comparison — catches real-world drift that holdout sets miss.
+
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Yard model is worse than AIY | Confidence threshold ensures AIY wins when yard isn't sure |
-| Too few images for a species | Minimum 10 images enforced, species below threshold skipped |
-| Coral USB busy during training | Training is a one-time batch job, classifier pauses briefly |
-| Model file corruption | Old model kept as backup, rollback button in UI |
+| Yard model is worse than AIY | Calibrated confidence thresholds ensure AIY wins when yard isn't sure |
+| Too few images for a species | Minimum 15 images enforced, species below threshold skipped |
+| Coral USB busy during training | Lock file pauses classifier, 5-min timeout watchdog |
+| Model file corruption | Previous model auto-backed up, rollback endpoint |
+| Confidence scales don't match | Softmax normalization on AIY, thresholds calibrated on test set |
+| Labels don't match between models | Both use normalize_species() canonical names |
 | Imprinting model less accurate than full transfer learning | Phase 2: TF Lite Model Maker for deeper retraining if needed |
