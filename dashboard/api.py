@@ -2132,33 +2132,47 @@ async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main")
     """Proxy WebSocket connections to go2rtc on the NAS."""
     import asyncio
     import websockets
+    from starlette.websockets import WebSocketDisconnect
 
     await websocket.accept()
     go2rtc_url = f"ws://{GO2RTC_HOST}:{GO2RTC_PORT}/api/ws?src={src}"
     upstream = None
+    done = asyncio.Event()
 
     try:
         upstream = await websockets.connect(go2rtc_url)
 
         async def client_to_upstream():
             try:
-                while True:
-                    msg = await websocket.receive_text()
-                    await upstream.send(msg)
+                while not done.is_set():
+                    try:
+                        data = await websocket.receive()
+                    except WebSocketDisconnect:
+                        break
+                    if data.get("type") == "websocket.disconnect":
+                        break
+                    if "text" in data and data["text"]:
+                        await upstream.send(data["text"])
+                    elif "bytes" in data and data["bytes"]:
+                        await upstream.send(data["bytes"])
             except Exception:
                 pass
             finally:
-                await upstream.close()
+                done.set()
 
         async def upstream_to_client():
             try:
                 async for msg in upstream:
+                    if done.is_set():
+                        break
                     if isinstance(msg, bytes):
                         await websocket.send_bytes(msg)
                     else:
                         await websocket.send_text(msg)
             except Exception:
                 pass
+            finally:
+                done.set()
 
         await asyncio.gather(client_to_upstream(), upstream_to_client())
 
