@@ -2121,7 +2121,7 @@ def get_doc(doc_path: str):
 
 # ── go2rtc WebSocket Proxy (for camera feeds through Cloudflare tunnel) ──
 
-GO2RTC_HOST = os.environ.get("GO2RTC_HOST", "100.73.76.98")  # Tailscale IP of NAS
+GO2RTC_HOST = os.environ.get("GO2RTC_HOST", "127.0.0.1")  # go2rtc runs locally
 GO2RTC_PORT = int(os.environ.get("GO2RTC_PORT", "1984"))
 
 from fastapi import WebSocket as FastAPIWebSocket
