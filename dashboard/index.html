@@ -3297,10 +3297,33 @@
     lightboxDetection = null;
   };
 
+  function _updateGridCard(file, verdict, correctSpecies) {
+    // Update or remove the card in the classified/skipped grid
+    var cards = document.querySelectorAll('.skipped-grid .skipped-card, .skipped-grid [data-file]');
+    cards.forEach(function(card) {
+      if (card.dataset.file === file || card.innerHTML.indexOf(file) !== -1) {
+        if (verdict === 'trash' || verdict === 'wrong') {
+          card.style.opacity = '0.3';
+          card.style.pointerEvents = 'none';
+          var badge = document.createElement('div');
+          badge.style.cssText = 'position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:2px 6px;border-radius:4px;font-size:0.7rem;z-index:1;';
+          badge.textContent = correctSpecies ? '→ ' + correctSpecies : verdict;
+          card.style.position = 'relative';
+          card.appendChild(badge);
+        } else if (verdict === 'correct') {
+          var badge = document.createElement('div');
+          badge.style.cssText = 'position:absolute;top:4px;right:4px;background:#065f46;color:#6ee7b7;padding:2px 6px;border-radius:4px;font-size:0.7rem;z-index:1;';
+          badge.textContent = 'Confirmed';
+          card.style.position = 'relative';
+          card.appendChild(badge);
+        }
+      }
+    });
+  }
+
   window.lightboxReview = async function(verdict, correctSpecies) {
     if (!lightboxFile) return;
     if (verdict === 'wrong' && !correctSpecies) {
-      // Show inline dropdown instead of prompt
       lightboxToggleWrongDropdown();
       return;
     }
@@ -3315,8 +3338,8 @@
       await fetch(url, { method: 'POST' });
       var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
-      loadGoalsDebounced(); // refresh goals after lightbox review
-      // Auto-advance to next detection after a brief delay
+      _updateGridCard(lightboxFile, verdict, correctSpecies);
+      loadGoalsDebounced();
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
       } else {
@@ -3365,7 +3388,7 @@
     try {
       await fetch(url, { method: 'POST' });
       showToast('Corrected to: ' + species, 'success');
-      // Auto-advance to next detection
+      _updateGridCard(lightboxFile, 'wrong', species);
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
       } else {
