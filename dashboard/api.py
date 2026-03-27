@@ -2140,7 +2140,12 @@ async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main")
     done = asyncio.Event()
 
     try:
-        upstream = await websockets.connect(go2rtc_url)
+        logging.info("[WS Proxy] Connecting to %s", go2rtc_url)
+        upstream = await asyncio.wait_for(
+            websockets.connect(go2rtc_url),
+            timeout=5,
+        )
+        logging.info("[WS Proxy] Connected to go2rtc")
 
         async def client_to_upstream():
             try:
