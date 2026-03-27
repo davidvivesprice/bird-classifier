@@ -5360,6 +5360,7 @@
     var split = document.getElementById('live-split');
     if (split) {
       split.querySelectorAll('video').forEach(function(v) {
+        if (v._splitWs) { try { v._splitWs.close(); } catch(e) {} }
         v.pause(); v.removeAttribute('src'); v.srcObject = null; v.load();
       });
       split.remove();
@@ -5402,13 +5403,61 @@
 
       split.appendChild(cell);
 
-      // Connect via MP4
-      var mp4Url = location.protocol + '//' + location.host + '/api/stream.mp4?src=' + camName + '-main';
-      vid.src = mp4Url;
-      vid.play().catch(function(){});
-      vid.onerror = function() {
-        setTimeout(function() { vid.src = mp4Url; vid.play().catch(function(){}); }, 3000);
-      };
+      // Connect via MSE WebSocket (same as single-camera view)
+      (function(video, streamSrc) {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = proto + '//' + location.host + '/api/ws?src=' + streamSrc;
+        var ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
+        var MSConstructor = window.ManagedMediaSource || window.MediaSource;
+        var mediaSource, sourceBuffer, queue = [];
+
+        ws.onopen = function() {
+          mediaSource = new MSConstructor();
+          if (window.ManagedMediaSource) {
+            video.disableRemotePlayback = true;
+            video.srcObject = mediaSource;
+          } else {
+            video.src = URL.createObjectURL(mediaSource);
+          }
+          mediaSource.addEventListener('sourceopen', function() {
+            ws.send(JSON.stringify({type: 'mse'}));
+          });
+        };
+
+        ws.onmessage = function(event) {
+          if (typeof event.data === 'string') {
+            var msg = JSON.parse(event.data);
+            if (msg.type === 'mse' && msg.value) {
+              sourceBuffer = mediaSource.addSourceBuffer(msg.value);
+              sourceBuffer.mode = 'segments';
+              sourceBuffer.addEventListener('updateend', flush);
+            }
+          } else {
+            queue.push(event.data);
+            flush();
+          }
+        };
+
+        function flush() {
+          if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
+          try {
+            if (video.buffered.length > 0) {
+              var end = video.buffered.end(video.buffered.length - 1);
+              if (end - video.buffered.start(0) > 8) { sourceBuffer.remove(video.buffered.start(0), end - 4); return; }
+              if (video.currentTime < end - 3) video.currentTime = end - 0.5;
+            }
+            sourceBuffer.appendBuffer(queue.shift());
+          } catch(e) { queue = []; }
+        }
+
+        ws.onclose = function() {
+          setTimeout(function() { ws = new WebSocket(wsUrl); ws.binaryType = 'arraybuffer'; }, 3000);
+        };
+
+        // Store for cleanup
+        video._splitWs = ws;
+      })(vid, camName + '-main');
     });
 
     wrapper.appendChild(split);
