@@ -4932,7 +4932,11 @@
             'Northern Mockingbird': 'Black-capped Chickadee',
           };
           var swap = swaps[speciesName];
-          return swap ? '<button class="review-btn" style="background:#1e3a5f;color:#93c5fd;" onclick="submitReview(\'wrong\',\'' + swap.replace(/'/g, "\\'") + '\')">Actually ' + swap + '</button>' : '';
+          if (!swap) return '';
+          // Short label: last word of species name (Downy, Hairy, Song, Chickadee, etc.)
+          var parts = swap.split(' ');
+          var short = parts.length > 1 ? parts[0] : swap;
+          return '<button class="review-btn" style="background:#1e3a5f;color:#93c5fd;" onclick="submitReview(\'wrong\',\'' + swap.replace(/'/g, "\\'") + '\')">' + short + '</button>';
         })() +
         '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">No Bird</button>' : '') +
         '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">Trash</button>' +
