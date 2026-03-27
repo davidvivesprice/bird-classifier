@@ -2123,6 +2123,25 @@ from fastapi import WebSocket as FastAPIWebSocket
 ALLOWED_STREAMS = {"feeder-main", "ground-main"}
 
 
+@app.get("/api/stream.mp4")
+async def proxy_go2rtc_mp4(src: str = "feeder-main"):
+    """Proxy MP4 stream from local go2rtc (used by split 'Both' view)."""
+    if src not in ALLOWED_STREAMS:
+        raise HTTPException(status_code=400, detail="Invalid stream")
+    import httpx
+    from starlette.responses import StreamingResponse
+
+    go2rtc_url = f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/api/stream.mp4?src={src}"
+
+    async def stream():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", go2rtc_url) as resp:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="video/mp4")
+
+
 @app.websocket("/api/ws")
 async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
     """Proxy WebSocket connections to local go2rtc for camera streaming."""
