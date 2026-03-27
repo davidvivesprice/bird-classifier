@@ -4359,8 +4359,14 @@
   window.filterClassifyBySpecies = function() {
     var val = document.getElementById('classify-species-filter').value;
     if (val === '__multibird__') {
-      // When "Multiple birds" selected, check the multibird checkbox and clear species
       document.getElementById('classify-multibird-filter').checked = true;
+    }
+    // Auto-collapse goals panel when species is selected (progress bar shows species info now)
+    if (val) {
+      var body = document.getElementById('goals-body');
+      if (body) body.classList.remove('open');
+      var toggle = document.getElementById('goals-toggle-text');
+      if (toggle) toggle.textContent = '▸ show';
     }
     loadReviewData();
   };
@@ -4565,11 +4571,27 @@
   };
 
   function updateReviewProgress() {
-    const total = reviewStats.total_reviewed + reviewStats.remaining;
-    const reviewed = reviewStats.total_reviewed;
-    const pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
-    document.getElementById('review-progress-fill').style.width = pct + '%';
-    document.getElementById('review-progress-text').textContent = reviewed + ' / ' + total + ' reviewed';
+    var speciesFilter = document.getElementById('classify-species-filter');
+    var selectedSpecies = speciesFilter ? speciesFilter.value : '';
+
+    if (selectedSpecies && selectedSpecies !== '__multibird__') {
+      // Species-specific progress
+      var remaining = reviewStats.remaining || 0;
+      var reviewed = (reviewStats.total_reviewed || 0);
+      // Find this species in pending data to get species-specific count
+      var speciesRemaining = pendingReview.length;
+      var pct = speciesRemaining > 0 ? Math.min(100, Math.round((50 - Math.min(speciesRemaining, 50)) / 50 * 100)) : 100;
+      document.getElementById('review-progress-fill').style.width = pct + '%';
+      document.getElementById('review-progress-text').textContent =
+        selectedSpecies + ': ' + speciesRemaining + ' to review';
+    } else {
+      // Overall progress
+      var total = reviewStats.total_reviewed + reviewStats.remaining;
+      var reviewed = reviewStats.total_reviewed;
+      var pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
+      document.getElementById('review-progress-fill').style.width = pct + '%';
+      document.getElementById('review-progress-text').textContent = reviewed + ' / ' + total + ' reviewed';
+    }
   }
 
   // ── Look-alike cheat sheet (sparrows + House Finch + woodpeckers) ──
