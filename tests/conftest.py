@@ -73,6 +73,24 @@ def regional_species(regional_species_path: Path) -> set:
     return {line.strip() for line in lines if line.strip()}
 
 
+@pytest.fixture(scope="session")
+def yard_model_path(models_dir: Path) -> Path:
+    """Path to the yard-trained Edge TPU species model."""
+    path = models_dir / "yard_model.tflite"
+    if not path.exists():
+        pytest.skip(f"Yard model not found: {path}")
+    return path
+
+
+@pytest.fixture(scope="session")
+def yard_labels_path(models_dir: Path) -> Path:
+    """Path to the yard model labels file."""
+    path = models_dir / "yard_model_labels.txt"
+    if not path.exists():
+        pytest.skip(f"Yard labels not found: {path}")
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Test image fixtures  (skip if not present)
 # ---------------------------------------------------------------------------
