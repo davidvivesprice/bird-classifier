@@ -160,6 +160,11 @@ class YardClassifier:
             ) from exc
 
     @property
+    def labels(self):
+        """Canonical label names (after normalization, dedup)."""
+        return list(dict.fromkeys(self._canonical))  # unique, preserving order
+
+    @property
     def enabled(self):
         """Whether the yard classifier is active."""
         return self._enabled

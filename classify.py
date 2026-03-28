@@ -1013,7 +1013,7 @@ def main():
     if YARD_MODEL_PATH.exists() and YARD_LABELS_PATH.exists():
         try:
             _yard_classifier = YardClassifier(str(YARD_MODEL_PATH), str(YARD_LABELS_PATH))
-            logging.info("Yard model loaded: %d species (backend=coral)", len(_yard_classifier._canonical))
+            logging.info("Yard model loaded: %d species (backend=coral)", len(_yard_classifier.labels))
         except Exception as e:
             _yard_classifier = None
             logging.warning("Could not load yard model: %s — AIY-only mode", e)
