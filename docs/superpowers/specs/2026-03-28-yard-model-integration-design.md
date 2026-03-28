@@ -84,14 +84,22 @@ Known alias pairs in current model:
 - "Feral Pigeon" (class 17) + "Rock Pigeon" (class 33) → "Rock Pigeon"
 - "Slate-colored Junco" (class 37) + "Dark-eyed Junco" (class 13) → "Dark-eyed Junco"
 
-## Score Calibration
+## Score Calibration (Updated from Probe Results)
 
-AIY and yard model return scores in different ranges. Both must be normalized to probability space before the pick-winner comparison.
+**Probe findings (2026-03-28):** Both models return float32 integer-valued scores, NOT what the original spec assumed.
 
-- **AIY:** Raw quantized integers 0-255. Apply softmax over top-3 to get probabilities (0.0-1.0).
-- **Yard model:** L2-normalized cosine similarity scores, already in 0.0-1.0 range. Use directly.
+- **AIY:** float32, shape (965,), values 0-151 observed. Very sparse — most classes score 0, winner scores 19-151.
+- **Yard model:** float32, shape (44,), values 3-12 observed. Very compressed — all classes score 3+, winner scores 8-12.
 
-**Verification:** The probe script will run both models on the same crops and print raw output tensors to confirm actual ranges before thresholds are set.
+**Normalization:** Apply softmax to BOTH models' top-N scores to get comparable probabilities. This handles the different score ranges automatically — softmax turns "big gap = confident" into high probability regardless of absolute scale.
+
+```python
+# Both models: softmax over top scores → probabilities
+aiy_probs = softmax(aiy_top3_scores)    # e.g. [0.85, 0.10, 0.05]
+yard_probs = softmax(yard_top3_scores)  # e.g. [0.72, 0.18, 0.10]
+```
+
+**`not a bird` class:** Probe showed it's unreliable as a gate (scores 4-7, same range as real species). Strategy: filter it from results before softmax. If after filtering, yard model's top probability is below threshold, yard abstains.
 
 ## Pick-Winner Logic
 
@@ -111,15 +119,17 @@ if yard_result and aiy_species == yard_result[0]["common_name"]:
     model_source = "both_agree"
 ```
 
-Starting thresholds (tuned after probe results):
-- `YARD_THRESHOLD = 0.70` — yard model must be 70% confident to override
-- `AIY_THRESHOLD = 0.60` — AIY must be 60% confident when yard defers
+Starting thresholds (updated from probe results — both models use softmax now):
+- `YARD_THRESHOLD = 0.45` — yard model softmax probability must exceed this to override (yard scores are compressed 3-12, so softmax spreads are narrower)
+- `AIY_THRESHOLD = 0.50` — AIY softmax probability when yard defers
 
-These are constants at the top of `yard_classifier.py`, not hardcoded in logic.
+These are constants at the top of `yard_classifier.py`, not hardcoded in logic. Will be tuned further based on real-world accuracy.
 
 ### When yard model abstains
 
-If yard model's top prediction is `not a bird`, or if the yard model is disabled/missing/errors — AIY wins. `model_source = "aiy_only"`.
+If yard model is disabled/missing/errors, or if its top softmax probability is below YARD_THRESHOLD after filtering `not a bird` — AIY wins. `model_source = "aiy_only"`.
+
+Note: `not a bird` class is filtered from scores before softmax (probe showed it's unreliable as a gate — scores 4-7, same range as real species).
 
 ## Coral Device Sharing
 
