@@ -12,8 +12,8 @@ from bird_inference import normalize_species
 
 # ── Thresholds ────────────────────────────────────────────────────────────
 
-YARD_THRESHOLD = 0.45   # softmax probability — yard model
-AIY_THRESHOLD = 0.50    # softmax probability — AIY model
+YARD_THRESHOLD = 0.45   # softmax probability — yard model (used by classify.py pick-winner, not internally)
+AIY_THRESHOLD = 0.50    # softmax probability — AIY model (used by classify.py pick-winner, not internally)
 
 # ── Label helpers ─────────────────────────────────────────────────────────
 
@@ -225,7 +225,8 @@ class YardClassifier:
         # Softmax on top-3 scores
         probs = softmax_top3(top3_raw)
 
-        # Very low confidence gate
+        # Noise floor — distinct from YARD_THRESHOLD which is applied by
+        # classify.py's pick-winner logic. This just filters pure garbage.
         if probs[0] < 0.10:
             return []
 
