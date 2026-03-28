@@ -339,6 +339,12 @@ var GLOSSARY = {
 // ── Documentation structure ──
 var DOC_SECTIONS = [
   {
+    title: "Start Here",
+    docs: [
+      {id: "00-how-it-works", title: "How It Works"},
+    ]
+  },
+  {
     title: "System",
     docs: [
       {id: "01-architecture", title: "Architecture"},
@@ -578,7 +584,7 @@ var hash = window.location.hash.slice(1);
 if (hash) {
   loadDoc(hash);
 } else {
-  loadDoc('01-architecture');
+  loadDoc('00-how-it-works');
 }
 </script>
 </body>
