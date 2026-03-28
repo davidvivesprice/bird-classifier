@@ -221,11 +221,25 @@ No breaking changes to any existing feature.
 - Threshold auto-tuning from review feedback
 - Training tab showing per-species accuracy comparison
 
+## Verified Results (2026-03-28)
+
+All probe results and smoke tests confirmed:
+
+- **Label collisions:** 2 found as expected — Rock Pigeon (classes 17+33), Dark-eyed Junco (classes 13+37). Handled by score summing.
+- **Two Coral interpreters:** Confirmed working in same process. Process-level lock only (one process at a time).
+- **AIY scores:** float32 integers 0-151 (not 0-255 uint8 as originally assumed)
+- **Yard scores:** float32 integers 3-12 (not 0.0-1.0 as originally assumed). Same scale type as AIY.
+- **Softmax normalization:** Applied to both models for comparable probabilities. Works correctly.
+- **`not a bird` class:** Index 43, scores 4-7 (same range as real species). Filtered before softmax.
+- **Smoke test:** Yard model overrode AIY's "Black-capped Chickadee" with "Dark-eyed Junco" on first real image. `model_source=yard` stored in SQLite with `yard_prediction.confidence=0.8756`.
+- **AIY-only fallback:** Verified — no crash when model files missing.
+- **Production service:** Running in watch mode with dual-model active.
+
 ## Success Criteria
 
-1. Yard model loads alongside AIY at startup with no errors
-2. Both models run on every crop, pick-winner selects correctly
-3. `model_source` stored in every classification result
-4. Missing yard model = AIY-only mode, no crash
-5. Yard model inference error = graceful fallback to AIY for that crop
-6. No regression: existing intelligence layers (yard prior, visit voter, range filter) unaffected
+1. ~~Yard model loads alongside AIY at startup with no errors~~ DONE
+2. ~~Both models run on every crop, pick-winner selects correctly~~ DONE
+3. ~~`model_source` stored in every classification result~~ DONE
+4. ~~Missing yard model = AIY-only mode, no crash~~ DONE
+5. ~~Yard model inference error = graceful fallback to AIY for that crop~~ DONE
+6. ~~No regression: existing intelligence layers (yard prior, visit voter, range filter) unaffected~~ DONE
