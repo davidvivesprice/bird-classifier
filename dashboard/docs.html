@@ -328,7 +328,12 @@ var GLOSSARY = {
   "escalation ladder": "A series of increasingly aggressive recovery steps when an RTSP stream fails: retry → refresh URLs → try low-res → switch cameras → give up.",
   "flush window": "The time period (6 seconds) during which the overlap confirmation system collects detections before deciding whether to accept or reject them.",
   "cross-camera dedup": "When the same bird species is detected on two different camera microphones within 10 seconds, it's flagged as a multi-source confirmation — definitely real.",
-  "Merlin Bird ID": "Cornell Lab's phone app that identifies birds from audio in real time. Uses the same BirdNET model. The gold standard for the user experience we're building toward."
+  "Merlin Bird ID": "Cornell Lab's phone app that identifies birds from audio in real time. Uses the same BirdNET model. The gold standard for the user experience we're building toward.",
+  "weight imprinting": "A technique for retraining a neural network using very few images (even just 1 per class). Only updates the last layer of the model. Runs on the Coral USB in seconds, no GPU needed.",
+  "transfer learning": "Using a model trained on one task as a starting point for a different task. Instead of training from scratch on millions of images, you start with a model that already understands visual features and just teach it your specific birds.",
+  "ImprintingEngine": "The Coral API for weight imprinting. Takes a pre-trained model and a few images of new classes, updates the last layer weights in seconds. Used to create the yard-specific bird classifier.",
+  "dual-model classification": "Running two models on the same image: the generalist (AIY Birds V1, 964 species) and the specialist (yard model, ~20 local species). The specialist wins when confident, the generalist catches rare visitors.",
+  "TFLite": "TensorFlow Lite — a lightweight format for running AI models on edge devices like the Coral USB. All bird classification models are in TFLite format."
 };
 
 // ── Documentation structure ──
@@ -399,8 +404,15 @@ var DOC_SECTIONS = [
   {
     title: "System State",
     docs: [
-      {id: "migration/system-state-2026-03-23", title: "Current State (Mar 23)"},
+      {id: "migration/system-state-2026-03-27", title: "Current State (Mar 27)"},
+      {id: "migration/system-state-2026-03-23", title: "State (Mar 23)"},
       {id: "migration/HANDOFF", title: "Handoff Notes"},
+    ]
+  },
+  {
+    title: "Specs & Plans",
+    docs: [
+      {id: "migration/model-retraining-spec", title: "Model Retraining (spec)"},
     ]
   }
 ];
