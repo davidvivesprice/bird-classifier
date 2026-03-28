@@ -21,3 +21,7 @@ test_clips/*.mp4
 test_clips/*.mkv
 test_clips/*.avi
 go2rtc.yaml
+yard_model.tflite
+yard_model_labels.txt
+yard_model_prev.tflite
+yard_model_prev_labels.txt
