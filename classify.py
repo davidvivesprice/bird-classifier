@@ -40,6 +40,7 @@ from bird_inference import (
     YOLODetector, SpeciesClassifier, normalize_species,
     parse_label, crop_bird, get_providers,
 )
+from yard_classifier import YardClassifier, softmax_top3, YARD_THRESHOLD, AIY_THRESHOLD
 from yard_prior import YardPrior
 from visit_voter import check_visit_consensus
 
@@ -66,6 +67,8 @@ SPECIES_MODEL_PATH = MODEL_DIR / "aiy_birds_v1.onnx"
 SPECIES_TPU_PATH = MODEL_DIR / "aiy_birds_v1_edgetpu.tflite"
 LABELS_PATH = MODEL_DIR / "inat_bird_labels.txt"
 REGIONAL_SPECIES_PATH = MODEL_DIR / "chilmark_feeder_species.txt"
+YARD_MODEL_PATH = MODEL_DIR / "yard_model.tflite"
+YARD_LABELS_PATH = MODEL_DIR / "yard_model_labels.txt"
 
 # Detection thresholds
 BIRD_CLASS_ID = 0                 # Custom model: single class "bird"
@@ -93,6 +96,7 @@ NIGHT_OFFSET_MINUTES = 30  # keep running this many minutes after sunset
 # Module-level model instances (initialised in main())
 _detector = None       # type: YOLODetector
 _classifier = None     # type: SpeciesClassifier
+_yard_classifier = None    # type: YardClassifier | None
 
 
 def is_infrared_frame(img):
@@ -416,6 +420,46 @@ def sanitize_dirname(name):
     return name.replace(" ", "_").replace("'", "").replace("/", "-")
 
 
+def _pick_winner(aiy_preds, aiy_raw_preds, yard_preds):
+    """Pick winning species from AIY and yard model results.
+
+    Returns (winner_pred, model_source, yard_top, aiy_confidence).
+    """
+    aiy_top = aiy_preds[0] if aiy_preds else None
+    if not aiy_top:
+        return None, "aiy_only", None, 0.0
+
+    # AIY softmax confidence
+    aiy_raw_scores = [p["raw_score"] for p in aiy_raw_preds[:3]]
+    aiy_softmax = softmax_top3(aiy_raw_scores)
+    aiy_confidence = aiy_softmax[0] if aiy_softmax else 0.0
+
+    if not yard_preds:
+        return aiy_top, "aiy_only", None, aiy_confidence
+
+    yard_top = yard_preds[0]
+    both_agree = (yard_top["common_name"] == aiy_top["common_name"])
+
+    if both_agree:
+        return aiy_top, "both_agree", yard_top, aiy_confidence
+
+    # Yard confident → yard wins
+    if yard_top["confidence"] >= YARD_THRESHOLD:
+        winner = {
+            "common_name": yard_top["common_name"],
+            "scientific_name": yard_top["scientific_name"],
+            "raw_score": aiy_top["raw_score"],  # keep AIY raw score for backward compat
+        }
+        return winner, "yard", yard_top, aiy_confidence
+
+    # AIY confident → AIY wins
+    if aiy_confidence >= AIY_THRESHOLD:
+        return aiy_top, "aiy", yard_top, aiy_confidence
+
+    # Both uncertain
+    return aiy_top, "aiy_uncertain", yard_top, aiy_confidence
+
+
 def process_file(image_path, range_filter=None):
     """Full pipeline: detect birds → classify species → move file."""
     fname = os.path.basename(image_path)
@@ -498,19 +542,39 @@ def process_file(image_path, range_filter=None):
 
     t1 = time.monotonic()
 
-    # Classify each detection
-    all_predictions = []   # list of filtered predictions per detection
-    all_raw = []           # list of raw predictions per detection
+    # Classify each detection with both models
+    all_predictions = []
+    all_raw = []
+    all_yard = []
+    all_model_source = []
+    all_aiy_conf = []
     for det in detections:
         bird_crop = crop_bird(img, det["box"])
         preds, raw_preds = _classifier.classify(bird_crop)
+
+        # Run yard model if available
+        yard_preds = []
+        if _yard_classifier is not None:
+            try:
+                yard_preds = _yard_classifier.classify(bird_crop)
+            except Exception as e:
+                logging.debug("Yard model error on %s: %s", fname, e)
+
+        # Pick winner
+        winner, model_source, yard_top, aiy_conf = _pick_winner(preds, raw_preds, yard_preds)
+        if winner and model_source in ("yard", "both_agree"):
+            preds = [winner] + [p for p in preds if p["common_name"] != winner["common_name"]][:2]
+
         all_predictions.append(preds)
         all_raw.append(raw_preds)
+        all_yard.append(yard_preds)
+        all_model_source.append(model_source)
+        all_aiy_conf.append(aiy_conf)
 
     classify_ms = (time.monotonic() - t1) * 1000
     total_ms = (time.monotonic() - t0) * 1000
 
-    top = all_predictions[0][0]  # best detection's top prediction
+    top = all_predictions[0][0]  # best detection's top prediction (after pick-winner)
 
     # Skip if the best bird's species model says "background" or unidentified
     if top["common_name"] in ("background", "unidentified bird"):
@@ -624,10 +688,19 @@ def process_file(image_path, range_filter=None):
         # Intelligence signals
         "score_gap": score_gap,
         "classifier_uncertain": classifier_uncertain,
+        "model_source": all_model_source[0] if all_model_source else "aiy_only",
+        "aiy_confidence": round(all_aiy_conf[0], 4) if all_aiy_conf else 0.0,
     }
     # Add range filter info if present
     if range_filter_info:
         result.update(range_filter_info)
+
+    if all_yard and all_yard[0]:
+        yard_top = all_yard[0][0]
+        result["yard_prediction"] = {
+            "species": yard_top["common_name"],
+            "confidence": round(yard_top["confidence"], 4),
+        }
 
     # Auto-cull check: if species is marked sufficient and over cap, trash instead.
     # Wrapped in try/except so a cull failure never crashes the classifier —
@@ -724,12 +797,14 @@ def process_file(image_path, range_filter=None):
     if all_raw[0][0]["common_name"] != top["common_name"]:
         raw_note = f" (raw: {all_raw[0][0]['common_name']})"
     bird_count = f" +{len(birds)-1} more" if len(birds) > 1 else ""
+    model_tag = f" [{all_model_source[0]}]" if all_model_source else ""
     logging.info(
-        "BIRD %s → %s%s%s (det=%.0f%%, score=%d, %dms)",
+        "BIRD %s → %s%s%s%s (det=%.0f%%, score=%d, %dms)",
         fname,
         top["common_name"],
         raw_note,
         bird_count,
+        model_tag,
         best_det["confidence"] * 100,
         top["raw_score"],
         total_ms,
@@ -933,6 +1008,17 @@ def main():
         tpu_model_path=str(SPECIES_TPU_PATH) if SPECIES_TPU_PATH.exists() else None,
     )
     logging.info("Species classifier loaded: %s (backend=%s)", SPECIES_MODEL_PATH, _classifier._backend)
+
+    global _yard_classifier
+    if YARD_MODEL_PATH.exists() and YARD_LABELS_PATH.exists():
+        try:
+            _yard_classifier = YardClassifier(str(YARD_MODEL_PATH), str(YARD_LABELS_PATH))
+            logging.info("Yard model loaded: %d species (backend=coral)", len(_yard_classifier._canonical))
+        except Exception as e:
+            _yard_classifier = None
+            logging.warning("Could not load yard model: %s — AIY-only mode", e)
+    else:
+        logging.info("Yard model not found, AIY-only mode")
 
     # Initialize range filter for geographic validation
     try:
