@@ -175,6 +175,100 @@ def _create_review_entry(filename: str, verdict: str, correct_species: str = "",
     }
 
 
+def _apply_verdict_files(filename, verdict, correct_species,
+                         classified_dir=None, annotated_dir=None,
+                         trash_dir=None, skipped_dir=None):
+    """Move files to match verdict. Pure file logic, no DB writes.
+
+    Accepts optional dir overrides for testing.
+    Returns {"moved": bool, "from_dir": str|None, "to_dir": str|None, "error": str|None}
+    """
+    classified_dir = classified_dir or CLASSIFIED_DIR
+    annotated_dir = annotated_dir or ANNOTATED_DIR
+    trash_dir = trash_dir or TRASH_DIR
+    skipped_dir = skipped_dir or Path(str(BASE_DIR)) / "skipped"
+
+    def _find(name):
+        for d in classified_dir.iterdir():
+            if d.is_dir():
+                candidate = d / name
+                if candidate.exists():
+                    return candidate
+        return None
+
+    def _sanitize(species):
+        return species.replace(" ", "_").replace("'", "").replace("/", "-")
+
+    result = {"moved": False, "from_dir": None, "to_dir": None, "error": None}
+
+    if verdict in ("correct", "reclassify"):
+        return result
+
+    src = _find(filename)
+
+    if verdict == "trash" or (verdict == "wrong" and correct_species == "not_a_bird"):
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        if src:
+            result["from_dir"] = src.parent.name
+            shutil.move(str(src), str(trash_dir / filename))
+            result["moved"] = True
+            result["to_dir"] = "trash"
+        else:
+            result["error"] = f"File not found in classified/: {filename}"
+        # Delete annotated copy (not needed after trash)
+        ann = annotated_dir / filename
+        if ann.exists():
+            ann.unlink()
+
+    elif verdict == "wrong" and correct_species:
+        safe_name = _sanitize(correct_species)
+        dst_dir = classified_dir / safe_name
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        if src:
+            result["from_dir"] = src.parent.name
+            shutil.move(str(src), str(dst_dir / filename))
+            result["moved"] = True
+            result["to_dir"] = safe_name
+        else:
+            result["error"] = f"File not found in classified/: {filename}"
+
+    elif verdict == "skip" or (verdict == "wrong" and not correct_species):
+        skipped_dir.mkdir(parents=True, exist_ok=True)
+        if src:
+            result["from_dir"] = src.parent.name
+            shutil.move(str(src), str(skipped_dir / filename))
+            result["moved"] = True
+            result["to_dir"] = "skipped"
+        else:
+            result["error"] = f"File not found in classified/: {filename}"
+
+    return result
+
+
+def apply_verdict(filename, verdict, correct_species=""):
+    """Move file + update DB to match verdict. Single source of truth.
+
+    Called by all review endpoints.
+    """
+    result = _apply_verdict_files(filename, verdict, correct_species)
+
+    # Update classifications.common_name if species was corrected
+    if (verdict == "wrong" and correct_species
+            and correct_species != "not_a_bird" and result["moved"]):
+        try:
+            cdb.update_common_name(filename, normalize_species(correct_species))
+        except Exception as e:
+            logging.warning("Failed to update common_name for %s: %s", filename, e)
+
+    if result["moved"]:
+        logging.info("apply_verdict: %s → %s (%s → %s)",
+                     filename, verdict, result["from_dir"], result["to_dir"])
+    elif result["error"]:
+        logging.warning("apply_verdict: %s — %s", filename, result["error"])
+
+    return result
+
+
 def _find_classified_file(filename: str) -> Path | None:
     """Find a classified file across species subdirectories."""
     safe = os.path.basename(filename)

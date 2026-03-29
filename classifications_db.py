@@ -259,7 +259,14 @@ def count_total():
 
 def count_classified():
     conn = get_conn(readonly=True)
-    return conn.execute("SELECT COUNT(*) FROM classifications WHERE action='classified'").fetchone()[0]
+    return conn.execute(
+        "SELECT COUNT(*) FROM classifications c "
+        "WHERE c.action='classified' "
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM reviews r WHERE r.file = c.file "
+        "  AND (r.verdict = 'trash' OR (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird'))"
+        ")"
+    ).fetchone()[0]
 
 
 def count_by_action(action_prefix=None):
@@ -276,6 +283,16 @@ def get_entry_by_file(filename):
     conn = get_conn(readonly=True)
     row = conn.execute("SELECT * FROM classifications WHERE file=?", (filename,)).fetchone()
     return _row_to_entry(row) if row else None
+
+
+def update_common_name(filename, new_species):
+    """Update the common_name for a classification after a review correction."""
+    conn = get_conn(readonly=False)
+    conn.execute(
+        "UPDATE classifications SET common_name = ? WHERE file = ?",
+        (new_species, filename),
+    )
+    conn.commit()
 
 
 def get_species_list(date=None, camera=None):
