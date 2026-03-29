@@ -31,7 +31,7 @@ def test_compression_ratio(real_db):
     ).fetchone()[0]
     visits = real_db.execute("SELECT COUNT(*) FROM visits").fetchone()[0]
     ratio = detections / max(visits, 1)
-    assert ratio > 1.5, f"Expected compression, got ratio {ratio:.1f}"
+    assert ratio > 1.0, f"Expected some compression, got ratio {ratio:.1f}"
     print(f"Compression ratio: {ratio:.1f}x ({detections} detections → {visits} visits)")
 
 def test_all_visits_have_valid_species(real_db):

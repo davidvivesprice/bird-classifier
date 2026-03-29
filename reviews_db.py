@@ -18,6 +18,7 @@ DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
 
 _local = threading.local()
 _table_ensured = False
+_table_lock = threading.Lock()
 
 
 def get_conn(readonly=False):
@@ -45,7 +46,9 @@ def get_conn(readonly=False):
     setattr(_local, attr, conn)
 
     if not _table_ensured:
-        _ensure_table(conn, readonly)
+        with _table_lock:
+            if not _table_ensured:
+                _ensure_table(conn, readonly)
 
     return conn
 

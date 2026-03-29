@@ -2,7 +2,7 @@
 Geographic range filtering for bird species.
 
 Validates that detected species are plausible for the detection location and date.
-Filters out impossible detections (e.g., Carolina Chickadees in Cape Cod, seabirds inland).
+Filters out impossible detections (e.g., Carolina Chickadees on Martha's Vineyard, seabirds inland).
 """
 
 import json
@@ -10,9 +10,9 @@ import logging
 import os
 from datetime import datetime
 
-# Location constants
-DEFAULT_LATITUDE = 41.39  # Cape Cod, MA
-DEFAULT_LONGITUDE = -70.61
+# Location constants — Chilmark, Martha's Vineyard, MA
+DEFAULT_LATITUDE = 41.35
+DEFAULT_LONGITUDE = -70.74
 
 
 class RangeFilter:

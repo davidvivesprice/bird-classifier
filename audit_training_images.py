@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from collections import defaultdict
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 # Configuration
 ANNOTATED_DIR = Path("/Users/vives/bird-snapshots/annotated")

@@ -25,6 +25,7 @@ DEFAULT_GAP_SECONDS = 60  # Visit ends after 60s with no detection
 
 _local = threading.local()
 _table_ensured = False
+_table_lock = threading.Lock()
 
 
 def get_conn(readonly=False):
@@ -52,7 +53,9 @@ def get_conn(readonly=False):
     setattr(_local, attr, conn)
 
     if not _table_ensured:
-        _ensure_table(conn, readonly)
+        with _table_lock:
+            if not _table_ensured:  # double-check after acquiring lock
+                _ensure_table(conn, readonly)
 
     return conn
 

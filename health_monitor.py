@@ -60,9 +60,11 @@ SERVICES = {
     "bird-dashboard": {"critical": True, "log": "dashboard-stderr.log"},
     "bird-livedetect": {"critical": False, "log": "live_detector_stderr.log"},
     "bird-capture": {"critical": True, "log": None},
-    "bird-go2rtc": {"critical": False, "log": "go2rtc-stderr.log"},
+    "bird-go2rtc": {"critical": False, "log": None, "docker": True, "container": "go2rtc"},
     "bird-tunnel": {"critical": False, "log": None},
 }
+
+DOCKER_CLI = "/Applications/Docker.app/Contents/Resources/bin/docker"
 
 
 def _get_uid():
@@ -91,6 +93,36 @@ def _is_service_running(name):
         return False, "not loaded"
     except Exception as e:
         return False, str(e)
+
+
+def _is_docker_running(container_name):
+    """Check if a Docker container is running."""
+    try:
+        result = subprocess.run(
+            [DOCKER_CLI, "inspect", "-f", "{{.State.Running}}", container_name],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and "true" in result.stdout.lower():
+            return True, "running"
+        return False, result.stdout.strip() or "not running"
+    except FileNotFoundError:
+        return False, "docker CLI not found"
+    except Exception as e:
+        return False, str(e)
+
+
+def _restart_docker(container_name):
+    """Restart a Docker container."""
+    try:
+        subprocess.run(
+            [DOCKER_CLI, "restart", container_name],
+            capture_output=True, timeout=30,
+        )
+        log.warning("RESTART (docker): %s", container_name)
+        return True
+    except Exception as e:
+        log.error("Failed to restart docker container %s: %s", container_name, e)
+        return False
 
 
 def _restart_service(name):
@@ -156,7 +188,10 @@ def check_services():
     backoff = _get_backoff()
 
     for name, cfg in SERVICES.items():
-        running, status = _is_service_running(name)
+        if cfg.get("docker"):
+            running, status = _is_docker_running(cfg.get("container", name))
+        else:
+            running, status = _is_service_running(name)
         if not running:
             issues.append({
                 "service": name,
@@ -164,7 +199,10 @@ def check_services():
                 "severity": "critical" if cfg["critical"] else "warning",
             })
             if name not in backoff:
-                _restart_service(name)
+                if cfg.get("docker"):
+                    _restart_docker(cfg.get("container", name))
+                else:
+                    _restart_service(name)
                 _set_backoff(name)
                 issues[-1]["action"] = "restarted"
 
