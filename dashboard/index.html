@@ -1069,17 +1069,21 @@
   /* Review sub-tabs */
   .review-subtabs {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     margin-bottom: 16px;
     background: var(--bg-card);
     border-radius: var(--radius-sm);
     padding: 4px;
     border: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .review-subtab {
-    flex: 1;
-    padding: 8px 16px;
+    flex: 0 0 auto;
+    padding: 8px 12px;
     background: transparent;
+    white-space: nowrap;
+    font-size: 13px;
     border: none;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
@@ -5413,9 +5417,10 @@
       var ts = item.source_timestamp || '';
       var dateStr = ts ? ts.split(' ')[0] : '';
       var timeStr = ts ? ts.split(' ')[1] || '' : '';
-      var verdictClass = item.verdict === 'correct' ? 'color:#22c55e' : item.verdict === 'wrong' ? 'color:#ef4444' : 'color:#f59e0b';
-      var verdictLabel = item.verdict === 'correct' ? 'Correct' : item.verdict === 'wrong' ? 'Wrong' : item.verdict === 'trash' ? 'Trashed' : item.verdict === 'skip' ? 'Skipped' : item.verdict === 'reclassify' ? 'Missed Birds' : item.verdict;
-      var speciesDisplay = item.verdict === 'wrong' && item.correct_species ? item.correct_species + ' (was: ' + item.species + ')' : item.species;
+      var isCorrected = item.verdict === 'wrong' && item.correct_species && item.correct_species !== item.species;
+      var verdictClass = item.verdict === 'correct' ? 'color:#22c55e' : isCorrected ? 'color:#f59e0b' : item.verdict === 'wrong' ? 'color:#ef4444' : item.verdict === 'trash' ? 'color:#ef4444' : 'color:#f59e0b';
+      var verdictLabel = item.verdict === 'correct' ? 'Correct' : isCorrected ? 'Corrected' : item.verdict === 'wrong' ? 'Wrong' : item.verdict === 'trash' ? 'Trashed' : item.verdict === 'skip' ? 'Skipped' : item.verdict === 'reclassify' ? 'Missed Birds' : item.verdict;
+      var speciesDisplay = isCorrected ? item.correct_species + ' (was: ' + item.species + ')' : item.correct_species || item.species;
       return '<div class="skipped-card" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
         '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy">' +
         '<div class="skipped-card-info stacked">' +

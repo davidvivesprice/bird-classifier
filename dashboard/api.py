@@ -252,13 +252,10 @@ def apply_verdict(filename, verdict, correct_species=""):
     """
     result = _apply_verdict_files(filename, verdict, correct_species)
 
-    # Update classifications.common_name if species was corrected
-    if (verdict == "wrong" and correct_species
-            and correct_species != "not_a_bird" and result["moved"]):
-        try:
-            cdb.update_common_name(filename, normalize_species(correct_species))
-        except Exception as e:
-            logging.warning("Failed to update common_name for %s: %s", filename, e)
+    # NOTE: We do NOT update classifications.common_name here.
+    # common_name stays as the AI's original classification — that's the honest data.
+    # The review's correct_species field records what the human said it actually is.
+    # The file is moved to the correct folder by _apply_verdict_files().
 
     if result["moved"]:
         logging.info("apply_verdict: %s → %s (%s → %s)",
@@ -1437,8 +1434,9 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
     where_parts = []
     params = []
     if sp:
-        where_parts.append("c.common_name = ?")
-        params.append(sp)
+        # Match species filter against BOTH the AI's guess AND the human correction
+        where_parts.append("(c.common_name = ? OR r.correct_species = ?)")
+        params.extend([sp, sp])
     if v:
         where_parts.append("r.verdict = ?")
         params.append(v)
@@ -1448,12 +1446,16 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
         params
     ).fetchone()[0]
 
-    # Species list for filter dropdown
+    # Species list for filter dropdown — include both original and corrected species
     species_rows = conn.execute(
-        "SELECT DISTINCT c.common_name FROM reviews r "
-        "JOIN classifications c ON r.file = c.file "
-        "WHERE r.verdict IN ('correct','wrong','reclassify') "
-        "ORDER BY c.common_name"
+        "SELECT DISTINCT name FROM ("
+        "  SELECT c.common_name as name FROM reviews r "
+        "  JOIN classifications c ON r.file = c.file "
+        "  WHERE r.verdict IN ('correct','wrong','reclassify') AND c.common_name IS NOT NULL "
+        "  UNION "
+        "  SELECT r.correct_species as name FROM reviews r "
+        "  WHERE r.verdict = 'wrong' AND r.correct_species IS NOT NULL AND r.correct_species != '' AND r.correct_species != 'not_a_bird'"
+        ") ORDER BY name"
     ).fetchall()
     species_list = [row[0] for row in species_rows if row[0]]
 
