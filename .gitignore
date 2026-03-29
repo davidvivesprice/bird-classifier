@@ -25,3 +25,4 @@ yard_model.tflite
 yard_model_labels.txt
 yard_model_prev.tflite
 yard_model_prev_labels.txt
+.bird-observatory-env
