@@ -48,7 +48,7 @@ let apiBase = API;
 let results = [];
 let passed = 0, failed = 0, skipped = 0;
 
-// Auto-detect: try relative path first (served by FastAPI), then NAS proxy, then direct iMac
+// Auto-detect: try relative path first (served by FastAPI), then direct iMac
 async function detectBase() {
   // When served from /api/test or /bird-api/api/test, relative paths work
   try {
@@ -336,7 +336,7 @@ async function runAll() {
 
   apiBase = await detectBase();
   if (!apiBase && apiBase !== '') {
-    alert('Cannot reach API on NAS proxy or localhost:8099');
+    alert('Cannot reach API on localhost:8099');
     btn.disabled = false;
     btn.textContent = 'Run All Tests';
     return;

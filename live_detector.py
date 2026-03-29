@@ -7,7 +7,7 @@ Polls go2rtc HTTP frame API for JPEG snapshots, runs YOLOv8n detection
 
 The dashboard overlays bounding boxes + labels on the live video feed.
 
-Uses go2rtc's /api/frame.jpeg endpoint (proxied through nginx on the NAS)
+Uses go2rtc's /api/frame.jpeg endpoint (served by local go2rtc)
 instead of direct RTSP, avoiding FFMPEG dependency issues on macOS.
 
 Usage:
@@ -107,7 +107,7 @@ NIGHT_OFFSET_MINUTES = 30  # keep running after sunset
 
 from solar_utils import solar_times, is_nighttime
 
-# Auth cookie for NAS proxy
+# Auth cookie for API access
 AUTH_COOKIE = os.environ.get("BIRDS_AUTH_COOKIE", "")
 
 
@@ -288,7 +288,7 @@ _http_opener = urllib.request.build_opener(
 def fetch_frame(stream_name: str) -> Image.Image | None:
     """Fetch a JPEG frame from go2rtc via persistent HTTPS connection.
 
-    Uses go2rtc's /api/frame.jpeg endpoint, proxied through nginx + Traefik on the NAS.
+    Uses go2rtc's /api/frame.jpeg endpoint, served by local go2rtc.
     Reuses TCP+TLS connection across calls (no subprocess fork overhead).
     """
     url = f"{GO2RTC_BASE}/api/frame.jpeg?src={stream_name}"

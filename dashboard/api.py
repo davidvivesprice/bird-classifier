@@ -379,7 +379,7 @@ def _check_audio_analyzer_health():
 
 
 def _check_go2rtc():
-    """Check go2rtc reachability (runs locally now, NAS no longer used)."""
+    """Check go2rtc reachability (runs locally on the iMac)."""
     import subprocess
     try:
         result = subprocess.run(

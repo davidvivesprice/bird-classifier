@@ -485,6 +485,8 @@ chunked_transfer_encoding off;
 
 ### Crontab Entries (VivesSyn NAS `/etc/crontab`)
 
+**NOTE: NAS (VivesSyn) was decommissioned March 2026. All services now run on the iMac.**
+
 | Schedule | Command | Purpose |
 |----------|---------|---------|
 | `@reboot` | `birdnet_sse.py` | Start BirdNET SSE server |

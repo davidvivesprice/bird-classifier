@@ -6,7 +6,7 @@ them as Server-Sent Events (SSE) to connected browsers. Also serves WAV
 audio clips from the BirdNET Docker volume.
 
 Designed for Python 3.8+ stdlib only (no pip dependencies).
-Runs on the NAS host (not inside Docker) for direct filesystem access.
+Runs on the iMac host for direct filesystem access.
 
 Usage: python3 birdnet_sse.py
 """

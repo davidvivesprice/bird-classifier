@@ -2055,7 +2055,6 @@
     <span class="sdot" id="sdot-api" title="API">●</span><span class="sdot-label">API</span>
     <span class="sdot" id="sdot-cams" title="Cameras">●</span><span class="sdot-label">Cams</span>
     <span class="sdot" id="sdot-audio" title="Audio">●</span><span class="sdot-label">Audio</span>
-    <span class="sdot" id="sdot-nas" title="NAS">●</span><span class="sdot-label">NAS</span>
   </div>
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
@@ -2159,7 +2158,7 @@
           <div class="live-offline" id="live-offline">
             <span class="big">&#x1F4F7;</span>
             <div id="live-offline-text">Connecting to camera...</div>
-            <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network or NAS proxy access</div>
+            <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network access</div>
           </div>
         </div>
       </div>
@@ -5996,7 +5995,7 @@
       })
       .catch(function() {
         // API itself is down — set all dots to unknown
-        ['api','cams','audio','nas'].forEach(function(id) {
+        ['api','cams','audio'].forEach(function(id) {
           var dot = document.getElementById('sdot-' + id);
           if (dot) { dot.className = 'sdot error'; dot.title = 'Cannot reach API'; }
         });
@@ -6037,9 +6036,6 @@
     } else {
       _setDot('audio', aa);
     }
-
-    // NAS dot
-    _setDot('nas', svc.nas);
 
     // Update dropdown if visible
     var dd = document.getElementById('status-dropdown');
@@ -6091,7 +6087,6 @@
       {key: 'live_detector', name: 'Live Detector', icon: '📷'},
       {key: 'enhanced_audio', name: 'Audio Stream', icon: '🔊'},
       {key: 'audio_analyzer', name: 'Audio Analyzer', icon: '🎙️'},
-      {key: 'nas', name: 'NAS Proxy', icon: '🌐'},
     ];
 
     services.forEach(function(s) {
