@@ -5400,7 +5400,7 @@
       var dateStr = ts ? ts.split(' ')[0] : '';
       var timeStr = ts ? ts.split(' ')[1] || '' : '';
       var verdictClass = item.verdict === 'correct' ? 'color:#22c55e' : item.verdict === 'wrong' ? 'color:#ef4444' : 'color:#f59e0b';
-      var verdictLabel = item.verdict === 'correct' ? 'Correct' : item.verdict === 'wrong' ? 'Wrong' : 'Missed Birds';
+      var verdictLabel = item.verdict === 'correct' ? 'Correct' : item.verdict === 'wrong' ? 'Wrong' : item.verdict === 'trash' ? 'Trashed' : item.verdict === 'skip' ? 'Skipped' : item.verdict === 'reclassify' ? 'Missed Birds' : item.verdict;
       var speciesDisplay = item.verdict === 'wrong' && item.correct_species ? item.correct_species + ' (was: ' + item.species + ')' : item.species;
       return '<div class="skipped-card" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
         '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy">' +

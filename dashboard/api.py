@@ -1300,28 +1300,51 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     rdb.insert_review(review)
     invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
 
-    # Move trashed images out of annotated dir
-    if verdict == "trash":
-        TRASH_DIR.mkdir(parents=True, exist_ok=True)
-        src = ANNOTATED_DIR / review["file"]
-        if src.exists():
-            shutil.move(str(src), str(TRASH_DIR / review["file"]))
+    # Move files based on verdict — images should NOT stay under the wrong species
+    fname = review["file"]
 
-    # Move corrected images to the correct species directory
-    if verdict == "wrong" and review.get("correct_species"):
+    def _find_classified(name):
+        """Find a file in any classified/ subdirectory."""
+        for d in CLASSIFIED_DIR.iterdir():
+            if d.is_dir():
+                candidate = d / name
+                if candidate.exists():
+                    return candidate
+        return None
+
+    if verdict == "trash" or verdict == "wrong" and review.get("correct_species") == "not_a_bird":
+        # Trash: move both classified and annotated copies to trash/
+        TRASH_DIR.mkdir(parents=True, exist_ok=True)
+        src_ann = ANNOTATED_DIR / fname
+        if src_ann.exists():
+            shutil.move(str(src_ann), str(TRASH_DIR / fname))
+        src_cls = _find_classified(fname)
+        if src_cls:
+            shutil.move(str(src_cls), str(TRASH_DIR / ("cls_" + fname)))
+            logging.info("Trashed: moved %s from %s → trash", fname, src_cls.parent.name)
+
+    elif verdict == "wrong" and review.get("correct_species"):
+        # Wrong with correction: move to the CORRECT species directory
         corrected = review["correct_species"]
         safe_name = corrected.replace(" ", "_").replace("'", "").replace("/", "-")
         dst_dir = CLASSIFIED_DIR / safe_name
         dst_dir.mkdir(parents=True, exist_ok=True)
-        fname = review["file"]
-        # Find the file in any species subdirectory
-        for species_dir in CLASSIFIED_DIR.iterdir():
-            if species_dir.is_dir():
-                src = species_dir / fname
-                if src.exists():
-                    shutil.move(str(src), str(dst_dir / fname))
-                    logging.info("Correction: moved %s from %s → %s", fname, species_dir.name, safe_name)
-                    break
+        src = _find_classified(fname)
+        if src:
+            shutil.move(str(src), str(dst_dir / fname))
+            logging.info("Correction: moved %s from %s → %s", fname, src.parent.name, safe_name)
+
+    elif verdict in ("wrong", "skip") and not review.get("correct_species"):
+        # Wrong without correction or skip: move to skipped/
+        SKIPPED_DIR = CLASSIFIED_DIR.parent / "skipped"
+        SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
+        src = _find_classified(fname)
+        if src:
+            shutil.move(str(src), str(SKIPPED_DIR / fname))
+            logging.info("Rejected: moved %s from %s → skipped", fname, src.parent.name)
+
+    # missed_birds: the image stays where it is — the classification was correct,
+    # but additional birds were present. The review records this for training data.
 
     return {"status": "ok", "review": review}
 
