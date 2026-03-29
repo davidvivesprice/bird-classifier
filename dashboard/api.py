@@ -58,7 +58,7 @@ from starlette.requests import Request as StarletteRequest
 
 class BirdAPIRewriteMiddleware(BaseHTTPMiddleware):
     """Rewrite /bird-api/ paths to /api/ so the dashboard works
-    both through the NAS nginx proxy and via direct Tailscale access."""
+    both through Cloudflare routing and via direct Tailscale access."""
 
     async def dispatch(self, request: StarletteRequest, call_next):
         if request.url.path.startswith("/bird-api/"):
@@ -391,9 +391,9 @@ def _check_go2rtc():
         return {"status": "warn", "detail": f"go2rtc not responding (exit {result.returncode})"}
     except Exception as e:
         err = str(e)
-        detail = f"NAS unreachable ({err})"
-        if "502" in err:
-            detail += ". Likely: Docker container IP changed. Fix: ssh NAS, docker restart birds-share"
+        detail = f"go2rtc unreachable ({err})"
+        if "Connection refused" in err:
+            detail += ". Docker container may need restart: docker restart go2rtc"
         return {"status": "error", "detail": detail, "error": err}
 
 
@@ -776,6 +776,9 @@ def bulk_reclassify(from_species: str, to_species: str):
         except Exception:
             pass
     rw_conn.commit()
+    # Move files to match reclassification
+    for f in files:
+        apply_verdict(f[0], "wrong", to_species)
     invalidate_cache("pending", "stats", "species", "highlights", "profile", "weekly_snapshot")
 
     return {
@@ -1079,6 +1082,9 @@ async def batch_reject(request: StarletteRequest):
         except Exception:
             pass
     rw_conn.commit()
+    # Move files to match rejection
+    for f in files:
+        apply_verdict(f, "wrong", correct)
     if count:
         invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
     return {"rejected": count, "correct_species": correct}
@@ -1394,51 +1400,8 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     rdb.insert_review(review)
     invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
 
-    # Move files based on verdict — images should NOT stay under the wrong species
-    fname = review["file"]
-
-    def _find_classified(name):
-        """Find a file in any classified/ subdirectory."""
-        for d in CLASSIFIED_DIR.iterdir():
-            if d.is_dir():
-                candidate = d / name
-                if candidate.exists():
-                    return candidate
-        return None
-
-    if verdict == "trash" or verdict == "wrong" and review.get("correct_species") == "not_a_bird":
-        # Trash: move both classified and annotated copies to trash/
-        TRASH_DIR.mkdir(parents=True, exist_ok=True)
-        src_ann = ANNOTATED_DIR / fname
-        if src_ann.exists():
-            shutil.move(str(src_ann), str(TRASH_DIR / fname))
-        src_cls = _find_classified(fname)
-        if src_cls:
-            shutil.move(str(src_cls), str(TRASH_DIR / ("cls_" + fname)))
-            logging.info("Trashed: moved %s from %s → trash", fname, src_cls.parent.name)
-
-    elif verdict == "wrong" and review.get("correct_species"):
-        # Wrong with correction: move to the CORRECT species directory
-        corrected = review["correct_species"]
-        safe_name = corrected.replace(" ", "_").replace("'", "").replace("/", "-")
-        dst_dir = CLASSIFIED_DIR / safe_name
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        src = _find_classified(fname)
-        if src:
-            shutil.move(str(src), str(dst_dir / fname))
-            logging.info("Correction: moved %s from %s → %s", fname, src.parent.name, safe_name)
-
-    elif verdict in ("wrong", "skip") and not review.get("correct_species"):
-        # Wrong without correction or skip: move to skipped/
-        SKIPPED_DIR = CLASSIFIED_DIR.parent / "skipped"
-        SKIPPED_DIR.mkdir(parents=True, exist_ok=True)
-        src = _find_classified(fname)
-        if src:
-            shutil.move(str(src), str(SKIPPED_DIR / fname))
-            logging.info("Rejected: moved %s from %s → skipped", fname, src.parent.name)
-
-    # missed_birds: the image stays where it is — the classification was correct,
-    # but additional birds were present. The review records this for training data.
+    # Move files + update DB to match verdict
+    apply_verdict(review["file"], verdict, review.get("correct_species", ""))
 
     return {"status": "ok", "review": review}
 
@@ -1497,9 +1460,10 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
 
 @app.post("/api/review/{filename}/update")
 def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
-    """Update an existing review verdict (INSERT OR REPLACE in SQLite)."""
+    """Update an existing review verdict."""
     review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
     rdb.insert_review(review)
+    apply_verdict(filename, verdict, normalize_species(correct_species) if correct_species else "")
     invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
     return {"status": "ok", "review": review}
 
