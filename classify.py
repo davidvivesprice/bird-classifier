@@ -974,6 +974,41 @@ def print_summary():
     print()
 
 
+def _cleanup_orphan_records():
+    """Delete classification DB records where the image file no longer exists on disk."""
+    from classifications_db import get_conn
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT file, common_name FROM classifications WHERE action='classified' AND common_name IS NOT NULL"
+    ).fetchall()
+
+    orphans = []
+    for row in rows:
+        fname, species = row[0], row[1]
+        if not species:
+            continue
+        safe_dir = species.replace(" ", "_").replace("'", "")
+        classified_path = CLASSIFIED_DIR / safe_dir / fname
+        annotated_path = ANNOTATED_DIR / fname
+        if not classified_path.exists() and not annotated_path.exists():
+            orphans.append(fname)
+
+    if orphans:
+        rw_conn = get_conn(readonly=False)
+        for fname in orphans:
+            rw_conn.execute("DELETE FROM classifications WHERE file = ?", (fname,))
+        rw_conn.commit()
+        # Also clean orphan reviews
+        import reviews_db as rdb
+        rw_reviews = rdb.get_conn(readonly=False)
+        for fname in orphans:
+            rw_reviews.execute("DELETE FROM reviews WHERE file = ?", (fname,))
+        rw_reviews.commit()
+        logging.info("Startup cleanup: removed %d orphan records (no file on disk)", len(orphans))
+    else:
+        logging.info("Startup cleanup: no orphan records found")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Two-stage bird species classifier")
     parser.add_argument("--watch", action="store_true", help="Watch mode: continuously classify new images")
@@ -1034,6 +1069,12 @@ def main():
         logging.info("Ended any stale active visits from previous run")
     except Exception as e:
         logging.warning("Could not end stale visits: %s", e)
+
+    # Clean up orphan DB records (files that no longer exist on disk)
+    try:
+        _cleanup_orphan_records()
+    except Exception as e:
+        logging.warning("Orphan cleanup failed: %s", e)
 
     if args.reprocess:
         reprocess(range_filter)
