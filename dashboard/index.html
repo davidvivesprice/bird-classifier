@@ -6548,18 +6548,79 @@
   // ── Activity Tab ──
   var _activityHourChart = null;
 
+  var _speciesList = [];
+
   async function loadSpeciesAutocomplete() {
     try {
       var resp = await fetch('/bird-api/activity/species-list');
       var data = await resp.json();
-      var dl = document.getElementById('activity-species-list');
-      if (dl) {
-        dl.innerHTML = data.species.map(function(s) {
-          return '<option value="' + escAttr(s.name) + '">';
-        }).join('');
+      _speciesList = (data.species || []).sort(function(a, b) {
+        return (b.total || 0) - (a.total || 0);
+      });
+      renderSpeciesDropdown(_speciesList);
+
+      // Auto-load a random species from top 10
+      if (_speciesList.length > 0) {
+        var top = _speciesList.slice(0, Math.min(10, _speciesList.length));
+        var pick = top[Math.floor(Math.random() * top.length)];
+        document.getElementById('activity-species-input').value = pick.name;
+        loadSpeciesActivity();
       }
-    } catch(e) { console.warn('Species autocomplete failed:', e); }
+    } catch (e) {
+      console.warn('Species list load failed:', e);
+    }
   }
+
+  function renderSpeciesDropdown(list) {
+    var dd = document.getElementById('species-dropdown');
+    dd.innerHTML = list.map(function(sp) {
+      return '<div class="combo-option" data-value="' + escAttr(sp.name) + '" ' +
+             'onclick="selectSpecies(\'' + escAttr(sp.name) + '\')" ' +
+             'style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #333; font-size:13px;"' +
+             ' onmouseover="this.style.background=\'#2a2a4e\'" onmouseout="this.style.background=\'none\'">' +
+             escHtml(sp.name) + ' <span style="opacity:0.5; font-size:11px;">(' + (sp.total || 0) + ')</span></div>';
+    }).join('');
+  }
+
+  function toggleSpeciesDropdown() {
+    var dd = document.getElementById('species-dropdown');
+    if (dd.style.display === 'none') {
+      renderSpeciesDropdown(_speciesList);
+      dd.style.display = 'block';
+      document.getElementById('activity-species-input').select();
+    } else {
+      dd.style.display = 'none';
+    }
+  }
+
+  function filterSpeciesDropdown(query) {
+    var dd = document.getElementById('species-dropdown');
+    dd.style.display = 'block';
+    if (!query) {
+      renderSpeciesDropdown(_speciesList);
+      return;
+    }
+    var q = query.toLowerCase();
+    var filtered = _speciesList.filter(function(sp) {
+      return sp.name.toLowerCase().indexOf(q) !== -1;
+    });
+    renderSpeciesDropdown(filtered);
+  }
+
+  function selectSpecies(name) {
+    document.getElementById('activity-species-input').value = name;
+    document.getElementById('species-dropdown').style.display = 'none';
+    loadSpeciesActivity();
+  }
+
+  // Close dropdown on outside click
+  document.addEventListener('click', function(e) {
+    var combo = document.getElementById('activity-species-combo');
+    if (combo && !combo.contains(e.target)) {
+      var dd = document.getElementById('species-dropdown');
+      if (dd) dd.style.display = 'none';
+    }
+  });
 
   async function loadSpeciesActivity() {
     var name = document.getElementById('activity-species-input').value.trim();
@@ -6776,6 +6837,14 @@
   }
 
   function loadActivityTab() {
+    // Clear previous species data
+    document.getElementById('activity-species-result').innerHTML = '';
+    var canvas = document.getElementById('activity-hour-chart');
+    if (canvas) canvas.style.display = 'none';
+    if (typeof _activityHourChart !== 'undefined' && _activityHourChart) {
+      _activityHourChart.destroy();
+      _activityHourChart = null;
+    }
     loadSpeciesAutocomplete();
     loadFoodUI();
     loadActivityHeatmap();
