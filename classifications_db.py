@@ -351,19 +351,36 @@ def get_stats(date=None, camera=None):
 
     sql = f"""
         SELECT COUNT(*) as total,
-               SUM(CASE WHEN action='classified' THEN 1 ELSE 0 END) as classified,
+               SUM(CASE WHEN action='classified' THEN 1 ELSE 0 END) as classified_raw,
                SUM(CASE WHEN action LIKE 'skipped%%' THEN 1 ELSE 0 END) as skipped,
-               COUNT(DISTINCT CASE WHEN action='classified' THEN common_name END) as species_count,
                MAX(timestamp) as last_updated
         FROM classifications
         {where_clause}
     """
     r = conn.execute(sql, params).fetchone()
+
+    # Exclude trashed/not_a_bird from classified count and species count
+    excluded = conn.execute(
+        "SELECT COUNT(DISTINCT c.file) FROM classifications c "
+        "JOIN reviews r ON r.file = c.file "
+        "WHERE c.action='classified' "
+        "AND (r.verdict = 'trash' OR (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird'))"
+    ).fetchone()[0]
+
+    species_count = conn.execute(
+        "SELECT COUNT(DISTINCT c.common_name) FROM classifications c "
+        "WHERE c.action='classified' AND c.common_name IS NOT NULL "
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM reviews r WHERE r.file = c.file "
+        "  AND (r.verdict = 'trash' OR (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird'))"
+        ")"
+    ).fetchone()[0]
+
     return {
         "total": r["total"],
-        "classified": r["classified"],
+        "classified": (r["classified_raw"] or 0) - excluded,
         "skipped": r["skipped"],
-        "species_count": r["species_count"],
+        "species_count": species_count,
         "last_updated": r["last_updated"],
     }
 
@@ -489,11 +506,15 @@ def file_exists(filename):
 # ── Phase 2: Direct-query functions for api.py (replaces in-memory cache) ──
 
 def count_species():
-    """Count distinct classified species."""
+    """Count distinct classified species, excluding trashed/not_a_bird."""
     conn = get_conn(readonly=True)
     return conn.execute(
-        "SELECT COUNT(DISTINCT common_name) FROM classifications "
-        "WHERE action='classified' AND common_name IS NOT NULL"
+        "SELECT COUNT(DISTINCT c.common_name) FROM classifications c "
+        "WHERE c.action='classified' AND c.common_name IS NOT NULL "
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM reviews r WHERE r.file = c.file "
+        "  AND (r.verdict = 'trash' OR (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird'))"
+        ")"
     ).fetchone()[0]
 
 
