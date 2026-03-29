@@ -2727,7 +2727,7 @@ def get_species_activity(species_name: str):
 
     food_prefs = {}
     for food, count in by_food.items():
-        label = "Untracked" if food == "unknown" else food
+        label = "Other" if food == "unknown" else food
         hours = food_hours.get(food, 0)
         food_prefs[label] = {
             "detections": count,
@@ -2765,8 +2765,51 @@ def get_species_activity(species_name: str):
     except Exception:
         pass
 
+    # --- Daily visit counts (last 30 days) ---
+    by_date = {}
+    daily_rows = cdb_conn.execute(
+        "SELECT source_date, COUNT(*) as cnt FROM classifications "
+        "WHERE common_name = ? AND action = 'classified' AND source_date IS NOT NULL "
+        "GROUP BY source_date ORDER BY source_date",
+        (species_name,),
+    ).fetchall()
+    for row in daily_rows:
+        if row["source_date"]:
+            by_date[row["source_date"]] = row["cnt"]
+
+    # Add audio daily counts
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT date, COUNT(*) as cnt FROM notes WHERE common_name = ? GROUP BY date ORDER BY date",
+                    (species_name,))
+        for row in cur.fetchall():
+            d = row[0] if isinstance(row, tuple) else row["date"]
+            cnt = row[1] if isinstance(row, tuple) else row["cnt"]
+            if d:
+                by_date[d] = by_date.get(d, 0) + cnt
+    except Exception:
+        pass
+
+    # Build last 30 days array (fill gaps with 0)
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_labels = []
+    daily_values = []
+    for i in range(29, -1, -1):
+        d = (datetime.now() - _timedelta(days=i)).strftime("%Y-%m-%d")
+        daily_labels.append(d)
+        daily_values.append(by_date.get(d, 0))
+
+    # Streak: how many consecutive recent days with detections?
+    streak = 0
+    for i in range(len(daily_values) - 1, -1, -1):
+        if daily_values[i] > 0:
+            streak += 1
+        else:
+            break
+
     # Preferred food
-    preferred = max(food_prefs.items(), key=lambda x: x[1]["rate_per_hour"])[0] if food_prefs else "unknown"
+    pref_foods = {k: v for k, v in food_prefs.items() if v.get("rate_per_hour") is not None}
+    preferred = max(pref_foods.items(), key=lambda x: x[1]["rate_per_hour"])[0] if pref_foods else "unknown"
 
     return {
         "species": species_name,
@@ -2782,6 +2825,9 @@ def get_species_activity(species_name: str):
         "cameras": cameras,
         "first_seen": first_seen,
         "last_seen": last_seen,
+        "daily_labels": daily_labels,
+        "daily_values": daily_values,
+        "streak": streak,
     }
 
 
