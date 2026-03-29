@@ -2727,13 +2727,12 @@ def get_species_activity(species_name: str):
 
     food_prefs = {}
     for food, count in by_food.items():
-        if food == "unknown":
-            continue  # Can't calculate rate without food log data
-        hours = food_hours.get(food, 1)
-        food_prefs[food] = {
+        label = "Untracked" if food == "unknown" else food
+        hours = food_hours.get(food, 0)
+        food_prefs[label] = {
             "detections": count,
-            "hours_available": round(hours, 1),
-            "rate_per_hour": round(count / max(hours, 0.1), 2),
+            "hours_available": round(hours, 1) if hours > 0 else None,
+            "rate_per_hour": round(count / hours, 2) if hours > 0 else None,
         }
 
     # Peak hour
