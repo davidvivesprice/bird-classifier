@@ -2727,7 +2727,7 @@ def get_species_activity(species_name: str):
 
     food_prefs = {}
     for food, count in by_food.items():
-        label = "Other" if food == "unknown" else food
+        label = "Songbird Mix" if food == "unknown" else food
         hours = food_hours.get(food, 0)
         food_prefs[label] = {
             "detections": count,
