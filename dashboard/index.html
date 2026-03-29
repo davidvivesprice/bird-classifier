@@ -2445,9 +2445,14 @@
     <div class="panel" style="padding:16px;">
       <h3 style="margin:0 0 12px">Species Activity</h3>
       <div style="display:flex; gap:8px; margin-bottom:12px;">
-        <input type="text" id="activity-species-input" list="activity-species-list" placeholder="Search species..." style="flex:1; padding:8px; border:1px solid #444; background:#1a1a2e; color:#e0e0e0; border-radius:6px; font-size:14px;">
-        <datalist id="activity-species-list"></datalist>
-        <button onclick="loadSpeciesActivity()" style="padding:8px 16px; background:#4a9eff; color:#fff; border:none; border-radius:6px; cursor:pointer;">Search</button>
+        <div class="combo-select" id="activity-species-combo" style="flex:1; position:relative;">
+            <input type="text" id="activity-species-input" placeholder="Select a species..." autocomplete="off"
+                   style="width:100%; padding:8px 32px 8px 8px; border:1px solid #444; background:#1a1a2e; color:#e0e0e0; border-radius:6px; font-size:14px; cursor:pointer;"
+                   onclick="toggleSpeciesDropdown()" oninput="filterSpeciesDropdown(this.value)"
+                   onkeydown="if(event.key==='Enter'){selectSpecies(this.value);}">
+            <span style="position:absolute; right:10px; top:50%; transform:translateY(-50%); pointer-events:none; opacity:0.5;">▼</span>
+            <div id="species-dropdown" class="combo-dropdown" style="display:none; position:absolute; top:100%; left:0; right:0; max-height:300px; overflow-y:auto; background:#1a1a2e; border:1px solid #444; border-top:none; border-radius:0 0 6px 6px; z-index:100;"></div>
+        </div>
       </div>
       <div id="activity-species-result" style="min-height:200px;">
         <p style="opacity:0.5;">Search for a species to see activity patterns, peak hours, and food preferences.</p>
@@ -2474,7 +2479,7 @@
         <div id="food-log-history" style="margin-top:8px; max-height:150px; overflow-y:auto; font-size:13px;"></div>
       </div>
       <div class="panel" style="padding:16px;">
-        <h3 style="margin:0 0 12px">Activity Heatmap <span style="font-size:12px; opacity:0.6;">(last 7 days)</span></h3>
+        <h3 style="margin:0 0 12px">Activity Heatmap <span style="font-size:12px; opacity:0.6;">(camera + audio, last 7 days)</span></h3>
         <div id="activity-heatmap" style="overflow-x:auto; font-size:12px;">Loading...</div>
       </div>
     </div>
@@ -6582,8 +6587,8 @@
       }
       html += '</div></div>';
       // Food preferences
+      html += '<div style="margin-top:12px;"><strong>Food Preferences</strong>';
       if (d.by_food && Object.keys(d.by_food).length > 0) {
-        html += '<div style="margin-top:12px;"><strong>Food Preferences</strong>';
         html += '<table style="width:100%;font-size:13px;margin-top:4px;"><tr style="opacity:0.6;"><th style="text-align:left;">Food</th><th>Detections</th><th>Rate/hr</th></tr>';
         var foods = Object.keys(d.by_food).sort(function(a,b) { return d.by_food[b].rate_per_hour - d.by_food[a].rate_per_hour; });
         foods.forEach(function(f) {
@@ -6592,8 +6597,11 @@
           html += '<td style="text-align:center;">' + fd.detections + '</td>';
           html += '<td style="text-align:center;">' + fd.rate_per_hour + '</td></tr>';
         });
-        html += '</table></div>';
+        html += '</table>';
+      } else {
+        html += '<br><span style="font-size:13px;opacity:0.5;">No food data logged</span>';
       }
+      html += '</div>';
       el.innerHTML = html;
       // Render hourly chart
       var canvas = document.getElementById('activity-hour-chart');

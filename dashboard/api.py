@@ -370,11 +370,13 @@ def _check_audio_analyzer_health():
     except Exception:
         pass
 
-    # Build detail string
+    # Always set detail string (not just when status is "ok")
+    today = metrics.get("detections_today", 0)
+    last = metrics.get("last_detection", "none")
     if metrics.get("status") == "ok":
-        today = metrics.get("detections_today", 0)
-        last = metrics.get("last_detection", "none")
         metrics["detail"] = f"Running, {today} detections today, last: {last}"
+    else:
+        metrics["detail"] = f"Paused, {today} detections today, last: {last}"
     return metrics
 
 
@@ -2725,6 +2727,8 @@ def get_species_activity(species_name: str):
 
     food_prefs = {}
     for food, count in by_food.items():
+        if food == "unknown":
+            continue  # Can't calculate rate without food log data
         hours = food_hours.get(food, 1)
         food_prefs[food] = {
             "detections": count,
