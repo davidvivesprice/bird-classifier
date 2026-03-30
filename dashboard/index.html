@@ -2387,7 +2387,7 @@
       <div class="sp-body">
         <div class="sp-content">
           <div class="sp-photo-wrap" id="sp-photo-wrap" style="display:none">
-            <img class="sp-photo" id="sp-photo" alt="">
+            <img class="sp-photo" id="sp-photo" alt="" onerror="this.style.display='none'">
             <div class="sp-gallery-caption" id="sp-gallery-caption"></div>
             <div class="sp-gallery-nav" id="sp-gallery-nav" style="display:none">
               <button onclick="spGalleryPrev()" id="sp-gallery-prev">&lsaquo;</button>
@@ -4282,7 +4282,7 @@
 
       var speciesImgUrl = '/bird-api/species-image/' + encodeURIComponent(sp.common_name) + '?v=2';
       return '<div class="species-card" data-species="' + escAttr(sp.common_name) + '" onclick="expandSpeciesCard(this)">' +
-        '<img class="species-card-thumb" src="' + speciesImgUrl + '" alt="" loading="lazy" style="cursor:pointer">' +
+        '<img class="species-card-thumb" src="' + speciesImgUrl + '" alt="" loading="lazy" style="cursor:pointer" onerror="this.style.opacity=\'0.2\'">' +
         '<div class="species-card-body">' +
           '<div class="species-card-name">' + spLink(sp.common_name) + '</div>' +
           '<div class="species-card-sci">' + escHtml(sp.scientific_name || '') + '</div>' +
@@ -4712,7 +4712,7 @@
         var femSrc = lookalikeImageCache[sp + '_female'] || '';
         // Male card
         itemsList.push('<div class="' + baseClasses + '" data-species="' + sp + '" onclick="cheatSelectSpecies(\'' + safeSp + '\', this)" title="Select ' + sp + '">' +
-          '<div style="position:relative"><img src="' + imgSrc + '" alt="' + sp + ' ♂" loading="lazy"><span class="sex-label">♂</span></div>' +
+          '<div style="position:relative"><img src="' + imgSrc + '" alt="' + sp + ' ♂" loading="lazy" onerror="this.style.opacity=\'0.2\'"><span class="sex-label">♂</span></div>' +
           '<div class="sparrow-cheat-label"><span class="cheat-name-link" onclick="event.stopPropagation();openSpeciesPopup(\'' + safeSp + '\')" title="View species info">' + sp + '</span>' + (isPred ? ' ✓' : '') + '</div>' +
         '</div>');
         // Female card
@@ -4722,7 +4722,7 @@
         '</div>');
       } else {
         itemsList.push('<div class="' + baseClasses + '" data-species="' + sp + '" onclick="cheatSelectSpecies(\'' + safeSp + '\', this)" title="Select ' + sp + (isHeard ? ' (heard by BirdNET)' : '') + '">' +
-          (imgSrc ? '<img src="' + imgSrc + '" alt="' + sp + '" loading="lazy">' : '') +
+          (imgSrc ? '<img src="' + imgSrc + '" alt="' + sp + '" loading="lazy" onerror="this.style.opacity=\'0.2\'">' : '') +
           '<div class="sparrow-cheat-label"><span class="cheat-name-link" onclick="event.stopPropagation();openSpeciesPopup(\'' + safeSp + '\')" title="View species info">' + sp + '</span>' + (isPred ? ' ✓' : '') + '</div>' +
         '</div>');
       }
@@ -5001,7 +5001,7 @@
       '</div>' +
       captureTimeHtml +
       '<div class="review-image-wrap">' +
-        (imgUrl ? '<img id="review-image" src="' + (reviewImageTab === 'photo' ? rawUrl : reviewImageTab === 'crop' ? cropUrl : imgUrl) + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '" data-crop="' + cropUrl + '">' : '<div style="color:var(--text-muted)">No image available</div>') +
+        (imgUrl ? '<img id="review-image" src="' + (reviewImageTab === 'photo' ? rawUrl : reviewImageTab === 'crop' ? cropUrl : imgUrl) + '" alt="Detection image" loading="lazy" style="max-width:100%;max-height:560px;display:block;" data-annotated="' + imgUrl + '" data-original="' + rawUrl + '" data-crop="' + cropUrl + '" onerror="this.outerHTML=\'<div style=\\\'color:var(--text-muted);padding:40px;text-align:center\\\'>Image not available</div>\'">' : '<div style="color:var(--text-muted)">No image available</div>') +
       '</div>' +
       '<div class="review-actions" style="padding:8px 24px;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">' +
         (birds.length <= 1 ? '<button class="review-btn btn-correct" onclick="submitReview(\'correct\')">Correct</button>' +
@@ -5326,7 +5326,7 @@
       var dateStr = ts ? ts.split(' ')[0] : '';
       var timeStr = ts ? ts.split(' ')[1] || '' : '';
       return '<div class="skipped-card" id="skip-' + escAttr(f.file) + '">' +
-        '<img src="/bird-api/image/' + encodeURIComponent(f.file) + '" alt="Skipped frame" loading="lazy" onclick="openSkippedLightbox(\'' + escAttr(f.file) + '\')">' +
+        '<img src="/bird-api/image/' + encodeURIComponent(f.file) + '" alt="Skipped frame" loading="lazy" onclick="openSkippedLightbox(\'' + escAttr(f.file) + '\')" onerror="this.style.display=\'none\'">' +
         '<div class="skipped-card-info">' +
           '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;">' + escHtml(f.species || 'Unknown') + '</span>' +
           '<span class="skipped-card-time">' + escHtml(dateStr) + ' ' + escHtml(timeStr) + '</span>' +
@@ -5422,7 +5422,7 @@
       var verdictLabel = item.verdict === 'correct' ? 'Correct' : isCorrected ? 'Corrected' : item.verdict === 'wrong' ? 'Wrong' : item.verdict === 'trash' ? 'Trashed' : item.verdict === 'skip' ? 'Skipped' : item.verdict === 'reclassify' ? 'Missed Birds' : item.verdict;
       var speciesDisplay = isCorrected ? item.correct_species + ' (was: ' + item.species + ')' : item.correct_species || item.species;
       return '<div class="skipped-card" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
-        '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy">' +
+        '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy" onerror="this.style.display=\'none\'">' +
         '<div class="skipped-card-info stacked">' +
           '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">' + escHtml(speciesDisplay) + '</span>' +
           '<div style="display:flex;justify-content:space-between;width:100%;align-items:center;">' +
@@ -6325,7 +6325,7 @@
       if (item.prior_suggestion && item.prior_suggestion !== item.species) badges += '<span style="position:absolute;bottom:4px;left:4px;background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:8px;font-size:0.6rem;">' + item.prior_suggestion + '</span>';
 
       return '<div onclick="toggleBatchSelect(' + i + ')" style="position:relative;cursor:pointer;border:' + border + ';border-radius:8px;overflow:hidden;aspect-ratio:4/3;background:var(--bg-card);">' +
-        '<img src="' + imgUrl + '" loading="lazy" style="width:100%;height:100%;object-fit:cover;">' +
+        '<img src="' + imgUrl + '" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
         badges +
         (selected ? '<div style="position:absolute;inset:0;background:rgba(74,222,128,0.2);display:flex;align-items:center;justify-content:center;font-size:2rem;">&#x2705;</div>' : '') +
       '</div>';
@@ -6494,6 +6494,10 @@
 
   function renderAudioList() {
     var el = document.getElementById('audio-det-list');
+    if (_audioDetections.length === 0) {
+      el.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5;">No audio detections yet today</div>';
+      return;
+    }
     el.innerHTML = _audioDetections.map(function(d) {
       var confPct = Math.round(d.confidence * 100);
       var confCls = confPct >= 80 ? 'conf-high' : confPct >= 50 ? 'conf-med' : 'conf-low';
@@ -6507,8 +6511,8 @@
       return '<div class="audio-det-item">' +
         clipBtn +
         '<div class="audio-det-info">' +
-          '<div class="audio-det-species">' + d.species + '</div>' +
-          '<div class="audio-det-meta">' + d.time +
+          '<div class="audio-det-species">' + escHtml(d.species) + '</div>' +
+          '<div class="audio-det-meta">' + escHtml(d.time) +
             ' &middot; ' + confPct + '%</div>' +
         '</div>' +
         '<div class="audio-det-badges">' +

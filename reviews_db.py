@@ -267,8 +267,8 @@ def get_reviewed_entries(species=None, verdict=None, offset=0, limit=50):
     where = []
     params = []
     if species:
-        where.append("c.common_name = ?")
-        params.append(species)
+        where.append("(c.common_name = ? OR r.correct_species = ?)")
+        params.extend([species, species])
     if verdict:
         where.append("r.verdict = ?")
         params.append(verdict)
