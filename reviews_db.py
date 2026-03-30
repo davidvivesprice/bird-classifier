@@ -305,3 +305,152 @@ def _reset_table_flag():
     """Reset the table-ensured flag. Only used in tests."""
     global _table_ensured
     _table_ensured = False
+
+
+def _reset_connections():
+    """Reset all thread-local connections and table flag. For testing only."""
+    global _table_ensured
+    _table_ensured = False
+    for attr in ("_reviews_ro_conn", "_reviews_rw_conn"):
+        conn = getattr(_local, attr, None)
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            delattr(_local, attr)
+
+
+# ── Unified classification query system ──
+
+_EFFECTIVE_SPECIES_SQL = """
+CASE WHEN r.verdict = 'wrong' AND r.correct_species IS NOT NULL
+     AND r.correct_species != '' AND r.correct_species != 'not_a_bird'
+THEN r.correct_species
+ELSE c.common_name
+END
+"""
+
+
+def _build_classification_query(status, species=None, verdict=None,
+                                 camera=None, date=None, multibird=False):
+    """Build WHERE clause + params for unified classification queries."""
+    where = ["c.action = 'classified'", "c.common_name IS NOT NULL"]
+    params = []
+
+    if status == "pending":
+        where.append("(r.file IS NULL OR r.verdict = 'requeued')")
+    elif status == "reviewed":
+        where.append("r.file IS NOT NULL")
+        where.append("r.verdict != 'requeued'")
+        where.append("r.verdict NOT IN ('trash')")
+        where.append("NOT (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird')")
+
+    if species:
+        where.append(f"({_EFFECTIVE_SPECIES_SQL}) = ?")
+        params.append(species)
+
+    if verdict and status != "pending":
+        where.append("r.verdict = ?")
+        params.append(verdict)
+
+    if camera:
+        where.append("c.camera = ?")
+        params.append(camera)
+
+    if date:
+        where.append("c.source_date = ?")
+        params.append(date)
+
+    if multibird:
+        where.append("json_array_length(c.birds_json) > 1")
+
+    return " AND ".join(where), params
+
+
+def get_classifications(status="pending", species=None, verdict=None,
+                        camera=None, date=None, multibird=False,
+                        offset=0, limit=50):
+    """Unified query for all classification views.
+
+    Args:
+        status: "pending" (no review), "reviewed" (has review, not trash), "all"
+        species: Filter by effective species (corrected if corrected, original otherwise)
+        verdict: Filter by specific verdict (only for reviewed)
+        camera: Filter by camera name
+        date: Filter by source_date
+        multibird: Only show multi-bird frames
+        offset/limit: Pagination
+    """
+    where_clause, params = _build_classification_query(
+        status, species, verdict, camera, date, multibird
+    )
+
+    # Order: pending by classification time, reviewed by review time
+    order = "c.timestamp DESC" if status == "pending" else "COALESCE(r.timestamp, c.timestamp) DESC"
+
+    sql = (
+        f"SELECT c.file, c.common_name AS original_species, "
+        f"({_EFFECTIVE_SPECIES_SQL}) AS species, "
+        f"c.scientific_name, c.confidence, c.source_timestamp, c.source_date, "
+        f"c.best_detection_json, c.top3_json, c.raw_top3_json, c.birds_json, "
+        f"c.extra_json, c.camera, c.raw_score, "
+        f"r.verdict, r.correct_species, r.missed_birds, r.bird_index, "
+        f"r.timestamp AS review_timestamp, r.reviewer "
+        f"FROM classifications c "
+        f"LEFT JOIN reviews r ON c.file = r.file "
+        f"WHERE {where_clause} "
+        f"ORDER BY {order} "
+        f"LIMIT ? OFFSET ?"
+    )
+    params.extend([limit, offset])
+
+    conn = get_conn(readonly=True)
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_classifications(status="pending", species=None, verdict=None,
+                          camera=None, date=None, multibird=False):
+    """Count classifications — same filters as get_classifications."""
+    where_clause, params = _build_classification_query(
+        status, species, verdict, camera, date, multibird
+    )
+
+    sql = (
+        f"SELECT COUNT(*) "
+        f"FROM classifications c "
+        f"LEFT JOIN reviews r ON c.file = r.file "
+        f"WHERE {where_clause}"
+    )
+
+    conn = get_conn(readonly=True)
+    return conn.execute(sql, params).fetchone()[0]
+
+
+def list_classification_species(status="reviewed"):
+    """List distinct species for filter dropdowns.
+
+    Returns both effective species (for corrected items) AND original species
+    (for non-corrected items), so the dropdown includes all species the user
+    might want to filter by.
+    """
+    where_clause, params = _build_classification_query(status)
+
+    sql = (
+        f"SELECT DISTINCT name FROM ("
+        f"  SELECT ({_EFFECTIVE_SPECIES_SQL}) AS name "
+        f"  FROM classifications c "
+        f"  LEFT JOIN reviews r ON c.file = r.file "
+        f"  WHERE {where_clause} "
+        f"  UNION "
+        f"  SELECT c.common_name AS name "
+        f"  FROM classifications c "
+        f"  LEFT JOIN reviews r ON c.file = r.file "
+        f"  WHERE {where_clause} "
+        f") ORDER BY name"
+    )
+
+    conn = get_conn(readonly=True)
+    rows = conn.execute(sql, params + params).fetchall()
+    return [r[0] for r in rows if r[0]]
