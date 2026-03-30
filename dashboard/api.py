@@ -1724,6 +1724,26 @@ def skipped_list(limit: int = 200, offset: int = 0):
     return {"files": skipped, "total": total}
 
 
+@app.get("/api/review/missed")
+def missed_birds_list(limit: int = 200, offset: int = 0):
+    """List images flagged as missed birds (verdict='reclassify')."""
+    rows = rdb.get_classifications(status="missed", offset=offset, limit=limit)
+    total = rdb.count_classifications(status="missed")
+
+    items = []
+    for r in rows:
+        best_det = json.loads(r["best_detection_json"]) if r.get("best_detection_json") else {}
+        items.append({
+            "file": r["file"],
+            "species": r["species"],
+            "original_species": r["original_species"],
+            "confidence": best_det.get("confidence", 0) if best_det else r.get("confidence", 0),
+            "source_timestamp": r.get("source_timestamp", ""),
+        })
+
+    return {"items": items, "total": total}
+
+
 def _find_classified_image(filename: str):
     """Find a classified image in any species subdirectory."""
     for species_dir in CLASSIFIED_DIR.iterdir():

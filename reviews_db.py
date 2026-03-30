@@ -346,14 +346,17 @@ def _build_classification_query(status, species=None, verdict=None,
     elif status == "reviewed":
         where.append("r.file IS NOT NULL")
         where.append("r.verdict != 'requeued'")
-        where.append("r.verdict NOT IN ('trash')")
+        where.append("r.verdict NOT IN ('trash', 'reclassify')")
         where.append("NOT (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird')")
+    elif status == "missed":
+        # Missed birds — flagged for multi-bird reprocessing
+        where.append("r.verdict = 'reclassify'")
 
     if species:
         where.append(f"({_EFFECTIVE_SPECIES_SQL}) = ?")
         params.append(species)
 
-    if verdict and status != "pending":
+    if verdict and status not in ("pending", "missed"):
         where.append("r.verdict = ?")
         params.append(verdict)
 
