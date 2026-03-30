@@ -2077,8 +2077,13 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
         where.append("date = ?")
         params.append(date)
     if species:
-        where.append("common_name = ?")
-        params.append(species)
+        # The dropdown shows normalized names but the DB may have raw aliases,
+        # so match both the given name and any raw aliases that normalize to it.
+        raw_aliases = [raw for raw, canon in SPECIES_ALIASES.items() if canon == species]
+        all_names = [species] + raw_aliases
+        placeholders = ", ".join("?" for _ in all_names)
+        where.append(f"common_name IN ({placeholders})")
+        params.extend(all_names)
     if source:
         where.append("source = ?")
         params.append(source)

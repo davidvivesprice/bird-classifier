@@ -5037,7 +5037,7 @@
       '</div>' +
       '<div class="review-wrong-dropdown" id="wrong-dropdown" style="padding:0 24px;">' +
         '<label for="wrong-search">Select the correct species:</label>' +
-        '<input type="text" class="review-wrong-search" id="wrong-search" placeholder="Type to filter species..." oninput="filterSpeciesDropdown()">' +
+        '<input type="text" class="review-wrong-search" id="wrong-search" placeholder="Type to filter species..." oninput="filterWrongSpeciesDropdown()">' +
         '<select id="wrong-species" size="6">' +
           buildSpeciesOptions() +
         '</select>' +
@@ -5064,7 +5064,7 @@
     ).join('');
   }
 
-  window.filterSpeciesDropdown = function() {
+  window.filterWrongSpeciesDropdown = function() {
     const query = document.getElementById('wrong-search').value.toLowerCase();
     const sel = document.getElementById('wrong-species');
     sel.innerHTML = regionalSpecies
@@ -5454,7 +5454,17 @@
   window.openClassifiedLightbox = function(filename) {
     var item = classifiedItems.find(function(it) { return it.file === filename; });
     if (!item) return;
-    openLightbox(item.file, item.species, '', item.confidence || 0, item.source_timestamp);
+    // Show corrected species in lightbox title when available
+    var displaySpecies = (item.verdict === 'wrong' && item.correct_species) ? item.correct_species : item.species;
+    // Set up navigation list from current (filtered) classifiedItems
+    lightboxDetectionList = classifiedItems.map(function(ci) {
+      var name = (ci.verdict === 'wrong' && ci.correct_species) ? ci.correct_species : ci.species;
+      return { file: ci.file, name: name, sci: '', conf: ci.confidence || 0, ts: ci.source_timestamp };
+    });
+    lightboxDetectionIndex = classifiedItems.findIndex(function(ci) { return ci.file === filename; });
+    lightboxListSpecies = displaySpecies;
+    lightboxListSciName = '';
+    openLightbox(item.file, displaySpecies, '', item.confidence || 0, item.source_timestamp);
   };
 
   // ── HTML escaping ──
