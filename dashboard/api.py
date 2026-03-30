@@ -2258,6 +2258,63 @@ def enhanced_audio_health():
         return {"status": "error", "detail": str(e)}
 
 
+@app.get("/live-detections/events")
+async def proxy_live_detections_sse():
+    """Proxy SSE stream from live_detector (port 8097) for real-time bird detection overlays.
+
+    Previously served via nginx on the NAS at /live-detections/.
+    Now proxied through FastAPI for Cloudflare tunnel access.
+    """
+    import httpx
+    from starlette.responses import StreamingResponse
+
+    async def stream():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", "http://127.0.0.1:8097/events", timeout=None) as resp:
+                async for line in resp.aiter_lines():
+                    yield line + "\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.get("/live-detections/{path:path}")
+async def proxy_live_detections(path: str):
+    """Proxy other live_detector endpoints (metrics, health)."""
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"http://127.0.0.1:8097/{path}", timeout=5)
+            return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/hls/{path:path}")
+async def proxy_hls(path: str):
+    """Proxy HLS segments from local go2rtc (port 1984) for fallback video streaming.
+
+    Previously served via nginx on the NAS at /hls/.
+    Now proxied through FastAPI for Cloudflare tunnel access.
+    """
+    import httpx
+    from starlette.responses import StreamingResponse
+
+    go2rtc_url = f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/hls/{path}"
+
+    async def stream():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", go2rtc_url) as resp:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    yield chunk
+
+    # Determine content type from extension
+    ct = "application/vnd.apple.mpegurl" if path.endswith(".m3u8") else "video/mp2t"
+    return StreamingResponse(stream(), media_type=ct,
+                             headers={"Cache-Control": "no-cache"})
+
+
 @app.websocket("/api/ws")
 async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
     """Proxy WebSocket connections to local go2rtc for camera streaming."""
