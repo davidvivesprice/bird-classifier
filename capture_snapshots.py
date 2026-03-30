@@ -107,9 +107,11 @@ def day_count(directory: pathlib.Path, camera_name: str) -> int:
 
 def camera_loop(camera_name: str, camera_id: str) -> None:
     """Main capture loop for a single camera. Runs in its own thread."""
+    import hashlib
     prev_thumb = None
     last_save = 0.0
     errors = 0
+    recent_hashes: set[str] = set()  # MD5s of recently saved images (dedup guard)
 
     sys.stdout.write(
         f'[{camera_name}] started: camera_id={camera_id}, poll={POLL_INTERVAL}s, '
@@ -145,6 +147,20 @@ def camera_loop(camera_name: str, camera_id: str) -> None:
                 if day_count(OUTPUT_DIR, camera_name) < MAX_PER_DAY:
                     ts = time.strftime('%Y-%m-%d_%H-%M-%S')
                     fname = OUTPUT_DIR / f'{camera_name}_{ts}.jpg'
+                    # Guard 1: skip if filename already exists (DST clock overlap)
+                    if fname.exists():
+                        prev_thumb = curr_thumb
+                        time.sleep(POLL_INTERVAL)
+                        continue
+                    # Guard 2: skip if identical bytes already saved recently
+                    data_hash = hashlib.md5(data).hexdigest()
+                    if data_hash in recent_hashes:
+                        prev_thumb = curr_thumb
+                        time.sleep(POLL_INTERVAL)
+                        continue
+                    recent_hashes.add(data_hash)
+                    if len(recent_hashes) > 200:
+                        recent_hashes.clear()  # bound memory, fresh start
                     tmp = fname.with_suffix('.tmp')
                     tmp.write_bytes(data)
                     tmp.rename(fname)  # atomic on same filesystem

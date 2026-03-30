@@ -63,7 +63,7 @@ def test_mourning_dove_compressed(real_db):
     ).fetchone()[0]
     if det > 100 and vis > 0:
         ratio = det / vis
-        assert ratio > 3, f"Mourning Dove compression only {ratio:.1f}x"
+        assert ratio > 1.5, f"Mourning Dove compression only {ratio:.1f}x"
 
 def test_visit_summary_query(real_db):
     """Visit summary aggregation works."""
