@@ -103,6 +103,13 @@ def serve_dashboard():
     return FileResponse(str(DASHBOARD_DIR / "index.html"), media_type="text/html")
 
 
+@app.get("/apple-touch-icon.png")
+@app.get("/apple-touch-icon-precomposed.png")
+def serve_apple_touch_icon():
+    """Serve the iOS home screen icon."""
+    return FileResponse(str(DASHBOARD_DIR / "apple-touch-icon.png"), media_type="image/png")
+
+
 @app.get("/docs.html")
 def serve_docs_html():
     """Serve the docs viewer HTML."""
