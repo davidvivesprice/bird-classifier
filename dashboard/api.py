@@ -1451,6 +1451,9 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
     if v:
         where_parts.append("r.verdict = ?")
         params.append(v)
+    else:
+        where_parts.append("r.verdict NOT IN ('trash')")
+        where_parts.append("NOT (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird')")
     extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
     total = conn.execute(
         "SELECT COUNT(*) FROM reviews r JOIN classifications c ON r.file = c.file WHERE 1=1" + extra,

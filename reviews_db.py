@@ -272,6 +272,11 @@ def get_reviewed_entries(species=None, verdict=None, offset=0, limit=50):
     if verdict:
         where.append("r.verdict = ?")
         params.append(verdict)
+    else:
+        # When no specific verdict filter, exclude trashed items
+        where.append("r.verdict NOT IN ('trash')")
+        # Also exclude wrong→not_a_bird
+        where.append("NOT (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird')")
 
     extra_where = (" AND " + " AND ".join(where)) if where else ""
 
