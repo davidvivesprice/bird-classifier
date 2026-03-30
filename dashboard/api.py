@@ -257,6 +257,17 @@ def apply_verdict(filename, verdict, correct_species=""):
     # The review's correct_species field records what the human said it actually is.
     # The file is moved to the correct folder by _apply_verdict_files().
 
+    # Mark trashed items so they don't appear in species grids and queries
+    if verdict == "trash" or (verdict == "wrong" and correct_species == "not_a_bird"):
+        try:
+            cdb.get_conn(readonly=False).execute(
+                "UPDATE classifications SET action = 'trashed:review' WHERE file = ?",
+                (filename,)
+            )
+            cdb.get_conn(readonly=False).commit()
+        except Exception as e:
+            logging.warning("Failed to mark %s as trashed: %s", filename, e)
+
     if result["moved"]:
         logging.info("apply_verdict: %s → %s (%s → %s)",
                      filename, verdict, result["from_dir"], result["to_dir"])
