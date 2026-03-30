@@ -267,8 +267,11 @@ def get_reviewed_entries(species=None, verdict=None, offset=0, limit=50):
     where = []
     params = []
     if species:
-        where.append("(c.common_name = ? OR r.correct_species = ?)")
-        params.extend([species, species])
+        # Match the EFFECTIVE species: if corrected, use correct_species; otherwise use common_name
+        # A corrected image belongs to the corrected species, not the original
+        where.append("(CASE WHEN r.verdict = 'wrong' AND r.correct_species IS NOT NULL AND r.correct_species != '' "
+                     "THEN r.correct_species ELSE c.common_name END) = ?")
+        params.append(species)
     if verdict:
         where.append("r.verdict = ?")
         params.append(verdict)

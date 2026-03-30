@@ -1445,9 +1445,10 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
     where_parts = []
     params = []
     if sp:
-        # Match species filter against BOTH the AI's guess AND the human correction
-        where_parts.append("(c.common_name = ? OR r.correct_species = ?)")
-        params.extend([sp, sp])
+        # Match the EFFECTIVE species: corrected species if corrected, otherwise original
+        where_parts.append("(CASE WHEN r.verdict = 'wrong' AND r.correct_species IS NOT NULL AND r.correct_species != '' "
+                          "THEN r.correct_species ELSE c.common_name END) = ?")
+        params.append(sp)
     if v:
         where_parts.append("r.verdict = ?")
         params.append(v)
