@@ -25,7 +25,7 @@ DEFAULT_GAP_SECONDS = 60  # Visit ends after 60s with no detection
 
 _local = threading.local()
 _table_ensured = False
-_table_lock = threading.Lock()
+_table_lock = threading.RLock()  # RLock: reentrant because _ensure_table calls get_conn recursively
 
 
 def get_conn(readonly=False):

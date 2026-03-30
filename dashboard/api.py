@@ -2227,6 +2227,37 @@ async def proxy_go2rtc_mp4(src: str = "feeder-main"):
     return StreamingResponse(stream(), media_type="video/mp4")
 
 
+@app.get("/enhanced-audio/stream.mp3")
+async def proxy_enhanced_audio():
+    """Proxy enhanced audio MP3 stream from local enhanced_audio_stream service (port 8096).
+
+    Previously served via nginx on the NAS. Now proxied through FastAPI
+    so it works through the Cloudflare tunnel at birds.vivessato.com.
+    """
+    import httpx
+    from starlette.responses import StreamingResponse
+
+    async def stream():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", "http://127.0.0.1:8096/stream.mp3", timeout=None) as resp:
+                async for chunk in resp.aiter_bytes(chunk_size=8192):
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="audio/mpeg",
+                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+
+
+@app.get("/enhanced-audio/health")
+def enhanced_audio_health():
+    """Proxy health check for enhanced audio service."""
+    try:
+        import httpx
+        resp = httpx.get("http://127.0.0.1:8096/health", timeout=3)
+        return resp.json()
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
 @app.websocket("/api/ws")
 async def proxy_go2rtc_ws(websocket: FastAPIWebSocket, src: str = "feeder-main"):
     """Proxy WebSocket connections to local go2rtc for camera streaming."""

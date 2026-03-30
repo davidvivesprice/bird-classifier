@@ -18,7 +18,7 @@ DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
 
 _local = threading.local()
 _table_ensured = False
-_table_lock = threading.Lock()
+_table_lock = threading.RLock()  # RLock: reentrant because _ensure_table calls get_conn recursively
 
 
 def get_conn(readonly=False):
