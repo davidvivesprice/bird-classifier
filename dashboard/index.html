@@ -5417,10 +5417,19 @@
       var ts = item.source_timestamp || '';
       var dateStr = ts ? ts.split(' ')[0] : '';
       var timeStr = ts ? ts.split(' ')[1] || '' : '';
-      var isCorrected = item.verdict === 'wrong' && item.correct_species && item.correct_species !== item.species;
-      var verdictClass = item.verdict === 'correct' ? 'color:#22c55e' : isCorrected ? 'color:#f59e0b' : item.verdict === 'wrong' ? 'color:#ef4444' : item.verdict === 'trash' ? 'color:#ef4444' : 'color:#f59e0b';
-      var verdictLabel = item.verdict === 'correct' ? 'Correct' : isCorrected ? 'Corrected' : item.verdict === 'wrong' ? 'Wrong' : item.verdict === 'trash' ? 'Trashed' : item.verdict === 'skip' ? 'Skipped' : item.verdict === 'reclassify' ? 'Missed Birds' : item.verdict;
-      var speciesDisplay = isCorrected ? item.correct_species + ' (was: ' + item.species + ')' : item.correct_species || item.species;
+      var speciesDisplay = item.is_corrected
+          ? item.species + ' (was: ' + item.original_species + ')'
+          : item.species;
+      var verdictClass = item.verdict === 'correct' ? 'color:#22c55e'
+          : item.is_corrected ? 'color:#f59e0b'
+          : item.verdict === 'wrong' ? 'color:#ef4444'
+          : 'color:#f59e0b';
+      var verdictLabel = item.verdict === 'correct' ? 'Correct'
+          : item.is_corrected ? 'Corrected'
+          : item.verdict === 'wrong' ? 'Wrong'
+          : item.verdict === 'skip' ? 'Skipped'
+          : item.verdict === 'reclassify' ? 'Missed Birds'
+          : item.verdict;
       return '<div class="skipped-card" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
         '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy" onerror="this.style.display=\'none\'">' +
         '<div class="skipped-card-info stacked">' +
@@ -5454,12 +5463,11 @@
   window.openClassifiedLightbox = function(filename) {
     var item = classifiedItems.find(function(it) { return it.file === filename; });
     if (!item) return;
-    // Show corrected species in lightbox title when available
-    var displaySpecies = (item.verdict === 'wrong' && item.correct_species) ? item.correct_species : item.species;
+    // Show effective species (server-computed) in lightbox title
+    var displaySpecies = item.species;
     // Set up navigation list from current (filtered) classifiedItems
     lightboxDetectionList = classifiedItems.map(function(ci) {
-      var name = (ci.verdict === 'wrong' && ci.correct_species) ? ci.correct_species : ci.species;
-      return { file: ci.file, name: name, sci: '', conf: ci.confidence || 0, ts: ci.source_timestamp };
+      return { file: ci.file, name: ci.species, sci: '', conf: ci.confidence || 0, ts: ci.source_timestamp };
     });
     lightboxDetectionIndex = classifiedItems.findIndex(function(ci) { return ci.file === filename; });
     lightboxListSpecies = displaySpecies;

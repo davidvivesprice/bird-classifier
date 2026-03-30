@@ -957,29 +957,9 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
         limit: Number of images (default 12, max 48)
     """
     limit = min(limit, 48)
-    conn = cdb.get_conn(readonly=True)
 
-    where = ["c.action='classified'", "c.common_name IS NOT NULL",
-             "r.file IS NULL"]
-    params = []
-
-    if species:
-        sp = normalize_species(species)
-        where.append("c.common_name = ?")
-        params.append(sp)
-
-    sql = (
-        "SELECT c.file, c.common_name, c.confidence, c.raw_score, "
-        "c.source_timestamp, c.source_date, c.extra_json, c.camera "
-        "FROM classifications c "
-        "LEFT JOIN reviews r ON r.file = c.file "
-        "WHERE " + " AND ".join(where) + " "
-        "ORDER BY c.confidence DESC "
-        "LIMIT ?"
-    )
-    params.append(limit)
-
-    rows = conn.execute(sql, params).fetchall()
+    sp = normalize_species(species) if species else None
+    rows = rdb.get_classifications(status="pending", species=sp, limit=limit)
 
     # Enrich with trust signals
     bconn = _birdnet_db()
@@ -990,7 +970,7 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
             extra = {}
 
         also_heard = False
-        if bconn and r["source_timestamp"] and r["source_date"] and r["common_name"]:
+        if bconn and r["source_timestamp"] and r["source_date"] and r["original_species"]:
             ts = r["source_timestamp"]
             try:
                 match = bconn.execute(
@@ -1004,7 +984,7 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
                     "CAST(SUBSTR(time,4,2) AS INTEGER)*60+"
                     "CAST(SUBSTR(time,7,2) AS INTEGER))"
                     ") <= 30 LIMIT 1",
-                    (r["source_date"], r["common_name"], ts, ts, ts),
+                    (r["source_date"], r["original_species"], ts, ts, ts),
                 ).fetchone()
                 also_heard = match is not None
             except Exception:
@@ -1012,7 +992,7 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
 
         items.append({
             "file": r["file"],
-            "species": r["common_name"],
+            "species": r["original_species"],
             "confidence": round(r["confidence"] or 0, 3),
             "timestamp": r["source_timestamp"] or "",
             "also_heard": also_heard,
@@ -1021,6 +1001,7 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
         })
 
     # Species summary for the batch
+    conn = cdb.get_conn(readonly=True)
     species_counts = conn.execute(
         "SELECT c.common_name, COUNT(*) as cnt "
         "FROM classifications c "
@@ -1229,8 +1210,8 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     sp = species or None
     mb = bool(multibird)
 
-    rows = rdb.get_pending_classifications(species=sp, multibird=mb, offset=offset, limit=limit)
-    remaining = rdb.count_pending(species=sp, multibird=mb)
+    rows = rdb.get_classifications(status="pending", species=sp, multibird=mb, offset=offset, limit=limit)
+    remaining = rdb.count_classifications(status="pending", species=sp, multibird=mb)
 
     # Build response items from SQL rows, with audio corroboration check
     bconn = _birdnet_db()
@@ -1246,7 +1227,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
         item = {
             "file": r["file"],
             "timestamp": r.get("source_timestamp") or "",
-            "species": r["common_name"],
+            "species": r["original_species"],
             "confidence": r["confidence"],
             "raw_score": r.get("raw_score", 0),
             "top3": top3 or [],
@@ -1270,7 +1251,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
         # Check if BirdNET heard the same species within +/-30s
         ts = r.get("source_timestamp") or ""
         date_part = r.get("source_date") or ""
-        if bconn and ts and date_part and r["common_name"]:
+        if bconn and ts and date_part and r["original_species"]:
             try:
                 audio_match = bconn.execute(
                     "SELECT 1 FROM notes WHERE date=? AND common_name=? "
@@ -1283,7 +1264,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
                     "CAST(SUBSTR(time,4,2) AS INTEGER)*60+"
                     "CAST(SUBSTR(time,7,2) AS INTEGER))"
                     ") <= 30 LIMIT 1",
-                    (date_part, r["common_name"], ts, ts, ts),
+                    (date_part, r["original_species"], ts, ts, ts),
                 ).fetchone()
                 if audio_match:
                     item["also_heard"] = True
@@ -1295,15 +1276,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     total_reviewed = rdb.count_reviews()
 
     # Species list: distinct species from unreviewed classifications
-    conn = rdb.get_conn(readonly=True)
-    species_rows = conn.execute(
-        "SELECT DISTINCT c.common_name FROM classifications c "
-        "LEFT JOIN reviews r ON c.file = r.file "
-        "WHERE c.action='classified' AND c.common_name IS NOT NULL "
-        "AND (r.file IS NULL OR r.verdict = 'requeued') "
-        "ORDER BY c.common_name"
-    ).fetchall()
-    species_list = [row[0] for row in species_rows]
+    species_list = rdb.list_classification_species(status="pending")
 
     return {
         "pending": pending,
@@ -1424,55 +1397,27 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
     """
     sp = species or None
     v = verdict or None
-    rows = rdb.get_reviewed_entries(species=sp, verdict=v, offset=offset, limit=limit)
+    rows = rdb.get_classifications(status="reviewed", species=sp, verdict=v, offset=offset, limit=limit)
+    total = rdb.count_classifications(status="reviewed", species=sp, verdict=v)
+    species_list = rdb.list_classification_species(status="reviewed")
 
     items = []
     for r in rows:
         best_det = json.loads(r["best_detection_json"]) if r.get("best_detection_json") else {}
+        is_corrected = (r["verdict"] == "wrong" and r.get("correct_species")
+                        and r["species"] != r["original_species"])
         items.append({
             "file": r["file"],
-            "species": r.get("common_name", "Unknown") or "Unknown",
+            "species": r["species"],
+            "original_species": r["original_species"],
             "confidence": best_det.get("confidence", 0) if best_det else r.get("confidence", 0),
             "verdict": r["verdict"],
             "correct_species": r.get("correct_species", ""),
+            "is_corrected": is_corrected,
             "missed_birds": bool(r.get("missed_birds", False)),
             "review_timestamp": r.get("review_timestamp", ""),
             "source_timestamp": r.get("source_timestamp", ""),
         })
-
-    # Get total count (without pagination) for the same filters
-    conn = rdb.get_conn(readonly=True)
-    where_parts = []
-    params = []
-    if sp:
-        # Match the EFFECTIVE species: corrected species if corrected, otherwise original
-        where_parts.append("(CASE WHEN r.verdict = 'wrong' AND r.correct_species IS NOT NULL AND r.correct_species != '' "
-                          "THEN r.correct_species ELSE c.common_name END) = ?")
-        params.append(sp)
-    if v:
-        where_parts.append("r.verdict = ?")
-        params.append(v)
-    else:
-        where_parts.append("r.verdict NOT IN ('trash')")
-        where_parts.append("NOT (r.verdict = 'wrong' AND r.correct_species = 'not_a_bird')")
-    extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
-    total = conn.execute(
-        "SELECT COUNT(*) FROM reviews r JOIN classifications c ON r.file = c.file WHERE 1=1" + extra,
-        params
-    ).fetchone()[0]
-
-    # Species list for filter dropdown — include both original and corrected species
-    species_rows = conn.execute(
-        "SELECT DISTINCT name FROM ("
-        "  SELECT c.common_name as name FROM reviews r "
-        "  JOIN classifications c ON r.file = c.file "
-        "  WHERE r.verdict IN ('correct','wrong','reclassify') AND c.common_name IS NOT NULL "
-        "  UNION "
-        "  SELECT r.correct_species as name FROM reviews r "
-        "  WHERE r.verdict = 'wrong' AND r.correct_species IS NOT NULL AND r.correct_species != '' AND r.correct_species != 'not_a_bird'"
-        ") ORDER BY name"
-    ).fetchall()
-    species_list = [row[0] for row in species_rows if row[0]]
 
     return {"items": items, "total": total, "species_list": species_list}
 
@@ -1764,23 +1709,17 @@ def regional_species():
 @app.get("/api/skipped")
 def skipped_list(limit: int = 200, offset: int = 0):
     """List user-skipped images (verdict='skip' in reviews), most recent first."""
-    rows = rdb.get_reviewed_entries(verdict="skip", offset=offset, limit=limit)
+    rows = rdb.get_classifications(status="reviewed", verdict="skip", offset=offset, limit=limit)
+    total = rdb.count_classifications(status="reviewed", verdict="skip")
 
     skipped = []
     for r in rows:
         skipped.append({
             "file": r["file"],
-            "species": r.get("common_name", "Unknown") or "Unknown",
+            "species": r.get("original_species", "Unknown") or "Unknown",
             "timestamp": r.get("review_timestamp", ""),
             "source_timestamp": r.get("source_timestamp", ""),
         })
-
-    # Total count of skip reviews
-    conn = rdb.get_conn(readonly=True)
-    total = conn.execute(
-        "SELECT COUNT(*) FROM reviews r JOIN classifications c ON r.file = c.file "
-        "WHERE r.verdict = 'skip'"
-    ).fetchone()[0]
 
     return {"files": skipped, "total": total}
 

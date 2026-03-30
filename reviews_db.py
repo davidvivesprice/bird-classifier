@@ -179,6 +179,7 @@ def _pending_where(species=None, multibird=False):
     return extra, params
 
 
+# DEPRECATED — use get_classifications(status="pending")
 def get_pending_classifications(species=None, multibird=False, offset=0, limit=50):
     """Return pending (un-reviewed + requeued) classifications.
 
@@ -199,6 +200,7 @@ def get_pending_classifications(species=None, multibird=False, offset=0, limit=5
     return [dict(r) for r in rows]
 
 
+# DEPRECATED — use count_classifications(status="pending")
 def count_pending(species=None, multibird=False):
     """Count pending (un-reviewed + requeued) classifications."""
     extra, params = _pending_where(species, multibird)
@@ -257,6 +259,7 @@ def get_review_goals(regional_species, threshold=20):
 
 # ── Reviewed entries (JOIN for review/classified endpoint) ──
 
+# DEPRECATED — use get_classifications(status="reviewed")
 def get_reviewed_entries(species=None, verdict=None, offset=0, limit=50):
     """Return reviewed classifications (JOIN reviews + classifications).
 
