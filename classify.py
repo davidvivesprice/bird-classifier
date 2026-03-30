@@ -974,6 +974,24 @@ def print_summary():
     print()
 
 
+def _purge_old_trash(days=7):
+    """Delete trashed images older than N days to reclaim disk space."""
+    trash_dir = BASE_DIR / "trash"
+    if not trash_dir.exists():
+        return
+    cutoff = time.time() - (days * 86400)
+    purged = 0
+    for f in trash_dir.glob("*.jpg"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                purged += 1
+        except OSError:
+            pass
+    if purged:
+        logging.info("Trash cleanup: purged %d files older than %d days", purged, days)
+
+
 def _cleanup_orphan_records():
     """Delete classification DB records where the image file no longer exists on disk."""
     from classifications_db import get_conn
@@ -1069,6 +1087,12 @@ def main():
         logging.info("Ended any stale active visits from previous run")
     except Exception as e:
         logging.warning("Could not end stale visits: %s", e)
+
+    # Purge trashed images older than 7 days
+    try:
+        _purge_old_trash(days=7)
+    except Exception as e:
+        logging.warning("Trash purge failed: %s", e)
 
     # Clean up orphan DB records (files that no longer exist on disk)
     try:
