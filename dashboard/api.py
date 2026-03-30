@@ -105,6 +105,7 @@ def serve_dashboard():
 
 @app.get("/apple-touch-icon.png")
 @app.get("/apple-touch-icon-precomposed.png")
+@app.get("/api/apple-touch-icon.png")
 def serve_apple_touch_icon():
     """Serve the iOS home screen icon."""
     return FileResponse(str(DASHBOARD_DIR / "apple-touch-icon.png"), media_type="image/png")
