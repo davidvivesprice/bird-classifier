@@ -100,8 +100,7 @@ External access: `birds.vivessato.com` routes through Cloudflare tunnel to port 
 
 **Audio (audio_analyzer.py)**:
 - MIN_CONFIDENCE: 0.50
-- DEEP_DETECTION_INSTANT: 0.65 (single detection = accept)
-- DEEP_DETECTION_MIN_HITS: 2 within 15s window
+- Overlap confirmation: min_confirmations=2 within 6s flush window
 - Sample rate: 48kHz mono, 6s window with 2s overlap
 - Location: 41.35N, -70.73W (Chilmark, MA)
 
