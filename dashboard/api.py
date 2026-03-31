@@ -1209,7 +1209,7 @@ def get_image_crop(filename: str, box: str = ""):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
-SECOND_OPINION_DIR = BASE_DIR / "second-opinion"
+SECOND_OPINION_DIR = Path.home() / "Desktop" / "Second Opinion"
 
 
 @app.post("/api/review/second-opinion/{filename}")
