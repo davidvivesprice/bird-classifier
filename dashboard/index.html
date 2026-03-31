@@ -4686,15 +4686,23 @@
     'Red-bellied Woodpecker'
   ];
 
-  const DIMORPHIC_SPECIES = ['House Finch', 'Downy Woodpecker', 'Hairy Woodpecker', 'Red-bellied Woodpecker'];
+  const FINCH_STARLING_SPECIES = [
+    'European Starling',
+    'House Finch',
+    'Brown-headed Cowbird',
+    'Common Grackle'
+  ];
 
-  const LOOKALIKE_SPECIES = SPARROW_SPECIES.concat(WOODPECKER_SPECIES);
+  const DIMORPHIC_SPECIES = ['House Finch', 'Downy Woodpecker', 'Hairy Woodpecker', 'Red-bellied Woodpecker', 'European Starling'];
+
+  const LOOKALIKE_SPECIES = SPARROW_SPECIES.concat(WOODPECKER_SPECIES).concat(FINCH_STARLING_SPECIES);
   const lookalikeImageCache = {};
 
   function isLookalike(name) {
     if (!name) return false;
     var lower = name.toLowerCase();
-    return lower.indexOf('sparrow') !== -1 || lower === 'house finch' || lower.indexOf('woodpecker') !== -1;
+    return lower.indexOf('sparrow') !== -1 || lower === 'house finch' || lower.indexOf('woodpecker') !== -1
+        || lower === 'european starling' || lower === 'brown-headed cowbird' || lower === 'common grackle';
   }
 
   function loadLookalikeImages() {
@@ -4717,7 +4725,8 @@
 
     var lower = predictionName.toLowerCase();
     var isWoodpecker = lower.indexOf('woodpecker') !== -1;
-    var pool = isWoodpecker ? WOODPECKER_SPECIES : SPARROW_SPECIES;
+    var isFinchStarling = lower === 'european starling' || lower === 'brown-headed cowbird' || lower === 'common grackle';
+    var pool = isWoodpecker ? WOODPECKER_SPECIES : isFinchStarling ? FINCH_STARLING_SPECIES : SPARROW_SPECIES;
 
     // Reorder: prediction first, then heard-by-audio species, then rest
     var ordered = pool.slice();
@@ -4798,11 +4807,41 @@
       '</div>';
     }
 
+    var starlingCompare = '';
+    if (isFinchStarling) {
+      starlingCompare = '<div class="woodpecker-compare">' +
+        '<div class="wc-title">🔍 Dark Feeder Birds — Key Differences</div>' +
+        '<div class="wc-grid">' +
+          '<div class="wc-col">' +
+            '<div class="wc-head">European Starling</div>' +
+            '<ul>' +
+              '<li>Iridescent purple-green sheen</li>' +
+              '<li>Yellow bill (spring), dark (winter)</li>' +
+              '<li>White speckles (winter plumage)</li>' +
+              '<li>Short tail, chunky body</li>' +
+              '<li>Walks on ground (doesn\'t hop)</li>' +
+            '</ul>' +
+          '</div>' +
+          '<div class="wc-col">' +
+            '<div class="wc-head">House Finch ♀ / Cowbird ♀</div>' +
+            '<ul>' +
+              '<li>Brown streaked (finch) or plain gray-brown (cowbird)</li>' +
+              '<li>Smaller, more compact</li>' +
+              '<li>Conical seed-eating bill</li>' +
+              '<li>Hops (doesn\'t walk)</li>' +
+              '<li>Cowbird: shorter tail, thicker bill</li>' +
+            '</ul>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
     return '<div class="sparrow-cheat">' +
       '<div class="sparrow-cheat-title">🐦 Look-alike ID Cheat Sheet' + (heardSpeciesNames.length > 0 ? ' <span style="color:var(--accent-amber);font-size:0.72rem;">(🎙️ = heard by BirdNET)</span>' : '') + '</div>' +
       '<div class="sparrow-cheat-grid">' + items + '</div>' +
       guideLink +
       woodpeckerCompare +
+      starlingCompare +
       '<div class="cheat-confirm-bar" id="cheat-confirm-bar">' +
         'Classify as <span class="confirm-species" id="cheat-confirm-name"></span>?' +
         ' <button class="btn-cheat-confirm" onclick="cheatConfirm()">Confirm ✓</button>' +
