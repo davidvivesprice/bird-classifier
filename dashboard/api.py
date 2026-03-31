@@ -1209,6 +1209,74 @@ def get_image_crop(filename: str, box: str = ""):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
+SECOND_OPINION_DIR = BASE_DIR / "second-opinion"
+
+
+@app.post("/api/review/second-opinion/{filename}")
+def save_second_opinion(filename: str):
+    """Save a cropped bird image to the second-opinion folder for external ID (e.g., Merlin app).
+
+    Crops the bird from the raw classified image using the bounding box from the DB.
+    Saves as {species}_{timestamp}.jpg for easy browsing on a phone.
+    """
+    import io
+    from PIL import Image as PILImage
+
+    safe_name = os.path.basename(filename)
+    path = _find_classified_file(safe_name)
+    if not path:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Get bounding box from DB
+    entry = cdb.get_entry_by_file(safe_name)
+    if not entry or not entry.get("best_detection"):
+        raise HTTPException(status_code=400, detail="No detection data for this image")
+
+    box = entry["best_detection"].get("box")
+    species = entry.get("common_name", "unknown")
+
+    img = PILImage.open(path)
+    w, h = img.size
+
+    if box:
+        x1, y1, x2, y2 = [int(b) for b in box]
+        # 15% padding for context
+        bw, bh = x2 - x1, y2 - y1
+        pad_x, pad_y = int(bw * 0.15), int(bh * 0.15)
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+        crop = img.crop((x1, y1, x2, y2))
+    else:
+        crop = img
+
+    SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Name: species_timestamp.jpg (easy to browse on phone)
+    safe_species = species.replace(" ", "_").replace("'", "")
+    ts = entry.get("source_timestamp", "").replace(" ", "_").replace(":", "-")
+    out_name = f"{safe_species}_{ts}.jpg"
+    out_path = SECOND_OPINION_DIR / out_name
+    crop.save(str(out_path), quality=95)
+    img.close()
+    crop.close()
+
+    logging.info("Second opinion saved: %s → %s", safe_name, out_name)
+    return {"status": "ok", "saved": out_name, "path": str(out_path)}
+
+
+@app.get("/api/review/second-opinion")
+def list_second_opinions():
+    """List images in the second-opinion folder."""
+    SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(SECOND_OPINION_DIR.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+    return {
+        "count": len(files),
+        "files": [{"name": f.name, "size": f.stat().st_size} for f in files[:50]],
+    }
+
+
 @app.get("/api/review/pending")
 def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = ""):
     """Get unreviewed classifications for the annotation GUI (paginated).

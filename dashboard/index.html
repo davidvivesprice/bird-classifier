@@ -2377,6 +2377,7 @@
         <button class="review-btn btn-trash" onclick="lightboxReview('trash')">Trash</button>
         <button class="review-btn btn-skip" onclick="lightboxReview('skip')">Skip</button>
         <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">Missed</button>
+        <button class="review-btn" onclick="saveSecondOpinion()" title="Save crop to second-opinion folder for Merlin ID" style="background:#6366f1;color:#fff;">🔍 2nd Opinion</button>
         <span id="lb-review-nav-group" style="display:none;gap:4px;align-items:center;">
           <button class="review-btn btn-nav" id="lb-review-nav-left" onclick="lightboxNav(-1)" title="Previous detection (&larr;)">&#x2190;</button>
           <button class="review-btn btn-nav" id="lb-review-nav-right" onclick="lightboxNav(1)" title="Next detection (&rarr;)">&#x2192;</button>
@@ -3372,6 +3373,21 @@
       }
     });
   }
+
+  window.saveSecondOpinion = async function() {
+    // Save from either lightbox or review card
+    var file = lightboxFile || (typeof reviewFile !== 'undefined' ? reviewFile : '');
+    if (!file) return;
+    try {
+      var resp = await apiFetch('/bird-api/review/second-opinion/' + encodeURIComponent(file), {method: 'POST'});
+      if (resp.status === 'ok') {
+        var btn = event && event.target;
+        if (btn) { btn.textContent = 'Saved!'; btn.style.background = '#22c55e'; setTimeout(function() { btn.textContent = '🔍 2nd Opinion'; btn.style.background = '#6366f1'; }, 2000); }
+      }
+    } catch (e) {
+      alert('Failed to save: ' + e.message);
+    }
+  };
 
   window.lightboxReview = async function(verdict, correctSpecies) {
     if (!lightboxFile) return;
@@ -5104,6 +5120,7 @@
         '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">No Bird</button>' : '') +
         '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">Trash</button>' +
         '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">Missed</button>' +
+        '<button class="review-btn" onclick="saveSecondOpinion()" title="Save crop for Merlin ID" style="background:#6366f1;color:#fff;font-size:0.7rem;">🔍 2nd</button>' +
         '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">Skip</button>' +
         '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous">&#x2190;</button>' +
         '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next">&#x2192;</button>' +
