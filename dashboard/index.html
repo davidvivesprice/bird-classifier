@@ -3261,18 +3261,31 @@
 
   window.openLightbox = function(file, name, sci, conf, ts, detection) {
     lightboxFile = file;
-    lightboxTab = 'annotated';
+    // Preserve the current tab if lightbox is already open (navigating between images)
+    // Only default to annotated on first open
+    var isAlreadyOpen = document.getElementById('lightbox-overlay').classList.contains('visible');
+    if (!isAlreadyOpen) {
+      lightboxTab = 'annotated';
+    }
     lightboxSpeciesName = name || 'Unknown';
     lightboxDetection = detection || null;
     var titleEl = document.getElementById('lightbox-title');
     titleEl.innerHTML = name ? spLink(name) : 'Unknown';
     document.getElementById('lightbox-sci').textContent = sci || '';
-    // Set annotated tab active by default
-    document.querySelectorAll('.lightbox-tab').forEach(t => t.classList.toggle('active', t.dataset.lbtab === 'annotated'));
-    // Load annotated image
+    // Set the current tab active and load the right image
+    document.querySelectorAll('.lightbox-tab').forEach(t => t.classList.toggle('active', t.dataset.lbtab === lightboxTab));
+    // Load image for current tab
     var img = document.getElementById('lightbox-img');
-    img.onerror = null;
-    img.src = '/bird-api/image/' + encodeURIComponent(file);
+    if (lightboxTab === 'photo') {
+      img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(file); };
+      img.src = '/bird-api/image-raw/' + encodeURIComponent(file);
+    } else if (lightboxTab === 'crop') {
+      img.onerror = function() { img.src = '/bird-api/image/' + encodeURIComponent(file); };
+      img.src = '/bird-api/image-crop/' + encodeURIComponent(file);
+    } else {
+      img.onerror = null;
+      img.src = '/bird-api/image/' + encodeURIComponent(file);
+    }
     // Footer metadata
     var footer = document.getElementById('lightbox-footer');
     var parts = [];
@@ -3333,6 +3346,7 @@
     if (lbImg) lbImg.src = '';
     lightboxFile = '';
     lightboxDetection = null;
+    lightboxTab = 'annotated';  // reset for next fresh open
   };
 
   function _updateGridCard(file, verdict, correctSpecies) {
