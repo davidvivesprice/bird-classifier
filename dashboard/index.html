@@ -2377,7 +2377,7 @@
         <button class="review-btn btn-trash" onclick="lightboxReview('trash')">Trash</button>
         <button class="review-btn btn-skip" onclick="lightboxReview('skip')">Skip</button>
         <button class="review-btn btn-missed" onclick="lightboxReview('reclassify')" title="Flag this frame for multi-bird re-processing">Missed</button>
-        <button class="review-btn" onclick="saveSecondOpinion()" title="Save crop to second-opinion folder for Merlin ID" style="background:#6366f1;color:#fff;">🔍 2nd Opinion</button>
+        <button class="review-btn" onclick="saveSecondOpinion(event)" title="Save crop to second-opinion folder for Merlin ID" style="background:#6366f1;color:#fff;">🔍 2nd Opinion</button>
         <span id="lb-review-nav-group" style="display:none;gap:4px;align-items:center;">
           <button class="review-btn btn-nav" id="lb-review-nav-left" onclick="lightboxNav(-1)" title="Previous detection (&larr;)">&#x2190;</button>
           <button class="review-btn btn-nav" id="lb-review-nav-right" onclick="lightboxNav(1)" title="Next detection (&rarr;)">&#x2192;</button>
@@ -3374,18 +3374,53 @@
     });
   }
 
-  window.saveSecondOpinion = async function() {
-    // Save from either lightbox or review card
+  window.saveSecondOpinion = async function(ev) {
     var file = lightboxFile || (typeof reviewFile !== 'undefined' ? reviewFile : '');
     if (!file) return;
+    var btn = ev ? ev.target : null;
+    if (!btn) btn = document.querySelector('[onclick*="saveSecondOpinion"]');
+
+    // Loading state
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '📤 Saving crop...';
+      btn.style.background = '#4b5563';
+    }
+
     try {
       var resp = await apiFetch('/bird-api/review/second-opinion/' + encodeURIComponent(file), {method: 'POST'});
       if (resp.status === 'ok') {
-        var btn = event && event.target;
-        if (btn) { btn.textContent = 'Saved!'; btn.style.background = '#22c55e'; setTimeout(function() { btn.textContent = '🔍 2nd Opinion'; btn.style.background = '#6366f1'; }, 2000); }
+        if (btn) {
+          btn.textContent = '✅ Saved!';
+          btn.style.background = '#22c55e';
+          setTimeout(function() {
+            btn.textContent = '🔍 2nd Opinion';
+            btn.style.background = '#6366f1';
+            btn.disabled = false;
+          }, 3000);
+        }
+        // Show result inline below the image
+        var resultEl = document.getElementById('second-opinion-result');
+        if (!resultEl) {
+          resultEl = document.createElement('div');
+          resultEl.id = 'second-opinion-result';
+          resultEl.style.cssText = 'padding:8px 12px;margin-top:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;font-size:13px;';
+          var parent = btn.closest('.lightbox-review-bar') || btn.parentElement;
+          if (parent) parent.appendChild(resultEl);
+        }
+        resultEl.innerHTML = '<span style="color:#a78bfa;">📁 Crop saved:</span> <b>' + escHtml(resp.saved) + '</b>' +
+          '<br><span style="opacity:0.6;font-size:11px;">Open in Merlin on your phone for species ID</span>';
       }
     } catch (e) {
-      alert('Failed to save: ' + e.message);
+      if (btn) {
+        btn.textContent = '❌ Failed';
+        btn.style.background = '#991b1b';
+        setTimeout(function() {
+          btn.textContent = '🔍 2nd Opinion';
+          btn.style.background = '#6366f1';
+          btn.disabled = false;
+        }, 3000);
+      }
     }
   };
 
@@ -5120,7 +5155,7 @@
         '<button class="review-btn btn-notbird" onclick="submitReview(\'wrong\',\'not_a_bird\')">No Bird</button>' : '') +
         '<button class="review-btn btn-trash" onclick="submitReview(\'trash\')">Trash</button>' +
         '<button class="review-btn btn-missed" onclick="submitReview(\'reclassify\')" title="Flag this frame for multi-bird re-processing">Missed</button>' +
-        '<button class="review-btn" onclick="saveSecondOpinion()" title="Save crop for Merlin ID" style="background:#6366f1;color:#fff;font-size:0.7rem;">🔍 2nd</button>' +
+        '<button class="review-btn" onclick="saveSecondOpinion(event)" title="Save crop for Merlin ID" style="background:#6366f1;color:#fff;font-size:0.7rem;">🔍 2nd</button>' +
         '<button class="review-btn btn-skip" onclick="submitReview(\'skip\')">Skip</button>' +
         '<button class="review-btn btn-nav" onclick="reviewNav(-1)" title="Previous">&#x2190;</button>' +
         '<button class="review-btn btn-nav" onclick="reviewNav(1)" title="Next">&#x2192;</button>' +
@@ -6296,33 +6331,54 @@
     fetch('/bird-api/audio-health')
       .then(r => r.json())
       .then(data => {
-        const analyzer = data.analyzer || data.enhanced || {};
-        const status = analyzer.status || 'unknown';
-        const stream = analyzer.stream || '';
-
         const el = document.getElementById('audioWarning');
         const textEl = document.getElementById('audioWarningText');
 
-        if (status === 'connected') {
+        // Check all services — find the worst status
+        // Priority: analyzer services matter most (detection), enhanced is just listening
+        var worstStatus = 'connected';
+        var worstStream = '';
+        var analyzerOk = true;
+        Object.keys(data).forEach(function(key) {
+          var svc = data[key];
+          if (!svc || !svc.status) return;
+          // Analyzer services are critical
+          if (key.startsWith('analyzer-')) {
+            if (svc.status !== 'connected') analyzerOk = false;
+          }
+          // Track worst overall
+          var rank = {'connected':0, 'fallback':1, 'reconnecting':2, 'refreshing_urls':2, 'down':3, 'unknown':3};
+          if ((rank[svc.status] || 0) > (rank[worstStatus] || 0)) {
+            worstStatus = svc.status;
+            worstStream = svc.stream || key;
+          }
+        });
+
+        // If all analyzers are connected, don't show warning even if enhanced is in fallback
+        if (analyzerOk && worstStatus === 'fallback') {
           el.classList.remove('visible', 'warning', 'error');
           _audioWarningDismissed = null;
           return;
         }
 
-        let msg = '';
-        let severity = 'warning';
-        if (status === 'fallback') {
-          msg = 'Audio: using backup cam (primary cam down)';
-        } else if (status === 'down') {
-          msg = 'Audio: stream down, all retries exhausted';
-          severity = 'error';
-        } else if (status === 'reconnecting' || status === 'refreshing_urls') {
-          msg = 'Audio: reconnecting to ' + stream + ' cam...';
-        } else if (status === 'unknown') {
-          msg = 'Audio: status unknown (service may be down)';
-          severity = 'error';
-        } else {
+        if (worstStatus === 'connected') {
+          el.classList.remove('visible', 'warning', 'error');
+          _audioWarningDismissed = null;
           return;
+        }
+
+        var msg = '';
+        var severity = 'warning';
+        if (worstStatus === 'fallback') {
+          msg = 'Audio: ' + worstStream + ' using backup cam (primary down)';
+        } else if (worstStatus === 'down') {
+          msg = 'Audio: ' + worstStream + ' stream down';
+          severity = 'error';
+        } else if (worstStatus === 'reconnecting' || worstStatus === 'refreshing_urls') {
+          msg = 'Audio: reconnecting to ' + worstStream + '...';
+        } else {
+          msg = 'Audio: status unknown';
+          severity = 'error';
         }
 
         if (msg === _audioWarningDismissed) return;
@@ -6333,12 +6389,18 @@
       .catch(() => {});
   }
 
-  function dismissAudioWarning() {
-    const el = document.getElementById('audioWarning');
-    const textEl = document.getElementById('audioWarningText');
+  window.dismissAudioWarning = function() {
+    var el = document.getElementById('audioWarning');
+    var textEl = document.getElementById('audioWarningText');
     _audioWarningDismissed = textEl.textContent;
     el.classList.remove('visible');
-  }
+    el.style.display = 'none';
+    // Re-show after 5 minutes if condition persists (not permanently dismissed)
+    setTimeout(function() {
+      el.style.display = '';
+      _audioWarningDismissed = null;
+    }, 300000);
+  };
 
   setInterval(pollAudioHealth, 60000);
   pollAudioHealth();
