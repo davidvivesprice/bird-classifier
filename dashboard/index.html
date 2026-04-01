@@ -2145,7 +2145,7 @@
     <!-- Row 1: Live + Recent -->
     <div class="row-live">
       <div class="panel">
-        <div class="panel-header"><span class="icon">&#x1F3A5;</span> Live Camera Feed</div>
+        <div class="panel-header"><span class="icon">&#x1F3A5;</span> Live Camera Feed <span id="live-detect-status" title="Detection overlay status" style="font-size:10px;margin-left:8px;opacity:0.7;">●</span></div>
         <div class="live-wrapper" id="live-wrapper">
           <video id="live-video" autoplay muted playsinline></video>
           <canvas id="detection-overlay" class="detection-overlay"></canvas>
@@ -5901,16 +5901,32 @@
     es.addEventListener('open', function() {
       console.log('[LiveDet SSE] Connected');
       _liveDetErrors = 0;
+      var dot = document.getElementById('live-detect-status');
+      if (dot) { dot.style.color = '#22c55e'; dot.title = 'Detection overlay: connected'; }
     });
     es.addEventListener('error', function() {
       _liveDetErrors++;
+      var dot = document.getElementById('live-detect-status');
+      if (dot) { dot.style.color = '#f59e0b'; dot.title = 'Detection overlay: reconnecting...'; }
       if (_liveDetErrors >= 3) {
         console.log('[LiveDet SSE] Unavailable (live detector not reachable)');
         es.close();
         liveDetectionSource = null;
+        if (dot) { dot.style.color = '#ef4444'; dot.title = 'Detection overlay: disconnected'; }
       }
     });
-    es.addEventListener('message', _handleLiveDetection);
+    es.addEventListener('message', function(event) {
+      _handleLiveDetection(event);
+      // Flash the status dot on each detection
+      try {
+        var det = JSON.parse(event.data);
+        if (det.species) {
+          var dot = document.getElementById('live-detect-status');
+          if (dot) { dot.style.color = '#4a9eff'; setTimeout(function() { dot.style.color = '#22c55e'; }, 500); }
+          console.log('[LiveDet] ' + det.species + ' (' + det.camera + ', ' + (det.confidence * 100).toFixed(0) + '%)');
+        }
+      } catch(e) {}
+    });
   }
 
   // Draw detection boxes on a canvas given a video element and detection list

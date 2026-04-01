@@ -2346,6 +2346,66 @@ async def proxy_live_detections(path: str):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.get("/api/live-detection-status")
+def live_detection_status():
+    """Full pipeline health check for live detection overlay.
+
+    Checks: live_detector → SSE → proxy → dashboard.
+    Use this to diagnose why labels aren't rendering.
+    """
+    import httpx
+    result = {"pipeline": [], "ok": True}
+
+    # Step 1: Is live_detector running?
+    try:
+        resp = httpx.get("http://127.0.0.1:8097/health", timeout=3)
+        health = resp.json()
+        streams = health.get("streams", {})
+        sse_clients = health.get("sse_clients", 0)
+        cameras_ok = all(s.get("connected") for s in streams.values())
+        total_detections = sum(s.get("detections", 0) for s in streams.values())
+
+        result["pipeline"].append({
+            "step": "live_detector",
+            "status": "ok" if cameras_ok else "degraded",
+            "detail": f"{len(streams)} cameras, {total_detections} detections, {sse_clients} SSE clients",
+            "streams": streams,
+        })
+        if not cameras_ok:
+            result["ok"] = False
+    except Exception as e:
+        result["pipeline"].append({"step": "live_detector", "status": "down", "detail": str(e)})
+        result["ok"] = False
+
+    # Step 2: Is go2rtc serving frames?
+    try:
+        resp = httpx.get(f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/api/streams", timeout=3)
+        go2rtc_streams = resp.json()
+        active = {k: len(v.get("producers", [])) for k, v in go2rtc_streams.items()}
+        result["pipeline"].append({
+            "step": "go2rtc",
+            "status": "ok" if all(p > 0 for p in active.values()) else "degraded",
+            "detail": f"Streams: {active}",
+        })
+    except Exception as e:
+        result["pipeline"].append({"step": "go2rtc", "status": "down", "detail": str(e)})
+        result["ok"] = False
+
+    # Step 3: SSE proxy working?
+    try:
+        resp = httpx.get("http://127.0.0.1:8097/events", timeout=2, headers={"Accept": "text/event-stream"})
+        result["pipeline"].append({
+            "step": "sse_proxy",
+            "status": "ok",
+            "detail": "SSE endpoint responsive",
+        })
+    except Exception as e:
+        result["pipeline"].append({"step": "sse_proxy", "status": "error", "detail": str(e)})
+
+    result["summary"] = "Labels render when: cameras connected + bird in frame + voter approves + SSE client listening"
+    return result
+
+
 @app.get("/api/hls/{path:path}")
 async def proxy_hls(path: str):
     """Proxy HLS segments from local go2rtc (port 1984) for fallback video streaming.
