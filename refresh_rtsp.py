@@ -108,17 +108,19 @@ def write_go2rtc_config(tokens):
 
 
 def restart_go2rtc():
-    """Restart go2rtc LaunchAgent."""
+    """Restart go2rtc Docker container."""
+    docker_cli = "/Applications/Docker.app/Contents/Resources/bin/docker"
     try:
-        uid = os.getuid()
         result = subprocess.run(
-            ["launchctl", "kickstart", "-k", f"gui/{uid}/com.vives.bird-go2rtc"],
-            capture_output=True, timeout=10,
+            [docker_cli, "restart", "go2rtc"],
+            capture_output=True, timeout=30,
         )
         if result.returncode != 0:
-            log(f"Warning: launchctl returned {result.returncode}")
+            log(f"Warning: docker restart returned {result.returncode}: {result.stderr.decode()}")
         else:
-            log("Restarted go2rtc")
+            log("Restarted go2rtc Docker container")
+    except FileNotFoundError:
+        log("Warning: Docker CLI not found at " + docker_cli)
     except Exception as e:
         log(f"Warning: could not restart go2rtc: {e}")
 
