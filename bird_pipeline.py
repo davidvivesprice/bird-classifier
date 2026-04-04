@@ -343,6 +343,7 @@ def camera_loop(camera_name: str, stream_name: str):
     backoff = 1.0
     last_process = 0.0
     last_forced_yolo = 0.0
+    last_broadcast = 0.0
     prev_track_state = None
 
     stream_status[camera_name] = {
@@ -415,10 +416,11 @@ def camera_loop(camera_name: str, stream_name: str):
                 # Broadcast if tracks changed (e.g., all expired)
                 current_tracks = tracker.get_active_tracks()
                 state_key = [(t["track_id"], tuple(t["bbox"])) for t in current_tracks]
-                if state_key != prev_track_state:
+                if state_key != prev_track_state or (now - last_broadcast) > 2.0:
                     broadcast_tracks(camera_name, current_tracks,
                                      reader.width, reader.height, tracker.session_id)
                     prev_track_state = state_key
+                    last_broadcast = now
                 pil_image.close()
                 continue
 
@@ -439,10 +441,11 @@ def camera_loop(camera_name: str, stream_name: str):
                 _handle_expired_tracks(tracker, camera_name)
                 current_tracks = tracker.get_active_tracks()
                 state_key = [(t["track_id"], tuple(t["bbox"])) for t in current_tracks]
-                if state_key != prev_track_state:
+                if state_key != prev_track_state or (now - last_broadcast) > 2.0:
                     broadcast_tracks(camera_name, current_tracks,
                                      reader.width, reader.height, tracker.session_id)
                     prev_track_state = state_key
+                    last_broadcast = now
                 pil_image.close()
                 continue
 
@@ -463,7 +466,11 @@ def camera_loop(camera_name: str, stream_name: str):
                     filtered, _raw = classifier.classify(crop)
                     top = filtered[0]
                     species_name = top["common_name"]
+                    raw_score = top.get("raw_score", 0)
                     if species_name in ("background", "unidentified bird"):
+                        species_list.append("unidentified bird")
+                    elif raw_score < 10:
+                        # Very low confidence — classifier is guessing
                         species_list.append("unidentified bird")
                     else:
                         species_list.append(species_name)
@@ -495,7 +502,7 @@ def camera_loop(camera_name: str, stream_name: str):
 
             # Broadcast only on track change
             state_key = [(t["track_id"], tuple(t["bbox"])) for t in tracks]
-            if state_key != prev_track_state:
+            if state_key != prev_track_state or (now - last_broadcast) > 2.0:
                 broadcast_tracks(camera_name, tracks,
                                  reader.width, reader.height, tracker.session_id)
                 prev_track_state = state_key

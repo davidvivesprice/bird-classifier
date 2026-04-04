@@ -302,7 +302,7 @@
     bottom: 10px;
     left: 10px;
     right: 10px;
-    z-index: 5;
+    z-index: 110;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -5880,7 +5880,7 @@
               confidence: t.confidence,
               camera: data.camera,
               track_id: t.track_id,
-              _expireAt: Date.now() + 1500
+              _expireAt: Date.now() + 5000
             };
           });
 
