@@ -1,4 +1,4 @@
-# Unified Bird Pipeline — Design Spec
+# Unified Bird Pipeline — Design Spec (v3 — post-review + PoC validated)
 
 ## Problem
 
@@ -13,12 +13,31 @@ This results in: 15+ second delay from bird landing to label showing, 84K wasted
 
 One process. Bird lands → bounding box with species label appears on the live feed in <500ms. Box tracks the bird as it moves. Multiple birds tracked simultaneously. Best frame per visit saved for review. No wasted frames on disk.
 
+## PoC Results (validated April 3, 2026)
+
+```
+Source: go2rtc local RTSP restream (rtsp://127.0.0.1:8554/feeder-main)
+Codec: H.264, 1920x1080
+Decode FPS: 4.8 (plenty for 3 FPS target)
+frame.to_image(): 12.8ms avg
+PIL to numpy: 13.1ms avg
+Total per-frame overhead: ~26ms
+YOLO inference: ~100ms (CoreML)
+Classification: ~5ms (ONNX)
+End-to-end per frame: ~131ms
+At 3 FPS: 393ms/sec compute — well within budget
+```
+
 ## Architecture
 
 ```
-RTSP stream via PyAV (continuous decode, 3 FPS per camera)
+go2rtc local RTSP restream (rtsp://127.0.0.1:8554/{stream})
+    ↓
+PyAV continuous decode → skip frames to achieve ~3 FPS (wall-clock timing)
     ↓
 Motion gate (~1ms cv2.absdiff) — no change → skip frame
+    ↓
+Periodic forced YOLO every 10s even without motion (catch stationary birds)
     ↓
 YOLO detection (~100ms CoreML) — no bird → skip frame
     ↓
@@ -28,105 +47,124 @@ For each bird detected:
     ↓
 Broadcast ALL active tracks via SSE
     ↓
-Best frame logic → save keeper to disk for review
+Best frame logic → save keeper to incoming/ for classify.py
 ```
 
 ## New File: `bird_pipeline.py`
 
-Single file. Runs as one LaunchAgent. Replaces three processes eventually, but runs parallel during testing.
+Single file. Runs as one LaunchAgent on port 8100. Replaces three processes eventually, but runs parallel during testing.
 
 ### Frame Acquisition
 
-PyAV decodes RTSP **video** stream continuously. Similar pattern to `audio_analyzer.py` but for video frames:
+**Source:** go2rtc's local RTSP restream at `rtsp://127.0.0.1:8554/{stream_name}`. This is critical:
+- go2rtc holds ONE RTSP connection to the CloudKey per camera
+- The pipeline connects to go2rtc LOCALLY — unlimited consumers, no CloudKey connection limit
+- go2rtc handles token refresh via `refresh_rtsp.py` — pipeline doesn't need to manage tokens
+- H.264 decode happens via PyAV — measured at 12.8ms per frame (not 5ms, not 100ms)
 
 ```python
-container = av.open(rtsp_url, options={"rtsp_transport": "tcp", "stimeout": "10000000"})
+container = av.open("rtsp://127.0.0.1:8554/feeder-main",
+                    options={"rtsp_transport": "tcp", "stimeout": "5000000",
+                             "fflags": "nobuffer", "flags": "low_delay"})
 video_stream = container.streams.video[0]
+video_stream.thread_type = "AUTO"  # multi-threaded H.264 decode
+
 for frame in container.decode(video_stream):
-    pil_image = frame.to_image()  # → PIL.Image (RGB)
-    np_array = np.array(pil_image)  # → numpy for motion gate
+    pil_image = frame.to_image()    # → PIL.Image (RGB), ~13ms
+    np_array = np.array(pil_image)  # → numpy (RGB), ~13ms
 ```
 
-**NOT reusing `RTSPStreamManager`** — that class is audio-specific. New `VideoStreamReader` class handles:
-- RTSP connection with TCP transport
-- Auto-reconnect with exponential backoff (5s → 10s → 30s → 60s)
-- Health file writing (`/tmp/bird-pipeline-health.json`)
-- Graceful shutdown
+**Frame rate control:** Wall-clock timing, NOT Nth-frame counting. Process a frame only if ≥333ms since last processed frame. Adapts to any camera FPS without configuration.
 
-**Frame rate:** Decode at camera native rate but only process every Nth frame to achieve ~3 FPS detection rate. Skip decoded frames between processing slots (always use freshest available).
+```python
+last_process = 0
+for frame in container.decode(video_stream):
+    now = time.monotonic()
+    if now - last_process < 0.333:  # 3 FPS target
+        continue  # skip this frame
+    last_process = now
+    # process frame...
+```
 
-**Data types at each stage:**
-- PyAV decode → `PIL.Image` (for YOLO, which takes PIL)
-- PIL → `numpy.ndarray` (for motion gate, which takes numpy)
-- YOLO returns `[{"box": [x1,y1,x2,y2], "confidence": float}]`
-- Classifier takes `PIL.Image` crop, returns `[{"common_name", "raw_score"}]`
+**Reconnection:** If go2rtc restream disconnects (go2rtc restarted, Docker restart), exponential backoff 5s → 10s → 30s → 60s. Re-read `rtsp_urls.json` on reconnect (tokens may have changed). No need to run `refresh_rtsp.py` — go2rtc handles that.
 
-**Two cameras:** Feeder and ground run in separate threads. Each thread has its **own YOLO and classifier instances** — no sharing. ONNX Runtime with CoreML releases the GIL during inference, making shared sessions unsafe. The extra ~300MB RAM per camera is acceptable (iMac has 32GB+).
+**Two cameras:** Feeder and ground run in **separate threads with separate model instances.** ONNX Runtime with CoreML releases the GIL during inference — shared sessions are NOT thread-safe. Each thread loads its own YOLO + classifier (~300MB RAM each). Total extra RAM: ~600MB on a 32GB+ iMac.
+
+### Data Types at Each Stage
+
+```
+PyAV decode     → PIL.Image (RGB)
+                → numpy.ndarray (RGB, for motion gate)
+                    ↓ (convert RGB→BGR for motion gate: arr[:,:,::-1])
+Motion gate     ← numpy.ndarray (BGR, matches cv2.COLOR_BGR2GRAY expectations)
+YOLO detect     ← PIL.Image (RGB, as expected by YOLODetector.detect())
+Crop bird       → PIL.Image (RGB crop)
+Classifier      ← PIL.Image (RGB crop, as expected by SpeciesClassifier.classify())
+```
 
 ### Motion Gate
 
-`cv2.absdiff` against previous frame, same as existing `MotionGate` class. ~1ms per frame. Threshold: 1.5% pixel change.
+Reuses existing `MotionGate` class from `motion_gate.py`. Threshold 1.5%.
 
-When no motion: zero inference cost.
-When motion: proceed to YOLO.
+**RGB→BGR conversion:** MotionGate assumes BGR input (uses `cv2.COLOR_BGR2GRAY`). Pipeline feeds RGB from PIL. Convert with `arr[:,:,::-1]` before passing to motion gate.
+
+**Forced periodic detection:** Every 10 seconds, run YOLO regardless of motion. Catches stationary birds that landed during a motion-gate pass (bird arrives, motion triggers detection, bird sits still — subsequent frames show no motion but bird is still there).
+
+**False positive mitigation:** If motion gate fires continuously for >30 seconds (wind, shadows), throttle to 1 FPS instead of 3 FPS to reduce CPU waste. Reset to 3 FPS when motion stops then restarts.
 
 ### Detection (YOLO)
 
-YOLOv8n at 640x640 via ONNX Runtime + CoreML. Same model as current system. Returns list of bounding boxes with confidence scores.
-
-~100ms per frame. At 3 FPS = 300ms/sec of GPU time = 30% of one core.
+YOLOv8n at 640x640 via ONNX Runtime + CoreML. Same model as current system. Returns list of bounding boxes with confidence scores. ~100ms per frame.
 
 ### Multi-Bird Tracking
-
-Simple IoU tracker. Not Norfair — overkill for static feeder cameras.
 
 ```python
 class BirdTracker:
     """Track birds across frames by bounding box overlap."""
 
-    tracks: dict[int, Track]  # track_id → Track
+    tracks: dict[int, Track]
     next_id: int
+    session_id: str  # random UUID, reset on restart
 
-    def update(self, detections, classifier):
-        """Match new detections to existing tracks by IoU.
+    def update(self, frame, detections, classifier):
+        """Match detections to existing tracks. Classify new birds.
 
         Args:
-            detections: list of YOLO detection dicts [{"box", "confidence"}]
-            classifier: SpeciesClassifier instance (called only for new/stale tracks)
+            frame: PIL.Image (full frame, for cropping new detections)
+            detections: list of YOLO dicts [{"box", "confidence"}]
+            classifier: SpeciesClassifier instance
 
-        For each detection:
-            - If IoU > 0.3 with existing track → update position, keep species
-            - If no match → run classifier on crop → create new track
-
-        Returns list of TrackState:
-            [{"track_id", "bbox", "species", "confidence", "is_new", "age_seconds"}]
+        Returns:
+            list of TrackState dicts for SSE broadcast
         """
 ```
 
 **Track lifecycle:**
-- **Create:** New detection with no IoU match to existing track → classify species → assign track ID
-- **Update:** Detection matches existing track (IoU > 0.3) → update bbox position, keep species
-- **Re-classify:** Track age > 30s OR IoU match < 0.5 (bird moved significantly) → re-run classifier
-- **Expire:** No matching detection for 3 seconds → remove track
+- **Create:** Detection with no IoU match (>0.3) to existing track → crop bird → classify → assign track ID
+- **Update:** Detection matches existing track by IoU → update bbox, keep species
+- **Re-classify:** IoU match < 0.5 (bird moved significantly) OR track age > 30s → re-run classifier
+- **Expire:** No matching detection for 3 seconds → save keeper frame → remove track
+- **Hard max lifetime:** 10 minutes. No track lives forever (prevents memory leak from false persistent detections like feeder post being detected as bird).
+- **Max concurrent tracks:** 20 per camera. Oldest evicted if exceeded.
 
-**Multiple birds:** YOLO returns N boxes per frame. Each gets matched independently. 3 birds = 3 tracks, each with their own species label.
+**IoU threshold (0.3) at 3 FPS:** A bird hopping on the feeder moves ~50-100px between frames. At 640x640 YOLO input, bounding boxes are typically 80-200px wide. A 100px shift on a 150px box = ~0.33 IoU. The 0.3 threshold accommodates normal feeder movement. Fast flyovers (full frame traversal in one interval) will create new tracks — acceptable since the bird is leaving anyway.
 
 ### Classification
 
-AIY Birds V1 via ONNX (not Coral — avoids contention with batch classifier during parallel run).
+AIY Birds V1 via ONNX (not Coral). ~5ms per crop.
 
-**Classify once per track creation.** A chickadee sitting for 60 seconds gets classified once on arrival (~5ms), then tracked by IoU for the remaining frames (free). Re-classify only when:
-- Track is new (first appearance)
-- IoU match is weak (< 0.5 — bird moved significantly, might be different bird)
-- Track age > 30 seconds (periodic recheck)
+**Classify once per new track.** Re-classify only when track is stale or position shifted significantly. With 3 birds in frame, initial classification cost is 15ms total. Subsequent frames: 0ms classification cost.
+
+**Species label is preliminary during parallel run.** The keeper frame goes through classify.py's full intelligence stack (yard prior, range filter, visit voting) which may produce a different species. This is expected and documented — the live label is "first impression," the DB record is "final answer."
 
 ### SSE Broadcast
 
-Every processed frame (after YOLO), broadcast ALL active tracks:
+Every processed frame with active tracks, broadcast:
 
 ```json
 {
   "type": "detections",
+  "session_id": "a1b2c3",
   "camera": "feeder",
   "timestamp": "2026-04-03T10:15:30.123",
   "tracks": [
@@ -136,13 +174,6 @@ Every processed frame (after YOLO), broadcast ALL active tracks:
       "confidence": 0.89,
       "bbox": [100, 200, 300, 400],
       "age_seconds": 12.5
-    },
-    {
-      "track_id": 2,
-      "species": "Northern Cardinal",
-      "confidence": 0.95,
-      "bbox": [400, 150, 600, 380],
-      "age_seconds": 3.2
     }
   ],
   "frame_width": 1920,
@@ -150,72 +181,81 @@ Every processed frame (after YOLO), broadcast ALL active tracks:
 }
 ```
 
-Dashboard draws all boxes on the canvas overlay. Boxes update every ~333ms (3 FPS).
+**When no active tracks:** Don't broadcast (save bandwidth). Send keepalive every 15 seconds.
 
-SSE server runs on a new port (8100) to avoid conflicting with existing services during parallel testing.
+**Broadcast only on change:** Send when: new track appears, track position moved >10px, track expired. NOT every frame. Reduces event rate from 6/sec to ~1-2/sec while maintaining visual accuracy.
 
-### Best Frame Selection
+**`session_id`:** Random UUID generated on pipeline start. Dashboard detects session change and flushes stale tracks from previous session.
 
-Per track, keep the frame with the highest YOLO detection confidence. When track expires (bird leaves):
-
-1. Save the best frame to `incoming/` (or directly to `classified/` if we trust the species)
-2. Create classification DB record
-3. Create visit record
-
-This replaces the current flow of saving every frame and classifying later. Only ~1 frame per visit gets saved.
-
-### Keeper vs Discard Logic
+### SSE Server Threading
 
 ```
-Frame with bird detected:
-    Is this the best frame so far for this track? (highest confidence)
-        YES → hold in memory as candidate keeper (PIL Image + metadata)
-        NO → discard (already broadcast via SSE, job done)
+Threads:
+- Main thread:      SSE HTTP server (ThreadingHTTPServer, one thread per client)
+- Camera-feeder:    decode → motion → YOLO → track → classify
+- Camera-ground:    same, independent
+- Watchdog:         monitors camera threads, writes health file
+```
+
+**Slow client protection:** Per-client message queue with `maxsize=50`. On overflow, drop oldest messages. Dead clients (BrokenPipeError) removed immediately. Same pattern as existing `live_detector.py` SSE server (proven).
+
+### Keeper Frame Logic
+
+Per track, hold the frame with highest YOLO confidence in memory as PIL Image.
+
+```
+New frame with bird:
+    confidence > current keeper's confidence?
+        YES → close() old keeper, hold new one
+        NO → discard
 
 Track expires (bird left):
-    Save keeper frame to incoming/ as {camera}_{timestamp}.jpg
-    classify.py picks it up on its normal watch cycle and handles:
-        - Yard prior correction
-        - Range filter validation
-        - Visit tracking
+    Save keeper as {camera}_{timestamp}_{track_id}.jpg to incoming/
+    classify.py picks it up and handles:
+        - Yard prior, range filter, visit voting
         - DB record creation
         - File organization to classified/{species}/
 ```
 
-**Why write to incoming/ instead of classified/ directly:**
-During parallel run, `classify.py` stays as the source of truth for file organization, DB records, and intelligence layers (yard prior, range filter, visit voting). The pipeline's job is detection + tracking + live broadcast. The keeper frame is just a handoff.
+**Filename:** `{camera}_{timestamp}_{track_id}.jpg` — includes track_id to prevent collisions when two cameras save keepers at the same moment. `classify.py` already handles camera-prefixed filenames.
 
-When we retire `classify.py`, we migrate that logic into the pipeline. But not now — one thing at a time.
+**Memory management:** Explicitly `close()` old keeper PIL Image when replaced. Max ~6MB per keeper (1920x1080 RGB). With 20 max tracks × 2 cameras = max 240MB in extreme case (normal: 2-3 tracks, ~18MB).
 
-**Disk impact:** Instead of saving 200+ frames per day and classifying all of them, save ~50-100 keeper frames (one per visit). Disk usage goes down.
+**Atomic write:** Save as `.tmp` then rename. `classify.py` already skips `.tmp` files.
 
 ### Watchdog
 
-Built-in watchdog thread monitors each camera thread:
-- No frame for 60 seconds → restart camera thread
-- RTSP connection failed → exponential backoff (5s → 10s → 30s → 60s)
+Built-in watchdog thread:
+- Checks each camera thread's `last_frame` timestamp every 15 seconds
+- If no frame for 60 seconds → restart that camera thread
+- If go2rtc is down (RTSP connect fails) → log warning, backoff, retry
 - Write health file to `/tmp/bird-pipeline-health.json` every 30 seconds
-- Health monitor integration: detect stale timestamps, restart if stuck
+- Health monitor can detect stale timestamps and restart the LaunchAgent
 
 ### Nighttime Pause
 
-Same solar calculation as current system. When nighttime:
-- Close RTSP connections (saves camera bandwidth)
-- Stop frame processing
-- Keep SSE server running (sends empty keepalives)
-- Resume at sunrise
+Same `solar_utils.is_nighttime()` as current system.
+- Close RTSP connections (saves go2rtc resources)
+- Stop frame processing, keep SSE server running (keepalives)
+- On sunrise: reconnect to go2rtc RTSP restream with fresh frame
+
+**Token handling on wake:** Re-read `rtsp_urls.json` before connecting. Tokens may have been refreshed by `refresh_rtsp.py` overnight. go2rtc.yaml may have been updated. No need for pipeline to manage tokens — just reconnect to go2rtc.
 
 ## Dashboard Changes
 
-### Canvas Overlay Update
-
-The new SSE schema sends one event per frame with ALL tracks (vs old schema: one event per bird). The dashboard needs to handle both during parallel run.
+### Canvas Overlay
 
 ```javascript
-function _handleNewPipelineEvent(event) {
+function _handlePipelineEvent(event) {
     var data = JSON.parse(event.data);
+
+    // Detect pipeline restart — flush stale tracks
+    if (data.session_id && data.session_id !== _pipelineSessionId) {
+        _pipelineSessionId = data.session_id;
+        liveDetections = [];
+    }
+
     if (data.type === 'detections' && data.tracks) {
-        // New pipeline: replace ALL boxes with current tracks
         liveDetections = data.tracks.map(function(t) {
             return {
                 species: t.species,
@@ -223,57 +263,63 @@ function _handleNewPipelineEvent(event) {
                 confidence: t.confidence,
                 camera: data.camera,
                 track_id: t.track_id,
-                _expireAt: Date.now() + 1000  // fade after 1s without update
+                _expireAt: Date.now() + 1500
             };
         });
     }
 }
 ```
 
-**Toggle:** Dashboard setting (localStorage) to switch between:
-- Old SSE: `/live-detections/events` (port 8097 via proxy)
-- New SSE: `/pipeline/events` (port 8100 via proxy)
+**Toggle:** localStorage setting to switch between:
+- Old SSE: `/live-detections/events` (port 8097)
+- New SSE: `/pipeline/events` (port 8100 via api.py proxy)
 
-Both use the same `drawDetections()` function — the conversion above normalizes the format.
+Default to old during parallel run. Switch to new when confirmed working.
 
-### SSE Connection
+### SSE Proxy
 
-Dashboard connects to `bird_pipeline.py` SSE on port 8100, proxied through api.py at `/pipeline/events`. Same EventSource pattern as current live detection.
+Add to `dashboard/api.py`:
+```python
+@app.get("/pipeline/events")
+async def proxy_pipeline_sse():
+    """Proxy SSE from bird_pipeline (port 8100)."""
+    # Same pattern as /live-detections/events proxy
+```
 
 ## Parallel Running Strategy
 
-During testing, both old and new systems run simultaneously:
+| Process | Status | Port | Role |
+|---------|--------|------|------|
+| `capture_snapshots.py` | Running (existing) | — | Saves frames to incoming/ |
+| `classify.py --watch` | Running (existing) | — | Classifies from incoming/ |
+| `live_detector.py` | Running (existing) | 8097 | Old SSE overlay |
+| **`bird_pipeline.py`** | **Running (NEW)** | **8100** | **New SSE overlay + keeper frames** |
 
-| Process | Status | Port |
-|---------|--------|------|
-| `capture_snapshots.py` | Running (existing) | — |
-| `classify.py --watch` | Running (existing) | — |
-| `live_detector.py` | Running (existing) | 8097 |
-| `bird_pipeline.py` | Running (NEW, parallel) | 8100 |
+Both pipeline and old system write keepers to `incoming/`. `classify.py` processes whatever arrives — it doesn't care who wrote it. No conflict.
 
-The dashboard can switch between old SSE (8097) and new SSE (8100) via a toggle. This lets you compare side-by-side.
-
-Once confident the new pipeline works:
-1. Stop `capture_snapshots.py`
+**Cutover sequence (after confidence):**
+1. Switch dashboard default SSE to new pipeline
 2. Stop `live_detector.py`
-3. Point `classify.py` at the new pipeline's output (or remove it entirely if the pipeline handles classification + saving)
-4. Remove old LaunchAgents
+3. Stop `capture_snapshots.py` (pipeline's keepers replace its output)
+4. Eventually: migrate classify.py logic into pipeline
 
-## Performance Budget
+## Performance Budget (validated)
 
 | Stage | Time | Notes |
 |-------|------|-------|
-| Frame decode (PyAV) | ~5ms | Already decoded from stream |
+| PyAV decode + to_image | ~13ms | Validated via PoC |
+| PIL to numpy | ~13ms | Validated via PoC |
+| RGB→BGR conversion | <1ms | Array slice |
 | Motion gate | ~1ms | cv2.absdiff |
-| YOLO detection | ~100ms | CoreML, GPU |
+| YOLO detection | ~100ms | CoreML GPU |
 | Classification (new bird) | ~5ms | ONNX, once per track |
 | IoU tracking | <1ms | Math only |
-| SSE broadcast | <1ms | JSON serialize + send |
-| **Total (motion, no bird)** | **~106ms** | |
-| **Total (bird found, new)** | **~112ms** | |
-| **Total (bird found, tracked)** | **~107ms** | |
+| SSE broadcast | <1ms | JSON + send |
+| **Total (motion, no bird)** | **~128ms** | |
+| **Total (bird, new track)** | **~133ms** | |
+| **Total (bird, tracked)** | **~128ms** | |
 
-At 3 FPS: 3 × 107ms = 321ms/sec of compute per camera. Two cameras = 642ms/sec. The iMac has plenty of headroom.
+At 3 FPS per camera: 384ms/sec. Two cameras: 768ms/sec. With GIL contention between threads, effective per-camera rate may drop to ~2.5 FPS under simultaneous motion. Still well under 500ms latency target.
 
 ## Files
 
@@ -281,16 +327,19 @@ At 3 FPS: 3 × 107ms = 321ms/sec of compute per camera. Two cameras = 642ms/sec.
 |------|--------|
 | `bird_pipeline.py` | Create — the unified pipeline |
 | `dashboard/api.py` | Modify — add SSE proxy for port 8100 |
-| `dashboard/index.html` | Modify — update drawDetections for multi-track |
+| `dashboard/index.html` | Modify — add pipeline event handler + toggle |
 | `com.vives.bird-pipeline.plist` | Create — LaunchAgent |
-| `tests/test_bird_pipeline.py` | Create — tracker tests, motion gate tests |
+| `tests/test_bird_tracker.py` | Create — IoU tracker tests |
+| `tests/test_pipeline_integration.py` | Create — frame decode + motion + detect tests |
 
 ## Success Criteria
 
 1. Bird lands → box + species appears in <500ms on live feed
 2. Multiple birds tracked simultaneously with independent labels
 3. Box follows bird as it moves across feeder
-4. Best frame per visit saved to disk (not every frame)
-5. System recovers automatically from camera disconnects (watchdog)
+4. Best frame per visit saved to incoming/ for classify.py
+5. System recovers automatically from go2rtc disconnects (watchdog)
 6. No interference with existing pipeline during parallel run
 7. CPU usage < 50% per camera at 3 FPS
+8. No RTSP connection limit issues (uses go2rtc local restream)
+9. Dashboard can toggle between old and new SSE sources
