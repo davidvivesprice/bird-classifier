@@ -333,7 +333,10 @@ def camera_loop(camera_name: str, stream_name: str):
     detector = YOLODetector(str(YOLO_MODEL), confidence=DETECTION_CONFIDENCE)
     classifier = SpeciesClassifier(str(SPECIES_MODEL), str(LABELS),
                                    regional_species=regional)
-    tracker = BirdTracker()
+    tracker = BirdTracker(
+        iou_threshold=0.15,     # Lower than default 0.3 — birds move fast at 3 FPS
+        expire_seconds=5.0,     # Give 5s without match before expiring (was 3s)
+    )
     gate = MotionGate(threshold_pct=1.5, resize_width=320)
 
     reader = VideoStreamReader(stream_name, camera_name)
@@ -599,7 +602,8 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
-            logging.FileHandler(Path("/Users/vives/bird-snapshots/logs/pipeline.log")),
+            # Only stdout — LaunchAgent captures it to the log file.
+            # Adding a FileHandler here causes double logging.
             logging.StreamHandler(sys.stdout),
         ],
     )
