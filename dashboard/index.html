@@ -297,11 +297,20 @@
 
   .live-offline .big { font-size: 2.5rem; display: block; margin-bottom: 8px; }
 
-  .live-mute-btn {
+  .live-controls {
     position: absolute;
     bottom: 10px;
     left: 10px;
+    right: 10px;
     z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .live-controls > * { pointer-events: auto; }
+
+  .live-mute-btn {
     background: rgba(0,0,0,0.55);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
@@ -320,10 +329,6 @@
   .live-mute-btn .mute-label { font-size: 0.72rem; letter-spacing: 0.03em; }
 
   .live-enhance-btn {
-    position: absolute;
-    bottom: 10px;
-    left: 130px;
-    z-index: 5;
     background: rgba(0,0,0,0.55);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
@@ -346,10 +351,7 @@
   }
 
   .live-fs-btn {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    z-index: 5;
+    margin-left: auto;
     background: rgba(0,0,0,0.55);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
@@ -2155,18 +2157,20 @@
             <button class="stream-btn" id="stream-btn-both" onclick="switchStream('both')">Both</button>
           </div>
           <button class="overlay-toggle" id="overlay-toggle" onclick="toggleDetectionOverlay()" title="Toggle detection labels">&#x1F3F7;&#xFE0F; Labels</button>
-          <button class="live-mute-btn" id="live-mute-btn" onclick="toggleLiveMute()" title="Toggle audio">
-            <span id="mute-icon">&#x1F507;</span><span class="mute-label" id="mute-label">Unmute</span>
-          </button>
-          <button class="live-enhance-btn active" id="live-enhance-btn" onclick="toggleAudioEnhance()" title="Toggle audio enhancement (bandpass filter for bird calls)">
-            Enhanced
-          </button>
-          <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
-            <span id="fs-icon">&#x26F6;</span>
-          </button>
-          <button class="live-enhance-btn" id="pipeline-toggle" onclick="togglePipelineSSE()" title="Switch between old and new detection pipeline" style="margin-left:4px;">
-            Old Det
-          </button>
+          <div class="live-controls">
+            <button class="live-mute-btn" id="live-mute-btn" onclick="toggleLiveMute()" title="Toggle audio">
+              <span id="mute-icon">&#x1F507;</span><span class="mute-label" id="mute-label">Unmute</span>
+            </button>
+            <button class="live-enhance-btn active" id="live-enhance-btn" onclick="toggleAudioEnhance()" title="Toggle audio enhancement">
+              Enhanced
+            </button>
+            <button class="live-enhance-btn" id="pipeline-toggle" onclick="togglePipelineSSE()" title="Switch detection source">
+              <span id="pipeline-toggle-label">New Det</span>
+            </button>
+            <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
+              <span id="fs-icon">&#x26F6;</span>
+            </button>
+          </div>
           <div class="live-offline" id="live-offline">
             <span class="big">&#x1F4F7;</span>
             <div id="live-offline-text">Connecting to camera...</div>
@@ -7283,11 +7287,10 @@
     var overlayBtn = document.getElementById('overlay-toggle');
     if (overlayBtn) overlayBtn.classList.toggle('active', showDetectionOverlay);
     // Set pipeline toggle button label
+    var pipeLabel = document.getElementById('pipeline-toggle-label');
     var pipeBtn = document.getElementById('pipeline-toggle');
-    if (pipeBtn) {
-      pipeBtn.textContent = _usePipeline ? 'New Det' : 'Old Det';
-      if (_usePipeline) pipeBtn.classList.add('active');
-    }
+    if (pipeLabel) pipeLabel.textContent = _usePipeline ? 'New Det ✓' : 'Old Det';
+    if (pipeBtn) pipeBtn.classList.toggle('active', _usePipeline);
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
     renderRecent();
     await loadSpeciesData();
