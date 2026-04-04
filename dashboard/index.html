@@ -2164,6 +2164,9 @@
           <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
             <span id="fs-icon">&#x26F6;</span>
           </button>
+          <button class="live-enhance-btn" id="pipeline-toggle" onclick="togglePipelineSSE()" title="Switch between old and new detection pipeline" style="margin-left:4px;">
+            Old Det
+          </button>
           <div class="live-offline" id="live-offline">
             <span class="big">&#x1F4F7;</span>
             <div id="live-offline-text">Connecting to camera...</div>
@@ -5827,6 +5830,79 @@
     if (window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
   }
 
+  // ── Pipeline SSE (unified bird_pipeline on port 8100) ──
+  var _pipelineSessionId = null;
+  var _usePipeline = localStorage.getItem('usePipeline') === 'true';
+
+  function connectPipelineSSE() {
+    if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
+
+    var es = new EventSource('/pipeline/events');
+    liveDetectionSource = es;
+
+    es.addEventListener('open', function() {
+      console.log('[Pipeline SSE] Connected');
+      var dot = document.getElementById('live-detect-status');
+      if (dot) { dot.style.color = '#22c55e'; dot.title = 'Pipeline: connected'; }
+    });
+
+    es.addEventListener('error', function() {
+      var dot = document.getElementById('live-detect-status');
+      if (dot) { dot.style.color = '#ef4444'; dot.title = 'Pipeline: disconnected'; }
+    });
+
+    es.addEventListener('message', function(event) {
+      try {
+        var data = JSON.parse(event.data);
+        if (data.type === 'connected') {
+          console.log('[Pipeline SSE] Stream primed');
+          return;
+        }
+
+        // Detect pipeline restart
+        if (data.session_id && data.session_id !== _pipelineSessionId) {
+          _pipelineSessionId = data.session_id;
+          liveDetections = [];
+        }
+
+        if (data.tracks) {
+          var cam = currentStream.replace('-main', '');
+          liveDetections = data.tracks.filter(function(t) {
+            return !data.camera || data.camera === cam;
+          }).map(function(t) {
+            return {
+              species: t.species,
+              bbox: t.bbox,
+              confidence: t.confidence,
+              camera: data.camera,
+              track_id: t.track_id,
+              _expireAt: Date.now() + 1500
+            };
+          });
+
+          // Flash status dot
+          var dot = document.getElementById('live-detect-status');
+          if (dot && data.tracks.length > 0) {
+            dot.style.color = '#4a9eff';
+            setTimeout(function() { dot.style.color = '#22c55e'; }, 500);
+          }
+
+          data.tracks.forEach(function(t) {
+            console.log('[Pipeline] ' + t.species + ' (' + data.camera + ', track ' + t.track_id + ')');
+          });
+        }
+      } catch(e) {
+        console.warn('[Pipeline SSE] Parse error:', e);
+      }
+    });
+  }
+
+  window.togglePipelineSSE = function() {
+    _usePipeline = !_usePipeline;
+    localStorage.setItem('usePipeline', String(_usePipeline));
+    location.reload();
+  };
+
   // ── Live Detection SSE (bounding boxes) ──
   function _handleLiveDetection(event) {
     try {
@@ -7197,11 +7273,21 @@
     initLiveFeed();
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
-    connectLiveDetectionSSE();
+    if (_usePipeline) {
+      connectPipelineSSE();
+    } else {
+      connectLiveDetectionSSE();
+    }
     renderDetectionOverlay(); // start overlay rendering loop
     // Set initial overlay toggle state
     var overlayBtn = document.getElementById('overlay-toggle');
     if (overlayBtn) overlayBtn.classList.toggle('active', showDetectionOverlay);
+    // Set pipeline toggle button label
+    var pipeBtn = document.getElementById('pipeline-toggle');
+    if (pipeBtn) {
+      pipeBtn.textContent = _usePipeline ? 'New Det' : 'Old Det';
+      if (_usePipeline) pipeBtn.classList.add('active');
+    }
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
     renderRecent();
     await loadSpeciesData();

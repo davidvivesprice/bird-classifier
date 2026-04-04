@@ -2346,6 +2346,34 @@ async def proxy_live_detections(path: str):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.get("/pipeline/events")
+async def proxy_pipeline_sse():
+    """Proxy SSE from bird_pipeline (port 8100)."""
+    import httpx
+    from starlette.responses import StreamingResponse
+
+    async def stream():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", "http://127.0.0.1:8100/events", timeout=None) as resp:
+                async for chunk in resp.aiter_bytes(chunk_size=1024):
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.get("/pipeline/health")
+def pipeline_health():
+    """Proxy health from bird_pipeline."""
+    import httpx
+    try:
+        resp = httpx.get("http://127.0.0.1:8100/health", timeout=3)
+        return resp.json()
+    except Exception as e:
+        return {"status": "down", "detail": str(e)}
+
+
 @app.get("/api/live-detection-status")
 def live_detection_status():
     """Full pipeline health check for live detection overlay.
