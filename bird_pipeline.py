@@ -436,6 +436,7 @@ def camera_loop(camera_name: str, stream_name: str):
                 detections = detector.detect(pil_image)
             except Exception as e:
                 logging.error("[%s] YOLO error: %s", camera_name, e)
+                pil_image.close()
                 continue
             yolo_ms = (time.monotonic() - t_yolo) * 1000
 
@@ -498,6 +499,7 @@ def camera_loop(camera_name: str, stream_name: str):
                 except Exception as e:
                     logging.error("[%s] Classifier error: %s", camera_name, e)
                     species_list.append("unidentified bird")
+                    trust_levels.append("normal")
 
             cls_ms = (time.monotonic() - t_yolo) * 1000 - yolo_ms
 
@@ -505,6 +507,7 @@ def camera_loop(camera_name: str, stream_name: str):
             buf = io.BytesIO()
             pil_image.save(buf, format="JPEG", quality=90)
             frame_data = buf.getvalue()
+            buf.close()
 
             # Update tracker
             tracks = tracker.update(detections, species_list, frame_data=frame_data, trust_levels=trust_levels)
