@@ -5054,23 +5054,23 @@
     var signalsHtml = '';
     var signals = [];
     if (item.also_heard || item.audio_corroborated) {
-      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x1F3A4; Also heard</span>');
+      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">🎤 Heard singing nearby</span>');
     }
     if (item.visit_outlier) {
-      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x26A0; Outlier — consensus: ' + escHtml(item.consensus_species || '?') + '</span>');
+      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">⚠️ Other photos in this visit say ' + escHtml(item.consensus_species || 'something else') + '</span>');
     }
     if (item.classifier_uncertain) {
-      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2753; Uncertain (gap: ' + (item.score_gap || '?') + ')</span>');
+      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">🤔 Could be a different bird — take a closer look</span>');
     }
     if (item.prior_suggestion && item.prior_suggestion !== item.species) {
-      signals.push('<span style="background:#1e3a5f;color:#93c5fd;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x1F4CA; Usually: ' + escHtml(item.prior_suggestion) + '</span>');
+      signals.push('<span style="background:#1e3a5f;color:#93c5fd;padding:2px 8px;border-radius:10px;font-size:0.75rem;">💡 This is often actually a ' + escHtml(item.prior_suggestion) + '</span>');
     }
     if (item.trust_level === 'probably_wrong') {
-      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x274C; Probably wrong</span>');
+      signals.push('<span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:0.75rem;">❌ Probably not this bird</span>');
     } else if (item.trust_level === 'unusual') {
-      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2728; Unusual — verify</span>');
+      signals.push('<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:10px;font-size:0.75rem;">✨ Rare visitor — worth checking!</span>');
     } else if (item.trust_level === 'likely_correct') {
-      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">&#x2705; Likely correct</span>');
+      signals.push('<span style="background:#065f46;color:#6ee7b7;padding:2px 8px;border-radius:10px;font-size:0.75rem;">✅ High confidence</span>');
     }
     if (signals.length > 0) {
       signalsHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;">' + signals.join('') + '</div>';
@@ -6676,8 +6676,8 @@
       var border = selected ? '3px solid var(--accent-green)' : '2px solid var(--border)';
       var badges = '';
       if (item.also_heard) badges += '<span style="position:absolute;top:4px;left:4px;background:#065f46;color:#6ee7b7;padding:1px 5px;border-radius:8px;font-size:0.6rem;">HEARD</span>';
-      if (item.trust_level === 'probably_wrong') badges += '<span style="position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:1px 5px;border-radius:8px;font-size:0.6rem;">WRONG?</span>';
-      if (item.prior_suggestion && item.prior_suggestion !== item.species) badges += '<span style="position:absolute;bottom:4px;left:4px;background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:8px;font-size:0.6rem;">' + item.prior_suggestion + '</span>';
+      if (item.trust_level === 'probably_wrong') badges += '<span style="position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:1px 5px;border-radius:8px;font-size:0.6rem;">Check this</span>';
+      if (item.prior_suggestion && item.prior_suggestion !== item.species) badges += '<span style="position:absolute;bottom:4px;left:4px;background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:8px;font-size:0.6rem;">Maybe ' + item.prior_suggestion + '</span>';
 
       return '<div onclick="toggleBatchSelect(' + i + ')" style="position:relative;cursor:pointer;border:' + border + ';border-radius:8px;overflow:hidden;aspect-ratio:4/3;background:var(--bg-card);">' +
         '<img src="' + imgUrl + '" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
