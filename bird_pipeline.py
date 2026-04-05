@@ -44,6 +44,7 @@ from bird_inference import (
 from bird_tracker import BirdTracker
 from motion_gate import MotionGate
 from solar_utils import is_nighttime
+from yard_prior import YardPrior
 
 # ──────────────────────────────────────────────────
 # Configuration
@@ -333,6 +334,7 @@ def camera_loop(camera_name: str, stream_name: str):
     detector = YOLODetector(str(YOLO_MODEL), confidence=DETECTION_CONFIDENCE)
     classifier = SpeciesClassifier(str(SPECIES_MODEL), str(LABELS),
                                    regional_species=regional)
+    yard_prior = YardPrior()
     tracker = BirdTracker(
         iou_threshold=0.15,     # Lower than default 0.3 — birds move fast at 3 FPS
         expire_seconds=5.0,     # Give 5s without match before expiring (was 3s)
@@ -470,9 +472,20 @@ def camera_loop(camera_name: str, stream_name: str):
                     if species_name in ("background", "unidentified bird"):
                         species_list.append("unidentified bird")
                     elif raw_score < 10:
-                        # Very low confidence — classifier is guessing
                         species_list.append("unidentified bird")
                     else:
+                        # Apply yard prior correction
+                        try:
+                            correction = yard_prior.correct(
+                                classified_as=species_name,
+                                confidence=det["confidence"],
+                                top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
+                                      for p in filtered[:3]],
+                            )
+                            if correction.get("correction_reason"):
+                                species_name = correction["corrected_species"]
+                        except Exception:
+                            pass
                         species_list.append(species_name)
                 except Exception as e:
                     logging.error("[%s] Classifier error: %s", camera_name, e)
