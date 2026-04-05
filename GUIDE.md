@@ -24,6 +24,11 @@ A real-time bird identification system running on a single iMac. Two cameras wat
  classify.py  live_detector     birdnet_local.db
  (YOLO+AIY)   :8097 (SSE)      + audio clips
     │             │                  │
+    │        bird_pipeline           │
+    │        :8100 (SSE)             │
+    │        (motion→YOLO→           │
+    │         classify→track)        │
+    │             │                  │
     ▼             ▼                  ▼
     └─────────── api.py ◄────────────┘
                  :8099
@@ -41,7 +46,9 @@ Everything runs on the iMac (192.168.4.200). The CloudKey provides camera feeds 
 
 **Batch visual** (~10s cycle): `capture_snapshots.py` polls CloudKey snapshot API with motion detection, saves to `incoming/`. `classify.py --watch` picks up new images, runs YOLO bird detection then AIY Birds V1 species classification, writes to `classified/{species}/` + JSONL log. Dashboard API reads the JSONL.
 
-**Live visual** (~300ms): `live_detector.py` pulls frames from go2rtc at 3fps, runs YOLO + AIY with temporal voting (SpeciesVoter), pushes detections via SSE. Dashboard draws bounding box overlays on the live video feed.
+**Live visual — old** (~300ms): `live_detector.py` pulls frames from go2rtc at 3fps, runs YOLO + AIY with temporal voting (SpeciesVoter), pushes detections via SSE on port 8097. Dashboard draws bounding box overlays on the live video feed.
+
+**Live visual — new** (~300ms): `bird_pipeline.py` decodes RTSP video from go2rtc local restream via PyAV at ~3 FPS. Motion gate -> YOLO -> species classification -> IoU multi-bird tracking (`bird_tracker.py`) with trust levels and session IDs -> SSE broadcast on port 8100. Saves keeper frames to `incoming/`. Dashboard toggle ("New Det" / "Old Det") switches between pipeline SSE (port 8100) and old live_detector SSE (port 8097).
 
 **Audio** (~3s): `audio_analyzer.py` decodes RTSP audio via PyAV, applies bandpass + noisereduce, runs BirdNET V2.4 on 6-second overlapping windows, writes to SQLite (`birdnet_local.db`) + saves WAV clips. Dashboard receives audio detections via SSE.
 
@@ -51,7 +58,7 @@ Everything runs on the iMac (192.168.4.200). The CloudKey provides camera feeds 
 
 ## Services
 
-Nine macOS LaunchAgents + one Docker container:
+Ten macOS LaunchAgents + one Docker container:
 
 | # | Label | Script | Details |
 |---|-------|--------|---------|
@@ -61,10 +68,11 @@ Nine macOS LaunchAgents + one Docker container:
 | 4 | `com.vives.bird-dashboard` | `uvicorn` (api.py) | FastAPI dashboard backend, port 8099 |
 | 5 | `com.vives.bird-enhanced-audio` | `enhanced_audio_stream.py` | Bandpass MP3 audio stream, port 8096 |
 | 6 | `com.vives.bird-health-monitor` | `health_monitor.py` | Runs every 5 min, checks + restarts services |
-| 7 | `com.vives.bird-livedetect` | `live_detector.py` | Real-time detection SSE, port 8097 |
-| 8 | `com.vives.bird-rtsp-sync` | `refresh_rtsp.py` | RTSP token refresh, daily at 3:10 AM |
-| 9 | `com.vives.bird-tunnel` | `cloudflared tunnel run` | Cloudflare tunnel to birds.vivessato.com |
-| 10 | — (Docker) | `go2rtc` | RTSP to WebRTC/HLS, port 1984 |
+| 7 | `com.vives.bird-livedetect` | `live_detector.py` | Old real-time detection SSE, port 8097 |
+| 8 | `com.vives.bird-pipeline` | `bird_pipeline.py` | New unified detection pipeline SSE, port 8100 |
+| 9 | `com.vives.bird-rtsp-sync` | `refresh_rtsp.py` | RTSP token refresh, daily at 3:10 AM |
+| 10 | `com.vives.bird-tunnel` | `cloudflared tunnel run` | Cloudflare tunnel to birds.vivessato.com |
+| 11 | — (Docker) | `go2rtc` | RTSP to WebRTC/HLS, port 1984 |
 
 All LaunchAgents use KeepAlive (except health-monitor which uses StartInterval, and rtsp-sync which uses StartCalendarInterval).
 
@@ -76,8 +84,9 @@ All LaunchAgents use KeepAlive (except health-monitor which uses StartInterval, 
 |------|---------|
 | 1984 | go2rtc (Docker) — WebRTC/HLS video streaming |
 | 8096 | enhanced_audio_stream.py — bandpass MP3 stream |
-| 8097 | live_detector.py — real-time detection SSE |
+| 8097 | live_detector.py — old real-time detection SSE |
 | 8098 | audio_analyzer.py — BirdNET audio SSE + clips |
+| 8100 | bird_pipeline.py — new unified detection pipeline SSE |
 | 8099 | api.py (uvicorn) — dashboard API + frontend |
 
 External access: `birds.vivessato.com` routes through Cloudflare tunnel to port 8099.
@@ -93,10 +102,16 @@ External access: `birds.vivessato.com` routes through Cloudflare tunnel to port 
 - Regional species filter: `models/chilmark_feeder_species.txt` (230 species for batch, 61 for live)
 - Nighttime pause: ~30 min after sunset to sunrise (NOAA solar, 41.39N 70.61W)
 
-**Visual (live — live_detector.py)**:
+**Visual (live — live_detector.py, old)**:
 - YOLO confidence: >= 0.35, NMS IoU >= 0.45
 - SpeciesVoter: 2 agreeing frames out of 5, 5s cooldown, IoU 0.3 match threshold
 - Polls go2rtc at 3fps per camera
+
+**Visual (live — bird_pipeline.py, new)**:
+- Decodes RTSP via PyAV at ~3 FPS from go2rtc local restream
+- Motion gate -> YOLO -> species classification -> IoU multi-bird tracking
+- Trust levels shown in dashboard as plain English labels
+- Saves keeper frames to incoming/ for batch pipeline pickup
 
 **Audio (audio_analyzer.py)**:
 - MIN_CONFIDENCE: 0.50
@@ -140,7 +155,9 @@ Google Coral USB Accelerator connected to iMac. Used by AIY Birds V1 for species
 /Users/vives/bird-classifier/
   classify.py         Batch classification pipeline
   capture_snapshots.py  Motion-triggered snapshot capture
-  live_detector.py    Real-time detection + SSE
+  live_detector.py    Old real-time detection + SSE (port 8097)
+  bird_pipeline.py    New unified detection pipeline (port 8100)
+  bird_tracker.py     IoU-based multi-bird tracker for pipeline
   audio_analyzer.py   BirdNET audio analysis
   enhanced_audio_stream.py  Bandpass MP3 stream
   health_monitor.py   Service health checker
@@ -180,8 +197,11 @@ curl -s http://localhost:1984/api/streams
 # Dashboard API
 curl -s http://localhost:8099/api/health | python3 -m json.tool
 
-# Live detector
+# Live detector (old)
 curl -s http://localhost:8097/health | python3 -m json.tool
+
+# Bird pipeline (new)
+curl -s http://localhost:8100/health | python3 -m json.tool
 
 # Audio analyzer — check logs (no health endpoint)
 tail -20 /Users/vives/bird-snapshots/logs/audio-analyzer-stdout.log

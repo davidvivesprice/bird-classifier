@@ -31,7 +31,11 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 
 Single machine: iMac runs everything. CloudKey Gen 2+ manages cameras.
 SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio).
-10 LaunchAgent services with KeepAlive. Cloudflare tunnel for external access.
+11 LaunchAgent services with KeepAlive. Cloudflare tunnel for external access.
+
+Two detection systems run in parallel:
+- **Old system**: `capture_snapshots.py` (polls CloudKey) -> `classify.py --watch` (batch) -> `live_detector.py` (SSE on port 8097)
+- **New pipeline**: `bird_pipeline.py` — unified real-time detection. Decodes RTSP via go2rtc/PyAV at ~3 FPS. Motion gate -> YOLO -> species classification with yard prior -> IoU multi-bird tracking (`bird_tracker.py`) -> SSE broadcast on port 8100. Saves keeper frames to incoming/. Dashboard toggle ("New Det" / "Old Det") switches between the two SSE sources.
 
 ## Key Rules
 
