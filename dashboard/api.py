@@ -2895,6 +2895,8 @@ def get_species_activity(species_name: str):
     ).fetchall()
     for row in dow_rows:
         sqlite_dow = row["dow"]  # 0=Sun, 1=Mon, ..., 6=Sat
+        if sqlite_dow is None:
+            continue
         py_dow = (sqlite_dow - 1) % 7  # convert to 0=Mon, ..., 6=Sun
         by_dow[py_dow] += row["cnt"]
 
@@ -2909,6 +2911,8 @@ def get_species_activity(species_name: str):
         for row in cur.fetchall():
             sqlite_dow = row[0] if isinstance(row, tuple) else row["dow"]
             cnt = row[1] if isinstance(row, tuple) else row["cnt"]
+            if sqlite_dow is None:
+                continue
             py_dow = (sqlite_dow - 1) % 7
             by_dow[py_dow] += cnt
     except Exception:

@@ -486,6 +486,8 @@
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     padding: 12px 0;
+    overflow-x: hidden;
+    max-width: 100%;
   }
 
   /* System metrics grid */
@@ -2984,12 +2986,25 @@
 
   // ── Live Feed: fullscreen toggle ──
   window.toggleLiveFullscreen = function() {
-    var wrapper = document.querySelector('.live-wrapper');
-    if (!wrapper) return;
+    // iOS Safari only allows fullscreen on <video> elements
+    // Try the wrapper first (works on desktop), fall back to video element
     if (document.fullscreenElement || document.webkitFullscreenElement) {
       (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else {
-      (wrapper.requestFullscreen || wrapper.webkitRequestFullscreen).call(wrapper);
+      return;
+    }
+    var wrapper = document.querySelector('.live-wrapper');
+    var video = document.getElementById('live-video');
+    // Try wrapper fullscreen (desktop browsers)
+    if (wrapper && wrapper.requestFullscreen) {
+      wrapper.requestFullscreen().catch(function() {
+        // Fallback: try video element directly (iOS)
+        if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+      });
+    } else if (wrapper && wrapper.webkitRequestFullscreen) {
+      wrapper.webkitRequestFullscreen();
+    } else if (video && video.webkitEnterFullscreen) {
+      // iOS Safari: only video can go fullscreen
+      video.webkitEnterFullscreen();
     }
   }
   // Update fullscreen icon on change
