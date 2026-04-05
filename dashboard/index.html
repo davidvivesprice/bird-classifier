@@ -2686,6 +2686,11 @@
   function buildTop3Html(top3) {
     if (!top3 || !top3.length) return '';
     var scoreSum = top3.reduce(function(s, t) { return s + (t.raw_score || 0); }, 0);
+    // Check if the top prediction is confident
+    var topPct = scoreSum > 0 ? (top3[0].raw_score || 0) / scoreSum * 100 : 0;
+    var title = topPct >= 70 ? 'Best Matches'
+              : topPct >= 50 ? 'Not very sure — best guesses'
+              : 'Very uncertain — could be any of these';
     var items = top3.map(function(t, i) {
       var pct = scoreSum > 0 ? ((t.raw_score || 0) / scoreSum * 100).toFixed(1) + '%' : '';
       var safeName = (t.common_name || '').replace(/'/g, "\\'");
@@ -2696,7 +2701,7 @@
         (t.common_name ? ' <button class="btn-use-species" onclick="event.stopPropagation();useAsCorrection(\'' + safeName + '\')" title="Use as correct species">Use</button>' : '') +
       '</div>';
     }).join('');
-    return '<div class="review-top3"><div class="review-top3-title">Top 3 Predictions</div>' + items + '</div>';
+    return '<div class="review-top3"><div class="review-top3-title">' + title + '</div>' + items + '</div>';
   }
 
   /**
@@ -3309,13 +3314,19 @@
       img.onerror = null;
       img.src = '/bird-api/image/' + encodeURIComponent(file);
     }
-    // Footer metadata
+    // Footer metadata — human-readable
     var footer = document.getElementById('lightbox-footer');
     var parts = [];
-    if (conf) parts.push('<span>Detection: <b>' + (conf * 100).toFixed(0) + '%</b></span>');
-    if (ts) parts.push('<span>' + timeAgo(ts) + '</span>');
-    parts.push('<span>' + escHtml(file) + '</span>');
-    footer.innerHTML = parts.join('');
+    // Camera name from filename prefix
+    var camName = file.startsWith('feeder_') ? 'Feeder cam' : file.startsWith('ground_') ? 'Ground cam' : '';
+    if (ts) {
+      var timeStr = formatTimestamp(ts);
+      if (timeStr) parts.push('<span>Captured: <b>' + timeStr + '</b></span>');
+      var ago = timeAgo(ts);
+      if (ago) parts.push('<span>(' + ago + ')</span>');
+    }
+    if (camName) parts.push('<span>' + camName + '</span>');
+    footer.innerHTML = parts.join('  ');
     // Build details panel (predictions, cheat sheet, audio context, multi-bird)
     var detailsEl = document.getElementById('lightbox-details');
     if (detailsEl) {
@@ -5552,6 +5563,8 @@
     }
   }
   window.loadMissedBirds = loadMissedBirds;
+  window.loadBatchReview = loadBatchReview;
+  window.toggleBatchSelect = toggleBatchSelect;
 
   // ── Classified Review Tab ──
   var classifiedLoaded = false;
@@ -6878,6 +6891,9 @@
     }).join('');
   }
 
+  window.loadAudioDetections = loadAudioDetections;
+  window.loadMoreAudio = loadMoreAudio;
+
   window.playAudioBrowser = function(clipName, btn) {
     var audio = document.getElementById('audio-browser-player');
     var url = '/bird-api/birdnet-clip/' + clipName;
@@ -7157,6 +7173,9 @@
     }
   }
   window.loadSpeciesActivity = loadSpeciesActivity;
+  window.toggleSpeciesDropdown = toggleSpeciesDropdown;
+  window.filterSpeciesDropdown = filterSpeciesDropdown;
+  window.selectSpecies = selectSpecies;
 
   // Enter key triggers search
   document.addEventListener('DOMContentLoaded', function() {

@@ -53,8 +53,6 @@ Field Sparrow
 Eastern Phoebe
 Hermit Thrush
 American Crow
-Rock Pigeon
-Feral Pigeon
 Baltimore Oriole
 Orchard Oriole
 background
