@@ -5890,11 +5890,12 @@
             return !data.camera || data.camera === cam;
           }).map(function(t) {
             return {
-              species: t.species,
+              species: t.species + ((t.trust_level === 'unusual' || t.trust_level === 'probably_wrong') ? '?' : ''),
               bbox: t.bbox,
               confidence: t.confidence,
               camera: data.camera,
               track_id: t.track_id,
+              trust_level: t.trust_level || 'normal',
               _expireAt: Date.now() + 5000
             };
           });
@@ -5910,7 +5911,8 @@
           data.tracks.forEach(function(t) {
             if (!t.is_new) return;  // only inject on first appearance
             if (t.species === 'unidentified bird') return;
-            console.log('[Pipeline] ' + t.species + ' (' + data.camera + ', track ' + t.track_id + ')');
+            var trustTag = (t.trust_level === 'unusual' || t.trust_level === 'probably_wrong') ? ' ⚠️' : '';
+            console.log('[Pipeline] ' + t.species + trustTag + ' (' + data.camera + ', track ' + t.track_id + ')');
 
             var now = Date.now();
             // Dedup: skip if same species+camera in last 30s

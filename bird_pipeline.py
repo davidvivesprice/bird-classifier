@@ -138,6 +138,7 @@ def broadcast_tracks(camera_name: str, tracks: list[dict],
             "confidence": t["confidence"],
             "is_new": t.get("is_new", False),
             "age_seconds": t.get("age_seconds", 0),
+            "trust_level": t.get("trust_level", "normal"),
         })
 
     event = {
@@ -457,10 +458,12 @@ def camera_loop(camera_name: str, stream_name: str):
             # We need species for new ones, so we classify all detections,
             # but only new tracks actually use the classification result.
             species_list = []
+            trust_levels = []
             for det in detections:
                 crop = crop_bird(pil_image, det["box"])
                 if crop.size[0] < 5 or crop.size[1] < 5:
                     species_list.append("unidentified bird")
+                    trust_levels.append("normal")
                     continue
 
                 t_cls = time.monotonic()
@@ -471,10 +474,13 @@ def camera_loop(camera_name: str, stream_name: str):
                     raw_score = top.get("raw_score", 0)
                     if species_name in ("background", "unidentified bird"):
                         species_list.append("unidentified bird")
+                        trust_levels.append("normal")
                     elif raw_score < 10:
                         species_list.append("unidentified bird")
+                        trust_levels.append("normal")
                     else:
                         # Apply yard prior correction
+                        trust_level = "normal"
                         try:
                             correction = yard_prior.correct(
                                 classified_as=species_name,
@@ -482,11 +488,13 @@ def camera_loop(camera_name: str, stream_name: str):
                                 top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
                                       for p in filtered[:3]],
                             )
+                            trust_level = correction.get("trust_level", "normal")
                             if correction.get("correction_reason"):
                                 species_name = correction["corrected_species"]
                         except Exception:
                             pass
                         species_list.append(species_name)
+                        trust_levels.append(trust_level)
                 except Exception as e:
                     logging.error("[%s] Classifier error: %s", camera_name, e)
                     species_list.append("unidentified bird")
@@ -499,7 +507,7 @@ def camera_loop(camera_name: str, stream_name: str):
             frame_data = buf.getvalue()
 
             # Update tracker
-            tracks = tracker.update(detections, species_list, frame_data=frame_data)
+            tracks = tracker.update(detections, species_list, frame_data=frame_data, trust_levels=trust_levels)
 
             # Log new detections
             for t in tracks:

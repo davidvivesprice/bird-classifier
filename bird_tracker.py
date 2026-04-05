@@ -30,9 +30,10 @@ def _iou(box_a, box_b):
 
 class Track:
     __slots__ = ("track_id", "species", "bbox", "confidence",
-                 "created", "updated", "keeper_data", "keeper_confidence")
+                 "created", "updated", "keeper_data", "keeper_confidence",
+                 "trust_level")
 
-    def __init__(self, track_id, species, bbox, confidence, frame_data=None):
+    def __init__(self, track_id, species, bbox, confidence, frame_data=None, trust_level="normal"):
         self.track_id = track_id
         self.species = species
         self.bbox = bbox
@@ -41,6 +42,7 @@ class Track:
         self.updated = time.monotonic()
         self.keeper_data = frame_data
         self.keeper_confidence = confidence
+        self.trust_level = trust_level
 
 
 class BirdTracker:
@@ -68,22 +70,26 @@ class BirdTracker:
         self._next_id += 1
         return tid
 
-    def update(self, detections, species_list, frame_data=None):
+    def update(self, detections, species_list, frame_data=None, trust_levels=None):
         """Match detections to existing tracks. Create new tracks for unmatched.
 
         Args:
             detections: list of {"box": [x1,y1,x2,y2], "confidence": float}
             species_list: list of species names, parallel to detections
             frame_data: optional bytes/object to store as keeper frame
+            trust_levels: optional list of trust levels, parallel to detections
 
         Returns:
             list of track state dicts for SSE broadcast
         """
+        if trust_levels is None:
+            trust_levels = ["normal"] * len(detections)
+
         now = time.monotonic()
         matched_track_ids = set()
         new_track_ids = set()
 
-        for det, species in zip(detections, species_list):
+        for det, species, trust in zip(detections, species_list, trust_levels):
             box = det["box"]
             conf = det["confidence"]
 
@@ -109,7 +115,7 @@ class BirdTracker:
             else:
                 # New track
                 tid = self._new_id()
-                track = Track(tid, species, box, conf, frame_data)
+                track = Track(tid, species, box, conf, frame_data, trust_level=trust)
                 self.tracks[tid] = track
                 matched_track_ids.add(tid)
                 new_track_ids.add(tid)
@@ -159,6 +165,7 @@ class BirdTracker:
                 "is_new": t.track_id in new_track_ids,
                 "age_seconds": round(now - t.created, 1),
                 "keeper_data": t.keeper_data,
+                "trust_level": t.trust_level,
             }
             for t in self.tracks.values()
         ]
