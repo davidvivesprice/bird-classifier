@@ -5906,8 +5906,34 @@
             setTimeout(function() { dot.style.color = '#22c55e'; }, 500);
           }
 
+          // Inject new tracks into Recent Sightings
           data.tracks.forEach(function(t) {
+            if (!t.is_new) return;  // only inject on first appearance
+            if (t.species === 'unidentified bird') return;
             console.log('[Pipeline] ' + t.species + ' (' + data.camera + ', track ' + t.track_id + ')');
+
+            var now = Date.now();
+            // Dedup: skip if same species+camera in last 30s
+            var dominated = recentDetections.some(function(r) {
+              if (r.action !== 'live') return false;
+              if (!r.top_prediction || r.top_prediction.common_name !== t.species) return false;
+              if (r.camera !== data.camera) return false;
+              var rTime = parseTimestamp(r.source_timestamp);
+              return (now - rTime) < 30000;
+            });
+            if (!dominated) {
+              recentDetections.unshift({
+                file: null,
+                source_timestamp: data.timestamp,
+                timestamp: data.timestamp,
+                camera: data.camera,
+                action: 'live',
+                top_prediction: { common_name: t.species, scientific_name: '' },
+                best_detection: { confidence: t.confidence, box: t.bbox },
+              });
+              if (recentDetections.length > 50) recentDetections = recentDetections.slice(0, 50);
+              renderRecent();
+            }
           });
         }
       } catch(e) {
