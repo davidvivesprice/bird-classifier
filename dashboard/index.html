@@ -4017,7 +4017,7 @@
       const isLive = d.action === 'live';
       const thumbUrl = isLive
         ? '/bird-api/species-image/' + encodeURIComponent(name)
-        : (d.file ? '/bird-api/image/' + encodeURIComponent(d.file) : '');
+        : (d.file ? '/bird-api/image-crop/' + encodeURIComponent(d.file) : '');
       const cam = d.camera || '';
       const camBadge = cam === 'feeder' ? '<span class="camera-badge camera-badge-feeder" title="Feeder cam">F</span>'
                       : cam === 'ground' ? '<span class="camera-badge camera-badge-ground" title="Ground cam">G</span>'
@@ -4030,7 +4030,7 @@
         (thumbUrl ? '<img class="recent-thumb" src="' + thumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="recent-thumb"></div>') +
         '<div class="recent-info">' +
           '<div class="recent-species">' + escHtml(name) + '</div>' +
-          '<div class="recent-meta" title="' + escAttr(timeAgo(ts)) + '">' + formatTimestamp(ts) + ' (' + timeAgo(ts) + ')</div>' +
+          '<div class="recent-meta" title="' + escAttr(timeAgo(ts)) + '">' + (formatTimestamp(ts) ? formatTimestamp(ts) + (timeAgo(ts) ? ' (' + timeAgo(ts) + ')' : '') : (isLive ? 'Just now' : '')) + '</div>' +
         '</div>' +
         camBadge +
         '<span class="confidence-badge ' + confClass(conf) + '">' + confLabel(conf) + '</span>' +
