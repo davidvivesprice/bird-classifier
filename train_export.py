@@ -258,6 +258,7 @@ def export(
 
     manifest = {
         "created": datetime.now().isoformat(),
+        "camera": "feeder",
         "db_path": str(db_path),
         "min_images_per_species": min_images,
         "image_size": IMAGE_SIZE,
