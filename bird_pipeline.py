@@ -41,7 +41,7 @@ from bird_inference import (
     YOLODetector, SpeciesClassifier, normalize_species,
     crop_bird,
 )
-from bird_tracker import BirdTracker
+from bird_tracker import BirdTracker, _iou as _iou_quick
 from motion_gate import MotionGate
 from solar_utils import is_nighttime
 from yard_prior import YardPrior
@@ -73,7 +73,7 @@ CAMERAS = {
 
 # Detection thresholds
 DETECTION_CONFIDENCE = 0.3
-FRAME_INTERVAL = 0.333          # ~3 FPS wall-clock
+FRAME_INTERVAL = 0.1            # ~10 FPS wall-clock (YOLO is ~100ms)
 FORCED_YOLO_INTERVAL = 10.0     # Seconds between forced YOLO runs
 WATCHDOG_TIMEOUT = 60.0         # Restart camera if no frame for this long
 HEALTH_FILE = Path("/tmp/bird-pipeline-health.json")
@@ -385,14 +385,13 @@ def camera_loop(camera_name: str, stream_name: str):
 
     while running:
         # Nighttime pause — close RTSP, sleep, resume at sunrise
-        # TEMPORARILY DISABLED for video testing — re-enable after test
-        #if is_nighttime():
-        #    if stream_status[camera_name].get("connected"):
-        #        logging.info("[%s] Nighttime — pausing until sunrise", camera_name)
-        #        reader.close()
-        #        stream_status[camera_name]["connected"] = False
-        #    time.sleep(NIGHT_CHECK_INTERVAL)
-        #    continue
+        if is_nighttime():
+            if stream_status[camera_name].get("connected"):
+                logging.info("[%s] Nighttime — pausing until sunrise", camera_name)
+                reader.close()
+                stream_status[camera_name]["connected"] = False
+            time.sleep(NIGHT_CHECK_INTERVAL)
+            continue
 
         # Connect / reconnect
         if not reader.connect():
@@ -411,9 +410,8 @@ def camera_loop(camera_name: str, stream_name: str):
                 break
 
             # Nighttime check (mid-stream)
-            # TEMPORARILY DISABLED for video testing
-            #if is_nighttime():
-            #    break
+            if is_nighttime():
+                break
 
             # Wall-clock frame rate control
             now = time.monotonic()
@@ -478,79 +476,86 @@ def camera_loop(camera_name: str, stream_name: str):
                 pil_image.close()
                 continue
 
-            # Classify each detection
-            # Only classify NEW tracks — existing tracks reuse their species
-            # First, do a preliminary tracker update to see which are new
-            # We need species for new ones, so we classify all detections,
-            # but only new tracks actually use the classification result.
+            # ── Frigate-style: only classify NEW detections ──
+            # Match detections to existing tracks by IoU first.
+            # Matched → reuse species (no classification needed, instant).
+            # Unmatched → new bird, classify with yard model + AIY fallback.
             species_list = []
             trust_levels = []
-            for det in detections:
+            needs_classify = []
+
+            for i, det in enumerate(detections):
+                box = det["box"]
+                matched_track = None
+                best_iou = 0
+                for track in tracker.tracks.values():
+                    iou = _iou_quick(box, track.bbox)
+                    if iou > best_iou:
+                        best_iou = iou
+                        matched_track = track
+                if matched_track and best_iou >= tracker.iou_threshold:
+                    species_list.append(matched_track.species)
+                    trust_levels.append(matched_track.trust_level)
+                else:
+                    species_list.append(None)
+                    trust_levels.append("normal")
+                    needs_classify.append(i)
+
+            # Only classify NEW detections (the expensive part)
+            cls_ms = 0
+            for idx in needs_classify:
+                det = detections[idx]
                 crop = crop_bird(pil_image, det["box"])
                 if crop.size[0] < 5 or crop.size[1] < 5:
-                    species_list.append("unidentified bird")
-                    trust_levels.append("normal")
                     continue
 
                 t_cls = time.monotonic()
-                try:
-                    # Dual-model classification: yard model first, AIY fallback
-                    species_name = None
-                    trust_level = "normal"
+                species_name = None
 
-                    # Try yard model first (if available)
-                    if yard_cls:
-                        try:
-                            yard_result = yard_cls.classify(crop)
-                            if yard_result and yard_result.get("confidence", 0) >= 0.45:
-                                species_name = yard_result["species"]
-                        except Exception:
-                            pass
+                # Yard model first
+                if yard_cls:
+                    try:
+                        yard_result = yard_cls.classify(crop)
+                        if yard_result and yard_result.get("confidence", 0) >= 0.45:
+                            species_name = yard_result["species"]
+                    except Exception:
+                        pass
 
-                    # AIY fallback if yard model didn't classify
-                    if not species_name:
+                # AIY fallback
+                if not species_name:
+                    try:
                         filtered, _raw = classifier.classify(crop)
                         top = filtered[0]
                         aiy_name = top["common_name"]
                         raw_score = top.get("raw_score", 0)
                         if aiy_name not in ("background", "unidentified bird") and raw_score >= 10:
                             species_name = aiy_name
-
-                    # If neither model classified it, skip this detection
-                    if not species_name:
-                        species_list.append(None)
-                        trust_levels.append("normal")
-                        continue
-
-                    # Apply yard prior correction
-                    try:
-                        filtered_for_prior, _ = classifier.classify(crop)
-                        correction = yard_prior.correct(
-                            classified_as=species_name,
-                            confidence=det["confidence"],
-                            top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
-                                  for p in filtered_for_prior[:3]],
-                        )
-                        trust_level = correction.get("trust_level", "normal")
-                        if correction.get("correction_reason"):
-                            species_name = correction["corrected_species"]
+                            # Apply yard prior on AIY result
+                            try:
+                                correction = yard_prior.correct(
+                                    classified_as=species_name,
+                                    confidence=det["confidence"],
+                                    top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
+                                          for p in filtered[:3]],
+                                )
+                                trust_levels[idx] = correction.get("trust_level", "normal")
+                                if correction.get("correction_reason"):
+                                    species_name = correction["corrected_species"]
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
-                    species_list.append(species_name)
-                    trust_levels.append(trust_level)
-                except Exception as e:
-                    logging.error("[%s] Classifier error: %s", camera_name, e)
-                    species_list.append(None)
-                    trust_levels.append("normal")
+                species_list[idx] = species_name
+                cls_ms += (time.monotonic() - t_cls) * 1000
 
-            cls_ms = (time.monotonic() - t_yolo) * 1000 - yolo_ms
-
-            # Encode keeper frame (JPEG bytes for saving later)
-            buf = io.BytesIO()
-            pil_image.save(buf, format="JPEG", quality=90)
-            frame_data = buf.getvalue()
-            buf.close()
+            # Encode keeper only when we have new classified birds
+            frame_data = None
+            if needs_classify and any(species_list[i] for i in needs_classify):
+                buf = io.BytesIO()
+                pil_image.save(buf, format="JPEG", quality=90)
+                frame_data = buf.getvalue()
+                buf.close()
 
             # Update tracker
             tracks = tracker.update(detections, species_list, frame_data=frame_data, trust_levels=trust_levels)
@@ -567,12 +572,11 @@ def camera_loop(camera_name: str, stream_name: str):
                         t["confidence"] * 100, yolo_ms, cls_ms,
                     )
 
-            # Broadcast only on track change
-            state_key = [(t["track_id"], tuple(t["bbox"])) for t in tracks]
-            if state_key != prev_track_state or (now - last_broadcast) > 2.0:
-                broadcast_tracks(camera_name, tracks,
-                                 reader.width, reader.height, tracker.session_id)
-                prev_track_state = state_key
+            # Broadcast every frame with detections (smooth tracking)
+            broadcast_tracks(camera_name, tracks,
+                             reader.width, reader.height, tracker.session_id)
+            prev_track_state = [(t["track_id"], tuple(t["bbox"])) for t in tracks]
+            last_broadcast = now
 
             # Handle expired tracks → save keepers
             _handle_expired_tracks(tracker, camera_name)

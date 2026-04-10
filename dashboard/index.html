@@ -6117,23 +6117,24 @@
       var remaining = det._expireAt - now;
       var alpha = Math.min(1, remaining / 500);
 
-      // Label only — no bounding box
+      // Label only — fixed Y at 1/4 from top, X follows bird center
       var label = (det.species || 'Bird');
       ctx.font = 'bold 13px -apple-system, sans-serif';
       var textW = ctx.measureText(label).width;
       var labelH = 22;
-      // Center label on the detection
       var cx = (x1 + x2) / 2;
-      var cy = y1 > labelH + 8 ? y1 - 6 : y2 + labelH + 2;
+      var labelY = dispH * 0.25;  // Fixed at 1/4 from top
       var lx = cx - (textW + 14) / 2;
+      // Clamp X to stay within canvas
+      lx = Math.max(2, Math.min(lx, dispW - textW - 16));
 
       ctx.fillStyle = 'rgba(0, 0, 0, ' + (alpha * 0.75) + ')';
       ctx.beginPath();
-      ctx.roundRect(lx, cy - labelH + 4, textW + 14, labelH, 6);
+      ctx.roundRect(lx, labelY, textW + 14, labelH, 6);
       ctx.fill();
 
       ctx.fillStyle = 'rgba(74, 222, 128, ' + alpha + ')';
-      ctx.fillText(label, lx + 7, cy);
+      ctx.fillText(label, lx + 7, labelY + 15);
     }
   }
 
