@@ -296,6 +296,28 @@ def _find_classified_file(filename: str) -> Path | None:
     return None
 
 
+def _find_any_image(filename: str) -> Path | None:
+    """Find an image file anywhere — classified, annotated, trash, or skipped."""
+    safe = os.path.basename(filename)
+    # Try classified subdirectories first (raw originals)
+    found = _find_classified_file(safe)
+    if found:
+        return found
+    # Annotated (has bounding boxes but always available)
+    p = ANNOTATED_DIR / safe
+    if p.exists():
+        return p
+    # Trash
+    p = TRASH_DIR / safe
+    if p.exists():
+        return p
+    # Skipped
+    p = SKIPPED_DIR / safe
+    if p.exists():
+        return p
+    return None
+
+
 _regional_cache: list = []
 _regional_mtime: float = 0.0
 
@@ -1209,7 +1231,7 @@ def get_image_crop(filename: str, box: str = ""):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
-SECOND_OPINION_DIR = Path.home() / "Desktop" / "Second Opinion"
+SECOND_OPINION_DIR = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Second Opinion"
 
 
 @app.post("/api/review/second-opinion/{filename}")
@@ -1223,7 +1245,7 @@ def save_second_opinion(filename: str):
     from PIL import Image as PILImage
 
     safe_name = os.path.basename(filename)
-    path = _find_classified_file(safe_name)
+    path = _find_any_image(safe_name)
     if not path:
         raise HTTPException(status_code=404, detail="Image not found")
 
@@ -1278,16 +1300,17 @@ def list_second_opinions():
 
 
 @app.get("/api/review/pending")
-def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = ""):
+def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = "", camera: str = ""):
     """Get unreviewed classifications for the annotation GUI (paginated).
 
     Uses SQL LEFT JOIN via reviews_db — no in-memory cross-reference needed.
     """
     sp = species or None
     mb = bool(multibird)
+    cam = camera or None
 
-    rows = rdb.get_classifications(status="pending", species=sp, multibird=mb, offset=offset, limit=limit)
-    remaining = rdb.count_classifications(status="pending", species=sp, multibird=mb)
+    rows = rdb.get_classifications(status="pending", species=sp, multibird=mb, camera=cam, offset=offset, limit=limit)
+    remaining = rdb.count_classifications(status="pending", species=sp, multibird=mb, camera=cam)
 
     # Build response items from SQL rows, with audio corroboration check
     bconn = _birdnet_db()
@@ -1352,7 +1375,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     total_reviewed = rdb.count_reviews()
 
     # Species list: distinct species from unreviewed classifications
-    species_list = rdb.list_classification_species(status="pending")
+    species_list = rdb.list_classification_species(status="pending", camera=cam)
 
     return {
         "pending": pending,
@@ -1422,13 +1445,14 @@ def rerun_missed():
 
 
 @app.get("/api/review/goals")
-def review_goals(threshold: int = 20):
+def review_goals(threshold: int = 50, camera: str = ""):
     """Species classification goals — which species need more confirmed reviews for training.
 
     Uses SQL aggregation via reviews_db instead of in-memory iteration.
     """
     regional = load_regional_species()
-    raw_goals = rdb.get_review_goals(regional, threshold)
+    cam = camera or None
+    raw_goals = rdb.get_review_goals(regional, threshold, camera=cam)
 
     goals = []
     for g in raw_goals:

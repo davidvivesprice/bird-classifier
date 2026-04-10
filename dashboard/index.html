@@ -2154,9 +2154,9 @@
           <video id="live-video" autoplay muted playsinline></video>
           <canvas id="detection-overlay" class="detection-overlay"></canvas>
           <div class="stream-switcher" id="stream-switcher">
-            <button class="stream-btn active" id="stream-btn-feeder" onclick="switchStream('feeder-main')">Feeder</button>
+            <button class="stream-btn" id="stream-btn-feeder" onclick="switchStream('feeder-main')">Feeder</button>
             <button class="stream-btn" id="stream-btn-ground" onclick="switchStream('ground-main')">Ground</button>
-            <button class="stream-btn" id="stream-btn-both" onclick="switchStream('both')">Both</button>
+            <button class="stream-btn active" id="stream-btn-both" onclick="switchStream('both')">Both</button>
           </div>
           <button class="overlay-toggle" id="overlay-toggle" onclick="toggleDetectionOverlay()" title="Toggle detection labels">&#x1F3F7;&#xFE0F; Labels</button>
           <div class="live-controls">
@@ -2245,9 +2245,14 @@
 
       <!-- Classify sub-tab -->
       <div class="review-subtab-content active" id="subtab-classify">
-        <div style="padding:8px 0;display:flex;gap:8px;align-items:center;">
+        <div style="padding:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <select id="classify-species-filter" onchange="filterClassifyBySpecies()" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;text-align:center;">
             <option value="">All Species</option>
+          </select>
+          <select id="classify-camera-filter" onchange="filterClassifyBySpecies()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
+            <option value="">Both Cameras</option>
+            <option value="feeder">Feeder</option>
+            <option value="ground">Ground</option>
           </select>
           <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-muted);white-space:nowrap;cursor:pointer;">
             <input type="checkbox" id="classify-multibird-filter" onchange="filterClassifyBySpecies()"> Multi-bird
@@ -2255,7 +2260,7 @@
         </div>
         <div class="goals-panel" id="goals-panel" style="display:none;">
           <div class="goals-header" onclick="toggleGoalsPanel()">
-            <span>🎯 Classification Goals</span>
+            <span id="goals-title">Classification Goals</span>
             <span class="goals-toggle" id="goals-toggle-text">▸ show</span>
           </div>
           <div class="goals-body" id="goals-body"></div>
@@ -2791,7 +2796,7 @@
   }
   let selectedDate = todayStr();
   let currentCamera = 'all';         // 'all' | 'feeder' | 'ground'
-  let currentStream = 'feeder-main'; // go2rtc stream name for live video
+  let currentStream = 'both'; // go2rtc stream name for live video
   let showDetectionOverlay = true;   // detection bbox overlay enabled
   let liveDetectionSource = null;    // SSE EventSource for /live-detections/events
   let liveDetections = [];           // active bounding boxes on overlay
@@ -2882,7 +2887,11 @@
       try {
         var controller = new AbortController();
         var timer = setTimeout(function() { controller.abort(); }, timeout);
-        var resp = await fetch(url, { signal: controller.signal });
+        var fetchOpts = { signal: controller.signal };
+        if (opts.method) fetchOpts.method = opts.method;
+        if (opts.body) fetchOpts.body = opts.body;
+        if (opts.headers) fetchOpts.headers = opts.headers;
+        var resp = await fetch(url, fetchOpts);
         clearTimeout(timer);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
@@ -3408,7 +3417,9 @@
   }
 
   window.saveSecondOpinion = async function(ev) {
-    var file = lightboxFile || (typeof reviewFile !== 'undefined' ? reviewFile : '');
+    var file = lightboxFile
+      || (pendingReview && pendingReview[reviewIndex] ? pendingReview[reviewIndex].file : '')
+      || '';
     if (!file) return;
     var btn = ev ? ev.target : null;
     if (!btn) btn = document.querySelector('[onclick*="saveSecondOpinion"]');
@@ -4422,9 +4433,11 @@
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
       var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
+      var cameraFilter = document.getElementById('classify-camera-filter').value;
       var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
       if (multibirdFilter || speciesFilter === '__multibird__') url += '&multibird=1';
+      if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
       const data = await apiFetch(url, { timeout: 30000, retries: 2 });
       pendingReview = data.pending || [];
       _reviewOffset = data.pending ? data.pending.length : 0;
@@ -4526,18 +4539,28 @@
   var _goalsShowComplete = false;
   async function loadGoals() {
     try {
-      var data = await apiFetch('/bird-api/review/goals');
+      var cameraFilter = document.getElementById('classify-camera-filter');
+      var cam = cameraFilter ? cameraFilter.value : '';
+      var url = '/bird-api/review/goals';
+      if (cam) url += '?camera=' + encodeURIComponent(cam);
+      var data = await apiFetch(url);
       var goals = data.goals || [];
       if (goals.length === 0) return;
       document.getElementById('goals-panel').style.display = '';
-      renderGoals(goals);
+      renderGoals(goals, cam);
     } catch (e) {}
   }
 
-  function renderGoals(goals) {
+  function renderGoals(goals, cameraLabel) {
     var body = document.getElementById('goals-body');
     var incomplete = goals.filter(function(g) { return g.complete < 100; });
     var complete = goals.filter(function(g) { return g.complete >= 100; });
+    // Update title based on camera filter
+    var titleEl = document.getElementById('goals-title');
+    if (titleEl) {
+      var camName = cameraLabel ? (cameraLabel.charAt(0).toUpperCase() + cameraLabel.slice(1) + ' Cam') : 'All Cameras';
+      titleEl.textContent = 'Training Goals — ' + camName;
+    }
     // Check if a species filter is active to highlight the row
     var activeFilter = '';
     var filterEl = document.getElementById('classify-species-filter');
@@ -5087,9 +5110,6 @@
       signalsHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;">' + signals.join('') + '</div>';
     }
 
-    // Normalize raw scores to percentages
-    var scoreSum = top3.reduce(function(s, t) { return s + (t.raw_score || 0); }, 0);
-
     // Names of species heard by audio (for sparrow cheat sheet highlighting)
     var heardSpeciesNames = audioContext.map(function(h) { return h.species; });
 
@@ -5098,17 +5118,7 @@
     if (isLookalike(speciesName)) {
       predictionSection = buildLookalikeCheat(speciesName, heardSpeciesNames);
     } else {
-      predictionSection = top3.map(function(t, i) {
-        var pct = scoreSum > 0 ? ((t.raw_score || 0) / scoreSum * 100).toFixed(1) + '%' : '';
-        return '<div class="review-top3-item">' +
-          '<span class="review-top3-rank">' + (i + 1) + '</span>' +
-          '<span>' + (t.common_name ? spLink(t.common_name) : '') + '</span>' +
-          '<span class="review-top3-score">' + pct + '</span>' +
-        '</div>';
-      }).join('');
-      if (predictionSection) {
-        predictionSection = '<div class="review-top3"><div class="review-top3-title">Top 3 Predictions</div>' + predictionSection + '</div>';
-      }
+      predictionSection = buildTop3Html(top3);
     }
 
     // Multi-bird: clickable bird selector
@@ -5279,9 +5289,11 @@
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
       var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
+      var cameraFilter = document.getElementById('classify-camera-filter').value;
       var url = '/bird-api/review/pending?offset=' + _reviewOffset + '&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
       if (multibirdFilter || speciesFilter === '__multibird__') url += '&multibird=1';
+      if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
       var data = await apiFetch(url);
       var newItems = data.pending || [];
       if (newItems.length > 0) {
@@ -5913,7 +5925,7 @@
               camera: data.camera,
               track_id: t.track_id,
               trust_level: t.trust_level || 'normal',
-              _expireAt: Date.now() + 5000
+              _expireAt: Date.now() + 2000
             };
           });
 
@@ -6105,21 +6117,23 @@
       var remaining = det._expireAt - now;
       var alpha = Math.min(1, remaining / 500);
 
-      ctx.strokeStyle = 'rgba(74, 222, 128, ' + alpha + ')';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x1, y1, bw, bh);
-
-      var label = (det.species || 'Bird') + ' ' + Math.round((det.confidence || 0) * 100) + '%';
-      ctx.font = 'bold 12px -apple-system, sans-serif';
+      // Label only — no bounding box
+      var label = (det.species || 'Bird');
+      ctx.font = 'bold 13px -apple-system, sans-serif';
       var textW = ctx.measureText(label).width;
-      var labelH = 18;
-      var labelY = y1 > labelH + 4 ? y1 - labelH - 2 : y1 + 2;
+      var labelH = 22;
+      // Center label on the detection
+      var cx = (x1 + x2) / 2;
+      var cy = y1 > labelH + 8 ? y1 - 6 : y2 + labelH + 2;
+      var lx = cx - (textW + 14) / 2;
 
-      ctx.fillStyle = 'rgba(0, 0, 0, ' + (alpha * 0.7) + ')';
-      ctx.fillRect(x1, labelY, textW + 10, labelH);
+      ctx.fillStyle = 'rgba(0, 0, 0, ' + (alpha * 0.75) + ')';
+      ctx.beginPath();
+      ctx.roundRect(lx, cy - labelH + 4, textW + 14, labelH, 6);
+      ctx.fill();
 
       ctx.fillStyle = 'rgba(74, 222, 128, ' + alpha + ')';
-      ctx.fillText(label, x1 + 5, labelY + 13);
+      ctx.fillText(label, lx + 7, cy);
     }
   }
 
@@ -7340,7 +7354,13 @@
 
   // ── Init & Refresh ──
   async function init() {
-    initLiveFeed();
+    if (currentStream === 'both') {
+      var wrapper = document.getElementById('live-wrapper');
+      if (wrapper) wrapper.classList.add('both-active');
+      initSplitFeed();
+    } else {
+      initLiveFeed();
+    }
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
     if (_usePipeline) {

@@ -204,11 +204,16 @@ def _row_to_entry(row):
         "camera": row["camera"],
         "timestamp": row["timestamp"],
         "source_timestamp": row["source_timestamp"],
+        "source_date": row["source_date"],
         "action": row["action"],
         "detect_ms": row["detect_ms"],
         "classify_ms": row["classify_ms"],
         "total_ms": row["total_ms"],
         "detections": row["detections"],
+        "common_name": row["common_name"],
+        "scientific_name": row["scientific_name"],
+        "raw_score": row["raw_score"],
+        "confidence": row["confidence"],
     }
 
     bd = _safe_json(row["best_detection_json"])

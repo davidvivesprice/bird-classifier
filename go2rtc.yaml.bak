@@ -1,0 +1,11 @@
+streams:
+  feeder-main:
+    - rtsp://192.168.4.9:7447/axlDsSsOtFpL2kb1#tcp
+  ground-main:
+    - rtsp://192.168.4.9:7447/xisKSnlW1sIgNRty#tcp
+
+api:
+  listen: ":1984"
+
+log:
+  level: info

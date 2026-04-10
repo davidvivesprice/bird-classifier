@@ -46,6 +46,13 @@ from motion_gate import MotionGate
 from solar_utils import is_nighttime
 from yard_prior import YardPrior
 
+# Try loading yard classifier for dual-model detection
+try:
+    from yard_classifier import YardClassifier
+    _YARD_AVAILABLE = True
+except ImportError:
+    _YARD_AVAILABLE = False
+
 # ──────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────
@@ -128,9 +135,11 @@ def broadcast_event(event_data: dict):
 def broadcast_tracks(camera_name: str, tracks: list[dict],
                      frame_width: int, frame_height: int, session_id: str):
     """Broadcast active tracks as one SSE event."""
-    # Strip keeper_data from broadcast (it's binary frame data)
+    # Strip keeper_data and unclassified detections from broadcast
     clean_tracks = []
     for t in tracks:
+        if not t.get("species") or t["species"] in ("unidentified bird", "background"):
+            continue
         clean_tracks.append({
             "track_id": t["track_id"],
             "species": t["species"],
@@ -336,9 +345,23 @@ def camera_loop(camera_name: str, stream_name: str):
     classifier = SpeciesClassifier(str(SPECIES_MODEL), str(LABELS),
                                    regional_species=regional)
     yard_prior = YardPrior()
+
+    # Yard model for dual-model classification
+    yard_cls = None
+    if _YARD_AVAILABLE:
+        try:
+            yard_cls = YardClassifier()
+            if yard_cls.enabled:
+                logging.info("[%s] Yard model loaded — dual-model classification active", camera_name)
+            else:
+                yard_cls = None
+                logging.info("[%s] Yard model not available — AIY only", camera_name)
+        except Exception as e:
+            logging.warning("[%s] Yard model failed to load: %s — AIY only", camera_name, e)
+            yard_cls = None
     tracker = BirdTracker(
         iou_threshold=0.15,     # Lower than default 0.3 — birds move fast at 3 FPS
-        expire_seconds=5.0,     # Give 5s without match before expiring (was 3s)
+        expire_seconds=2.0,     # Quick expire for responsive UI
     )
     gate = MotionGate(threshold_pct=1.5, resize_width=320)
 
@@ -362,13 +385,14 @@ def camera_loop(camera_name: str, stream_name: str):
 
     while running:
         # Nighttime pause — close RTSP, sleep, resume at sunrise
-        if is_nighttime():
-            if stream_status[camera_name].get("connected"):
-                logging.info("[%s] Nighttime — pausing until sunrise", camera_name)
-                reader.close()
-                stream_status[camera_name]["connected"] = False
-            time.sleep(NIGHT_CHECK_INTERVAL)
-            continue
+        # TEMPORARILY DISABLED for video testing — re-enable after test
+        #if is_nighttime():
+        #    if stream_status[camera_name].get("connected"):
+        #        logging.info("[%s] Nighttime — pausing until sunrise", camera_name)
+        #        reader.close()
+        #        stream_status[camera_name]["connected"] = False
+        #    time.sleep(NIGHT_CHECK_INTERVAL)
+        #    continue
 
         # Connect / reconnect
         if not reader.connect():
@@ -387,8 +411,9 @@ def camera_loop(camera_name: str, stream_name: str):
                 break
 
             # Nighttime check (mid-stream)
-            if is_nighttime():
-                break
+            # TEMPORARILY DISABLED for video testing
+            #if is_nighttime():
+            #    break
 
             # Wall-clock frame rate control
             now = time.monotonic()
@@ -469,36 +494,54 @@ def camera_loop(camera_name: str, stream_name: str):
 
                 t_cls = time.monotonic()
                 try:
-                    filtered, _raw = classifier.classify(crop)
-                    top = filtered[0]
-                    species_name = top["common_name"]
-                    raw_score = top.get("raw_score", 0)
-                    if species_name in ("background", "unidentified bird"):
-                        species_list.append("unidentified bird")
-                        trust_levels.append("normal")
-                    elif raw_score < 10:
-                        species_list.append("unidentified bird")
-                        trust_levels.append("normal")
-                    else:
-                        # Apply yard prior correction
-                        trust_level = "normal"
+                    # Dual-model classification: yard model first, AIY fallback
+                    species_name = None
+                    trust_level = "normal"
+
+                    # Try yard model first (if available)
+                    if yard_cls:
                         try:
-                            correction = yard_prior.correct(
-                                classified_as=species_name,
-                                confidence=det["confidence"],
-                                top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
-                                      for p in filtered[:3]],
-                            )
-                            trust_level = correction.get("trust_level", "normal")
-                            if correction.get("correction_reason"):
-                                species_name = correction["corrected_species"]
+                            yard_result = yard_cls.classify(crop)
+                            if yard_result and yard_result.get("confidence", 0) >= 0.45:
+                                species_name = yard_result["species"]
                         except Exception:
                             pass
-                        species_list.append(species_name)
-                        trust_levels.append(trust_level)
+
+                    # AIY fallback if yard model didn't classify
+                    if not species_name:
+                        filtered, _raw = classifier.classify(crop)
+                        top = filtered[0]
+                        aiy_name = top["common_name"]
+                        raw_score = top.get("raw_score", 0)
+                        if aiy_name not in ("background", "unidentified bird") and raw_score >= 10:
+                            species_name = aiy_name
+
+                    # If neither model classified it, skip this detection
+                    if not species_name:
+                        species_list.append(None)
+                        trust_levels.append("normal")
+                        continue
+
+                    # Apply yard prior correction
+                    try:
+                        filtered_for_prior, _ = classifier.classify(crop)
+                        correction = yard_prior.correct(
+                            classified_as=species_name,
+                            confidence=det["confidence"],
+                            top3=[{"common_name": p["common_name"], "raw_score": p["raw_score"]}
+                                  for p in filtered_for_prior[:3]],
+                        )
+                        trust_level = correction.get("trust_level", "normal")
+                        if correction.get("correction_reason"):
+                            species_name = correction["corrected_species"]
+                    except Exception:
+                        pass
+
+                    species_list.append(species_name)
+                    trust_levels.append(trust_level)
                 except Exception as e:
                     logging.error("[%s] Classifier error: %s", camera_name, e)
-                    species_list.append("unidentified bird")
+                    species_list.append(None)
                     trust_levels.append("normal")
 
             cls_ms = (time.monotonic() - t_yolo) * 1000 - yolo_ms

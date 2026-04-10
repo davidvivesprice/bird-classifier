@@ -211,7 +211,7 @@ def count_pending(species=None, multibird=False):
 
 # ── Review goals ──
 
-def get_review_goals(regional_species, threshold=20):
+def get_review_goals(regional_species, threshold=50, camera=None):
     """Compute per-species confirmed-review counts.
 
     Returns a list of dicts: {species, confirmed, complete}.
@@ -220,25 +220,34 @@ def get_review_goals(regional_species, threshold=20):
     Counts come from two sources:
       1. 'correct' verdicts → species is c.common_name from the classification
       2. 'wrong' verdicts with a non-empty correct_species → species is r.correct_species
+
+    If camera is set, only count confirmations from that camera.
     """
     conn = get_conn(readonly=True)
+
+    cam_filter = ""
+    cam_params = []
+    if camera:
+        cam_filter = " AND c.camera = ?"
+        cam_params = [camera]
 
     # Source 1: correct verdicts
     rows_correct = conn.execute("""
         SELECT c.common_name AS species, COUNT(*) AS cnt
         FROM reviews r
         JOIN classifications c ON r.file = c.file
-        WHERE r.verdict = 'correct'
+        WHERE r.verdict = 'correct'""" + cam_filter + """
         GROUP BY c.common_name
-    """).fetchall()
+    """, cam_params).fetchall()
 
     # Source 2: wrong verdicts with corrected species
     rows_wrong = conn.execute("""
         SELECT r.correct_species AS species, COUNT(*) AS cnt
         FROM reviews r
-        WHERE r.verdict = 'wrong' AND r.correct_species != ''
+        JOIN classifications c ON r.file = c.file
+        WHERE r.verdict = 'wrong' AND r.correct_species != ''""" + cam_filter + """
         GROUP BY r.correct_species
-    """).fetchall()
+    """, cam_params).fetchall()
 
     counts = {}
     for row in rows_correct:
@@ -434,14 +443,14 @@ def count_classifications(status="pending", species=None, verdict=None,
     return conn.execute(sql, params).fetchone()[0]
 
 
-def list_classification_species(status="reviewed"):
+def list_classification_species(status="reviewed", camera=None):
     """List distinct species for filter dropdowns.
 
     Returns both effective species (for corrected items) AND original species
     (for non-corrected items), so the dropdown includes all species the user
     might want to filter by.
     """
-    where_clause, params = _build_classification_query(status)
+    where_clause, params = _build_classification_query(status, camera=camera)
 
     sql = (
         f"SELECT DISTINCT name FROM ("

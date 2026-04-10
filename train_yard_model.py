@@ -51,6 +51,7 @@ def get_training_data():
     species_images = {}
 
     # Correct verdicts — image is in classified/{species}/
+    # Feeder cam only, exclude multi-bird frames
     rows = conn.execute("""
         SELECT c.file, c.common_name, c.best_detection_json
         FROM classifications c
@@ -58,6 +59,8 @@ def get_training_data():
         WHERE r.verdict = 'correct'
         AND c.common_name IS NOT NULL
         AND c.best_detection_json IS NOT NULL
+        AND c.camera = 'feeder'
+        AND json_array_length(c.birds_json) <= 1
     """).fetchall()
 
     for r in rows:
@@ -72,6 +75,7 @@ def get_training_data():
             })
 
     # Wrong verdicts with correction — image is in classified/{wrong_species}/
+    # Feeder cam only, exclude multi-bird frames
     rows = conn.execute("""
         SELECT c.file, c.common_name, r.correct_species, c.best_detection_json
         FROM classifications c
@@ -81,6 +85,8 @@ def get_training_data():
         AND r.correct_species != ''
         AND r.correct_species != 'not_a_bird'
         AND c.best_detection_json IS NOT NULL
+        AND c.camera = 'feeder'
+        AND json_array_length(c.birds_json) <= 1
     """).fetchall()
 
     for r in rows:
@@ -195,27 +201,102 @@ def train(progress_callback=None):
         # Step 3: Prepare images and train
         progress(3, 5, "Training on Coral USB (weight imprinting)...")
 
-        engine = ImprintingEngine(str(IMPRINTING_MODEL), keep_classes=False)
+        import pickle
+        import subprocess
 
+        # Phase 1: Extract the extractor model in a subprocess
+        # (ImprintingEngine grabs Edge TPU, so we do this separately)
+        extract_model_script = '''
+import sys
+sys.path.insert(0, "{base_dir}")
+from pycoral.learn.imprinting.engine import ImprintingEngine
+engine = ImprintingEngine("{model}", keep_classes=False)
+with open("{output}", "wb") as f:
+    f.write(engine.serialize_extractor_model())
+print("Extractor model saved")
+'''.format(base_dir=str(BASE_DIR), model=str(IMPRINTING_MODEL), output="/tmp/yard_extractor.tflite")
+
+        proc = subprocess.run(
+            [sys.executable, "-c", extract_model_script],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"Extractor export failed: {proc.stderr}")
+        extractor_path = "/tmp/yard_extractor.tflite"
+
+        # Phase 2: Extract embeddings in a subprocess (separate Edge TPU session)
         species_list = sorted(training_data.keys())
-        for class_id, species in enumerate(species_list):
-            images = training_data[species]
-            # Crop and resize all images for this species
-            arrays = []
-            for img_info in images:
-                try:
-                    arr = crop_and_resize(img_info["path"], img_info["box"])
-                    arrays.append(arr)
-                except Exception as e:
-                    log.warning("Failed to process %s: %s", img_info["path"], e)
+        # Save image list for subprocess
+        image_list_path = "/tmp/yard_training_images.pkl"
+        with open(image_list_path, "wb") as f:
+            pickle.dump({
+                "species_list": species_list,
+                "training_data": training_data,
+            }, f)
 
-            if arrays:
-                # Train this class
-                for arr in arrays:
-                    engine.train(arr, class_id)
+        extract_script = '''
+import pickle, sys, numpy as np
+from pycoral.utils.edgetpu import make_interpreter
+sys.path.insert(0, "{base_dir}")
+from train_yard_model import crop_and_resize
+
+with open("{image_list}", "rb") as f:
+    data = pickle.load(f)
+
+extractor = make_interpreter("{extractor}", device="usb")
+extractor.allocate_tensors()
+inp = extractor.get_input_details()
+out = extractor.get_output_details()
+
+all_embeddings = {{}}
+for class_id, species in enumerate(data["species_list"]):
+    embeddings = []
+    for img_info in data["training_data"][species]:
+        try:
+            arr = crop_and_resize(img_info["path"], img_info["box"])
+            extractor.set_tensor(inp[0]["index"], np.expand_dims(arr, 0))
+            extractor.invoke()
+            emb = extractor.get_tensor(out[0]["index"]).flatten().copy()
+            embeddings.append(emb)
+        except Exception as e:
+            print(f"  WARN: {{e}}", file=sys.stderr)
+    all_embeddings[class_id] = embeddings
+    print(f"  Extracted: {{species}} ({{len(embeddings)}} embeddings)", file=sys.stderr)
+
+with open("{output}", "wb") as f:
+    pickle.dump(all_embeddings, f)
+'''.format(
+            base_dir=str(BASE_DIR),
+            image_list=image_list_path,
+            extractor=extractor_path,
+            output="/tmp/yard_embeddings.pkl",
+        )
+
+        log.info("  Extracting embeddings via subprocess...")
+        proc = subprocess.run(
+            [sys.executable, "-c", extract_script],
+            capture_output=True, text=True, timeout=600,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"Embedding extraction failed: {proc.stderr}")
+        if proc.stderr:
+            for line in proc.stderr.strip().split("\n"):
+                log.info(line)
+
+        # Load embeddings
+        with open("/tmp/yard_embeddings.pkl", "rb") as f:
+            all_embeddings = pickle.load(f)
+
+        # Phase 3: Train with embeddings (creates new engine, grabs Edge TPU)
+        engine = ImprintingEngine(str(IMPRINTING_MODEL), keep_classes=False)
+        for class_id, species in enumerate(species_list):
+            embeddings = all_embeddings.get(class_id, [])
+            for emb in embeddings:
+                engine.train(emb, class_id)
+            if embeddings:
                 results["species"][species]["trained"] = True
-                results["species"][species]["images_used"] = len(arrays)
-                log.info("  Trained: %s (%d images)", species, len(arrays))
+                results["species"][species]["images_used"] = len(embeddings)
+                log.info("  Trained: %s (%d images)", species, len(embeddings))
 
         # Step 4: Save model
         progress(4, 5, "Saving model...")
@@ -226,7 +307,8 @@ def train(progress_callback=None):
         if YARD_LABELS.exists():
             YARD_LABELS.rename(YARD_LABELS_PREV)
 
-        engine.save(str(YARD_MODEL))
+        with open(str(YARD_MODEL), "wb") as f:
+            f.write(engine.serialize_model())
         YARD_LABELS.write_text("\n".join(species_list) + "\n")
 
         results["model_path"] = str(YARD_MODEL)
