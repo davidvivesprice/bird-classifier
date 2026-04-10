@@ -57,13 +57,21 @@ class FrameCapture:
 
     def stop(self):
         self._stop_event.set()
-        if self.proc:
+        # Wait for threads to exit their loops before killing the process.
+        # They check _stop_event at the top of each iteration.
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=3)
+        if self._watchdog_thread is not None:
+            self._watchdog_thread.join(timeout=3)
+        # Now kill whatever subprocess is current
+        proc = self.proc
+        if proc is not None:
             try:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                proc.kill()
+                proc.wait(timeout=5)
             except Exception:
                 pass
-            self.proc = None
+        self.proc = None
 
     def _input_args(self, url: str) -> list:
         if url.startswith("rtsp://"):
@@ -136,22 +144,35 @@ class FrameCapture:
 
     def _watchdog(self):
         while not self._stop_event.is_set():
-            time.sleep(WATCHDOG_CHECK_S)
-            last = self.stats.get("last_frame_ms")
-            if last is None:
-                continue
-            age_ms = (time.time() * 1000) - last
-            if age_ms > WATCHDOG_STALL_MS:
-                log.warning("[%s] ffmpeg stalled %.0fms, restarting",
-                            self.camera_name, age_ms)
-                self._restart()
+            try:
+                time.sleep(WATCHDOG_CHECK_S)
+                if self._stop_event.is_set():
+                    break
+                last = self.stats.get("last_frame_ms")
+                if last is None:
+                    continue
+                age_ms = (time.time() * 1000) - last
+                if age_ms > WATCHDOG_STALL_MS:
+                    log.warning("[%s] ffmpeg stalled %.0fms, restarting",
+                                self.camera_name, age_ms)
+                    self._restart()
+            except Exception:
+                log.exception("[%s] watchdog error", self.camera_name)
+                # Brief delay to avoid tight error loops, then continue
+                time.sleep(1.0)
 
     def _restart(self):
-        if self.proc:
+        # Local snapshot to avoid TOCTOU with stop()
+        proc = self.proc
+        if proc is not None:
             try:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                proc.kill()
+                proc.wait(timeout=5)
             except Exception:
                 pass
-        self._spawn_ffmpeg()
-        self.stats["ffmpeg_restarts"] += 1
+        try:
+            self._spawn_ffmpeg()
+            self.stats["ffmpeg_restarts"] += 1
+        except Exception as e:
+            log.error("[%s] failed to respawn ffmpeg: %s", self.camera_name, e)
+            # Leave self.proc as it was; watchdog will retry on next iteration
