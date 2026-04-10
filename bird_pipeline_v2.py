@@ -28,7 +28,7 @@ CAMERAS = {
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
 YARD_MODEL = str(MODELS_DIR / "yard_model.tflite")
 YARD_LABELS = str(MODELS_DIR / "yard_model_labels.txt")
-AIY_MODEL = str(MODELS_DIR / "aiy_birds_V1_edgetpu.tflite")
+AIY_MODEL = str(MODELS_DIR / "aiy_birds_v1.onnx")
 AIY_LABELS = str(MODELS_DIR / "inat_bird_labels.txt")
 
 running = True
