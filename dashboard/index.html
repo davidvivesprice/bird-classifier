@@ -6172,6 +6172,12 @@
   function renderDetectionOverlay() {
     var now = Date.now();
 
+    // v2: when MJPEG mode is active, labels are baked into the img — skip overlay
+    if (_usePipeline && typeof _v2Active !== 'undefined' && _v2Active) {
+      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
+      return;
+    }
+
     if (currentStream === 'both') {
       // Split mode: render on each camera's overlay canvas
       if (window._splitDetections && showDetectionOverlay) {
@@ -7405,12 +7411,20 @@
         var wrapperEl = document.getElementById('live-wrapper');
         if (wrapperEl) wrapperEl.classList.remove('both-active');
       }
-      connectPipelineSSE();
-      // v2: connect the MJPEG debug stream (labels baked into frames)
-      if (typeof connectDebugStreamV2 === 'function') {
-        var initCam = (currentStream || 'feeder-main').replace('-main', '');
-        connectDebugStreamV2(initCam);
-      }
+      // v2: connect ONLY the MJPEG debug stream. Labels are baked into the
+      // frames server-side — do NOT also run connectPipelineSSE (which would
+      // try to draw red ?? boxes from a stale 404 SSE source on top of our img).
+      // Defer with setTimeout(0) so the v2 var initializers (declared after this
+      // IIFE) have run before we set _v2Active = true. Otherwise their `var x = false`
+      // overwrites our update.
+      var _initCam = (currentStream || 'feeder-main').replace('-main', '');
+      setTimeout(function() {
+        if (typeof connectDebugStreamV2 === 'function') {
+          connectDebugStreamV2(_initCam);
+        }
+      }, 0);
+      // Clear any leftover detection state from before the page load
+      liveDetections = [];
     } else {
       connectLiveDetectionSSE();
     }

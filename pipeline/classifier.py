@@ -100,20 +100,23 @@ class SmartClassifier:
             self._coral_lock.release()
 
     def _run_yard(self, crop_pil):
-        """Run yard classifier. Returns object with .species and .confidence, or None."""
+        """Run yard classifier. Returns object with .species and .confidence, or None.
+
+        YardClassifier.classify returns a LIST of up to 3 dicts:
+            [{"common_name": ..., "scientific_name": ..., "confidence": ...}, ...]
+        We take the top result.
+        """
         try:
-            result = self.yard.classify(crop_pil)
-            if not result:
+            results = self.yard.classify(crop_pil)
+            if not results:
                 return None
-            # YardClassifier returns dict {"species": ..., "confidence": ...}
-            species = result.get("species")
-            conf = result.get("confidence", 0.0)
+            top = results[0]
             return type("YardResult", (), {
-                "species": species,
-                "confidence": float(conf),
+                "species": top.get("common_name"),
+                "confidence": float(top.get("confidence", 0.0)),
             })()
         except Exception as e:
-            log.debug("Yard classify error: %s", e)
+            log.warning("Yard classify error: %s", e)
             return None
 
     def _run_aiy(self, crop_pil):

@@ -55,20 +55,17 @@ class BirdDetector:
                forced_full: bool = False) -> list:
         """Run detection.
 
-        If forced_full, or if no motion regions were provided, run YOLO on
-        the full frame. Otherwise run on each motion region (except those
-        containing only stationary tracks) and offset results back.
+        ALWAYS uses full-frame YOLO. Region detection sounds smart but
+        ONNX Runtime resizes everything to 640x640 anyway, so multiple
+        small regions = multiple full-cost YOLO calls = much slower than
+        one full-frame call. Motion regions are still used as a gate
+        (skip detection entirely if no motion), but when there IS motion
+        we run a single full-frame inference.
         """
-        if forced_full or not motion_regions:
-            return self._detect_full(frame)
-
-        stationary = self.get_stationary()
-        detections = []
-        for region in motion_regions:
-            if self._is_stationary_only(region, stationary):
-                continue
-            detections.extend(self._detect_region(frame.bgr, region))
-        return detections
+        # Skip detection entirely if no motion (unless forced)
+        if not motion_regions and not forced_full:
+            return []
+        return self._detect_full(frame)
 
     def _detect_full(self, frame: Frame) -> list:
         """Run YOLO on the full frame."""
