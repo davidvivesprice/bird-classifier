@@ -5825,6 +5825,10 @@
   }
 
   window.switchStream = function(streamName) {
+    // v2: New Det doesn't support 'both' — silently coerce to feeder
+    if (_usePipeline && streamName === 'both') {
+      streamName = 'feeder-main';
+    }
     if (streamName === currentStream) return;
     currentStream = streamName;
     // Update button states
@@ -7390,11 +7394,21 @@
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
     if (_usePipeline) {
+      // v2: New Det requires single-camera mode. If user is on 'both',
+      // force-switch to feeder cam first so split-feed doesn't fight us.
+      if (currentStream === 'both') {
+        currentStream = 'feeder-main';
+        var btnFeeder = document.getElementById('stream-btn-feeder');
+        var btnBoth = document.getElementById('stream-btn-both');
+        if (btnFeeder) btnFeeder.classList.add('active');
+        if (btnBoth) btnBoth.classList.remove('active');
+        var wrapperEl = document.getElementById('live-wrapper');
+        if (wrapperEl) wrapperEl.classList.remove('both-active');
+      }
       connectPipelineSSE();
-      // v2: also connect the MJPEG debug stream (labels baked into frames)
+      // v2: connect the MJPEG debug stream (labels baked into frames)
       if (typeof connectDebugStreamV2 === 'function') {
         var initCam = (currentStream || 'feeder-main').replace('-main', '');
-        if (initCam === 'both') initCam = 'feeder';
         connectDebugStreamV2(initCam);
       }
     } else {
