@@ -2051,6 +2051,14 @@
   .live-sighting .recent-meta { color: var(--accent-amber); }
   .live-sighting .recent-meta::before { content: '⚡ '; }
   .camera-badge-unknown { background: rgba(107,114,128,0.2); color: var(--text-muted); }
+  #live-dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80;
+              display: inline-block; }
+  #live-dot.pulsing { animation: pulse 1s infinite; }
+  #live-dot.stale { background: #9ca3af; }
+  @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+           background: rgba(0,0,0,0.85); color: #fff; padding: 8px 16px;
+           border-radius: 8px; font-size: 14px; z-index: 10000; display: none; }
 </style>
 </head>
 <body>
@@ -7411,6 +7419,98 @@
   // and detections from summary.json remain visible between SSE events
   setManagedInterval('yard', function() { renderYardPanel(); }, 30000);
 })();
+
+/* ====== New Det v2: MJPEG over WebSocket ======================== */
+var _v2Ws = null;
+var _v2Canvas = null;
+var _v2Ctx = null;
+var _v2LastFrameMs = 0;
+var _v2ReconnectDelay = 1000;
+var _v2CurrentCamera = 'feeder';
+
+function connectDebugStreamV2(camera) {
+  _v2CurrentCamera = camera;
+  if (_v2Ws) {
+    try { _v2Ws.close(); } catch(e) {}
+  }
+  _v2Canvas = document.getElementById('debug-stream-canvas-' + camera) ||
+              document.getElementById('detection-overlay');
+  if (!_v2Canvas) return;
+  _v2Ctx = _v2Canvas.getContext('2d');
+
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  var mode = '';
+  if (c && c.effectiveType && /(slow-)?2g|3g/.test(c.effectiveType)) {
+    mode = '?mode=mobile';
+  }
+  var url = proto + '//' + location.host + '/api/debug-stream/' + camera + mode;
+  _v2Ws = new WebSocket(url);
+  _v2Ws.binaryType = 'blob';
+  _v2Ws.onopen = function() {
+    _v2ReconnectDelay = 1000;
+    hideToast('v2-reconnect');
+  };
+  _v2Ws.onmessage = async function(ev) {
+    try {
+      var blob = ev.data;
+      var img = await createImageBitmap(blob);
+      _v2Canvas.width = img.width;
+      _v2Canvas.height = img.height;
+      _v2Ctx.drawImage(img, 0, 0);
+      if (img.close) img.close();
+      _v2LastFrameMs = Date.now();
+    } catch(e) {}
+  };
+  _v2Ws.onclose = function() {
+    showToast('v2-reconnect', 'Reconnecting...');
+    setTimeout(function() {
+      if (document.visibilityState !== 'hidden') {
+        connectDebugStreamV2(_v2CurrentCamera);
+      }
+    }, _v2ReconnectDelay);
+    _v2ReconnectDelay = Math.min(_v2ReconnectDelay * 2, 30000);
+  };
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && _v2Ws) {
+    try { _v2Ws.close(); } catch(e) {}
+    _v2Ws = null;
+  } else if (document.visibilityState === 'visible' && !_v2Ws) {
+    connectDebugStreamV2(_v2CurrentCamera);
+  }
+});
+
+/* Live freshness indicator */
+setInterval(function() {
+  var dot = document.getElementById('live-dot');
+  if (!dot) return;
+  var age = Date.now() - _v2LastFrameMs;
+  if (age < 2000) {
+    dot.classList.add('pulsing');
+    dot.classList.remove('stale');
+  } else {
+    dot.classList.remove('pulsing');
+    dot.classList.add('stale');
+  }
+}, 500);
+
+function showToast(id, text) {
+  var t = document.getElementById(id);
+  if (!t) {
+    t = document.createElement('div');
+    t.id = id;
+    t.className = 'toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.style.display = 'block';
+}
+function hideToast(id) {
+  var t = document.getElementById(id);
+  if (t) t.style.display = 'none';
+}
 </script>
 </body>
 </html>

@@ -3322,3 +3322,64 @@ def api_visit_stats(date: str = "today"):
     """Aggregate visit statistics."""
     date = _resolve_visit_date(date)
     return vdb.get_visit_stats(date)
+
+
+# ── Pipeline v2 proxy routes ─────────────────────────────────────
+
+@app.websocket("/api/debug-stream/{camera}")
+async def debug_stream_proxy(websocket: FastAPIWebSocket, camera: str):
+    """Proxy MJPEG frames from pipeline v2 debug stream on port 8101."""
+    import asyncio
+    import websockets as ws_lib  # python websockets package
+    await websocket.accept()
+    backend_url = f"ws://127.0.0.1:8101/debug-stream/{camera}"
+    try:
+        async with ws_lib.connect(backend_url, max_size=None) as backend:
+            async def backend_to_client():
+                try:
+                    async for msg in backend:
+                        await websocket.send_bytes(msg)
+                except Exception:
+                    pass
+            task = asyncio.create_task(backend_to_client())
+            try:
+                while True:
+                    await websocket.receive()  # drain client pings
+            except Exception:
+                pass
+            finally:
+                task.cancel()
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@app.get("/api/pipeline/health")
+async def pipeline_health_proxy():
+    import httpx
+    async with httpx.AsyncClient(timeout=2) as c:
+        try:
+            r = await c.get("http://127.0.0.1:8100/api/pipeline/health")
+            return r.json()
+        except Exception as e:
+            return {"overall": "broken", "error": str(e)}
+
+
+@app.get("/api/pipeline/events")
+async def pipeline_events_proxy(camera: str, start: int, end: int):
+    """Query the pipeline event store for scrubbing/historical playback."""
+    from pathlib import Path
+    db_path = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
+    if not db_path.exists():
+        return []
+    try:
+        from pipeline.event_store import EventStore
+        store = EventStore(str(db_path))
+        try:
+            return store.query_events(camera=camera, start_ms=start, end_ms=end)
+        finally:
+            store.shutdown()
+    except Exception as e:
+        return {"error": str(e)}
