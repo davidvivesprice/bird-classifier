@@ -7472,40 +7472,43 @@ var _v2ReconnectDelay = 1000;
 var _v2CurrentCamera = 'feeder';
 var _v2Active = false;
 
-function _v2EnsureCanvas() {
+function _v2EnsureImg() {
   var wrapper = document.getElementById('live-wrapper');
   if (!wrapper) return null;
-  var canvas = document.getElementById('v2-mjpeg-canvas');
-  if (!canvas) {
-    canvas = document.createElement('canvas');
-    canvas.id = 'v2-mjpeg-canvas';
-    canvas.style.position = 'absolute';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.objectFit = 'contain';
-    canvas.style.zIndex = '50';
-    canvas.style.background = '#000';
-    canvas.style.display = 'none';
-    wrapper.appendChild(canvas);
+  var img = document.getElementById('v2-mjpeg-img');
+  if (!img) {
+    img = document.createElement('img');
+    img.id = 'v2-mjpeg-img';
+    img.style.position = 'absolute';
+    img.style.top = '0';
+    img.style.left = '0';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.style.zIndex = '50';
+    img.style.background = '#000';
+    img.style.display = 'none';
+    img.alt = 'live feed';
+    wrapper.appendChild(img);
   }
-  return canvas;
+  return img;
 }
 
-function _v2ShowCanvas() {
-  var canvas = _v2EnsureCanvas();
-  if (canvas) canvas.style.display = 'block';
-  // Hide the original video + overlay so they don't fight for display
+function _v2ShowImg() {
+  var img = _v2EnsureImg();
+  if (img) img.style.display = 'block';
   var video = document.getElementById('live-video');
   if (video) video.style.visibility = 'hidden';
   var overlay = document.getElementById('detection-overlay');
   if (overlay) overlay.style.visibility = 'hidden';
 }
 
-function _v2HideCanvas() {
-  var canvas = document.getElementById('v2-mjpeg-canvas');
-  if (canvas) canvas.style.display = 'none';
+function _v2HideImg() {
+  var img = document.getElementById('v2-mjpeg-img');
+  if (img) {
+    img.style.display = 'none';
+    img.src = ''; // stop the stream
+  }
   var video = document.getElementById('live-video');
   if (video) video.style.visibility = '';
   var overlay = document.getElementById('detection-overlay');
@@ -7519,68 +7522,41 @@ function connectDebugStreamV2(camera) {
   _v2CurrentCamera = camera;
   _v2Active = true;
 
-  if (_v2Ws) {
-    try { _v2Ws.close(); } catch(e) {}
-    _v2Ws = null;
-  }
+  var img = _v2EnsureImg();
+  if (!img) { console.warn('[v2] no live-wrapper found'); return; }
 
-  _v2Canvas = _v2EnsureCanvas();
-  if (!_v2Canvas) { console.warn('[v2] no live-wrapper found'); return; }
-  _v2Ctx = _v2Canvas.getContext('2d');
-  _v2ShowCanvas();
-
-  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  var mode = '';
-  if (c && c.effectiveType && /(slow-)?2g|3g/.test(c.effectiveType)) {
-    mode = '?mode=mobile';
-  }
-  var url = proto + '//' + location.host + '/api/debug-stream/' + camera + mode;
-  console.log('[v2] connecting', url);
-  _v2Ws = new WebSocket(url);
-  _v2Ws.binaryType = 'blob';
-  _v2Ws.onopen = function() {
-    console.log('[v2] connected');
-    _v2ReconnectDelay = 1000;
-    hideToast('v2-reconnect');
-  };
-  _v2Ws.onmessage = async function(ev) {
-    try {
-      var blob = ev.data;
-      var img = await createImageBitmap(blob);
-      if (_v2Canvas.width !== img.width || _v2Canvas.height !== img.height) {
-        _v2Canvas.width = img.width;
-        _v2Canvas.height = img.height;
-      }
-      _v2Ctx.drawImage(img, 0, 0);
-      if (img.close) img.close();
+  // Wire up freshness tracking via load events on the img
+  if (!img._v2WiredOnLoad) {
+    img._v2WiredOnLoad = true;
+    img.addEventListener('load', function() {
       _v2LastFrameMs = Date.now();
-    } catch(e) {
-      console.warn('[v2] draw error', e);
-    }
-  };
-  _v2Ws.onclose = function() {
-    if (!_v2Active) return; // we disabled intentionally
-    showToast('v2-reconnect', 'Reconnecting...');
-    setTimeout(function() {
-      if (_v2Active && document.visibilityState !== 'hidden') {
-        connectDebugStreamV2(_v2CurrentCamera);
+      hideToast('v2-reconnect');
+    });
+    img.addEventListener('error', function() {
+      console.warn('[v2] mjpeg img error — reconnecting');
+      if (_v2Active) {
+        showToast('v2-reconnect', 'Reconnecting...');
+        setTimeout(function() {
+          if (_v2Active && document.visibilityState !== 'hidden') {
+            connectDebugStreamV2(_v2CurrentCamera);
+          }
+        }, _v2ReconnectDelay);
+        _v2ReconnectDelay = Math.min(_v2ReconnectDelay * 2, 30000);
       }
-    }, _v2ReconnectDelay);
-    _v2ReconnectDelay = Math.min(_v2ReconnectDelay * 2, 30000);
-  };
-  _v2Ws.onerror = function(e) {
-    console.warn('[v2] ws error', e);
-  };
+    });
+  }
+
+  // Cache-bust query param so the browser opens a fresh stream every time
+  var url = '/bird-api/debug-stream-mjpeg/' + camera + '?t=' + Date.now();
+  console.log('[v2] connecting', url);
+  img.src = url;
+  _v2ShowImg();
+  _v2ReconnectDelay = 1000;
 }
 
 function disconnectDebugStreamV2() {
   _v2Active = false;
-  if (_v2Ws) {
-    try { _v2Ws.close(); } catch(e) {}
-    _v2Ws = null;
-  }
-  _v2HideCanvas();
+  _v2HideImg();
   hideToast('v2-reconnect');
 }
 
