@@ -17,7 +17,7 @@ def _pick_port():
 def test_sse_server_starts_and_accepts_connections():
     from pipeline.sse_events import SSEEventServer
     port = _pick_port()
-    server = SSEEventServer(port=port)
+    server = SSEEventServer(port=port, keepalive_interval_s=0.5)
     server.start()
     try:
         resp = urllib.request.urlopen(
@@ -31,7 +31,7 @@ def test_sse_server_starts_and_accepts_connections():
 def test_sse_server_emits_events_to_subscribers():
     from pipeline.sse_events import SSEEventServer
     port = _pick_port()
-    server = SSEEventServer(port=port)
+    server = SSEEventServer(port=port, keepalive_interval_s=0.5)
     server.start()
     try:
         received = []
@@ -77,7 +77,7 @@ def test_sse_server_emits_events_to_subscribers():
 def test_sse_server_filters_by_camera():
     from pipeline.sse_events import SSEEventServer
     port = _pick_port()
-    server = SSEEventServer(port=port)
+    server = SSEEventServer(port=port, keepalive_interval_s=0.5)
     server.start()
     try:
         received = []
@@ -118,7 +118,7 @@ def test_sse_server_filters_by_camera():
 def test_sse_server_missing_camera_query_returns_400():
     from pipeline.sse_events import SSEEventServer
     port = _pick_port()
-    server = SSEEventServer(port=port)
+    server = SSEEventServer(port=port, keepalive_interval_s=0.5)
     server.start()
     try:
         import urllib.error

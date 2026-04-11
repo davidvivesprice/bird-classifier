@@ -17,7 +17,7 @@ from urllib.parse import urlparse, parse_qs
 log = logging.getLogger(__name__)
 
 CLIENT_QUEUE_MAX = 32
-KEEPALIVE_INTERVAL_S = 0.5
+KEEPALIVE_INTERVAL_S = 15.0
 
 
 class _SSEHandler(BaseHTTPRequestHandler):
@@ -67,7 +67,7 @@ class _SSEHandler(BaseHTTPRequestHandler):
         try:
             while True:
                 try:
-                    payload = q.get(timeout=KEEPALIVE_INTERVAL_S)
+                    payload = q.get(timeout=self.server_state.keepalive_interval_s)
                 except queue.Empty:
                     self.wfile.write(b": keepalive\n\n")
                     self.wfile.flush()
@@ -92,9 +92,10 @@ class SSEEventServer:
         server.stop()
     """
 
-    def __init__(self, port: int = 8102, host: str = "127.0.0.1"):
+    def __init__(self, port: int = 8102, host: str = "127.0.0.1", keepalive_interval_s: float = KEEPALIVE_INTERVAL_S):
         self.port = port
         self.host = host
+        self.keepalive_interval_s = keepalive_interval_s
         self._clients: dict[str, list[queue.Queue]] = {}
         self._clients_lock = threading.Lock()
         self._httpd: Optional[ThreadingHTTPServer] = None
