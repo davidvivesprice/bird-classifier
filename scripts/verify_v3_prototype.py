@@ -56,14 +56,25 @@ def check_pipeline_health(url: str) -> dict:
 
 
 def check_sse_stream(url: str, duration_s: float = 15) -> list:
+    """Subscribe to an SSE stream for duration_s and return received events.
+
+    Uses a socket-level timeout that exceeds the server keepalive (15 s) so
+    quiet intervals between events don't raise a spurious timeout.
+    """
     log(f"Subscribing to SSE for {duration_s}s: {url}")
     events = []
     try:
-        resp = urllib.request.urlopen(url, timeout=5)
+        # Timeout must exceed server keepalive interval (15s default) so a
+        # quiet interval between events doesn't raise socket.timeout.
+        resp = urllib.request.urlopen(url, timeout=max(20.0, duration_s + 5))
         buf = b""
         deadline = time.time() + duration_s
         while time.time() < deadline:
-            chunk = resp.read1(4096)
+            try:
+                chunk = resp.read1(4096)
+            except Exception as e:
+                log(f"  read1 error: {e}")
+                break
             if not chunk:
                 break
             buf += chunk
@@ -148,7 +159,57 @@ def browser_check(dashboard_url: str, duration_s: float = 30) -> dict:
         page.screenshot(path=str(s2))
         log(f"  After-{int(duration_s)}s screenshot: {s2.name}")
 
-        result["screenshots"] = [str(s1), str(s2)]
+        # Inject fake track events to test the LabelRenderer in isolation from
+        # the network path. Headless Chrome's MSE support is limited, so the
+        # real SSE→canvas path may not fire in this browser. Injection
+        # distinguishes "renderer is broken" from "network is broken".
+        log("  Injecting fake track events to verify renderer...")
+        page.evaluate("""
+          () => {
+            if (!window.__v3TrackStates) return;
+            const now = performance.now();
+            window.__v3TrackStates.set(1001, {
+              first_seen_t: now - 500,
+              prev_t: now - 200, prev_x: 150,
+              last_t: now, last_x: 200,
+              species: 'Downy Woodpecker',
+              bbox_area: 40000,
+              frame_width: 640, frame_height: 360,
+              fadeOutAt: null,
+            });
+            window.__v3TrackStates.set(1002, {
+              first_seen_t: now - 400,
+              prev_t: now - 100, prev_x: 450,
+              last_t: now, last_x: 480,
+              species: 'House Finch',
+              bbox_area: 30000,
+              frame_width: 640, frame_height: 360,
+              fadeOutAt: null,
+            });
+          }
+        """)
+        time.sleep(1)  # allow renderFrame to run
+        s3 = EVIDENCE_DIR / f"dashboard-fake-labels-{int(time.time())}.png"
+        page.screenshot(path=str(s3))
+        log(f"  Injected-labels screenshot: {s3.name}")
+
+        canvas_nonempty = page.evaluate("""
+          () => {
+            const c = document.getElementById('v3-label-overlay');
+            if (!c || !c.width) return { empty: true, reason: 'no canvas' };
+            const ctx = c.getContext('2d');
+            const data = ctx.getImageData(0, 0, c.width, c.height).data;
+            let nonzero = 0;
+            for (let i = 3; i < data.length; i += 4) {
+              if (data[i] > 0) nonzero++;
+            }
+            return { empty: nonzero === 0, nonzero_pixels: nonzero };
+          }
+        """)
+        log(f"  Canvas pixel check: {canvas_nonempty}")
+        result["canvas_after_injection"] = canvas_nonempty
+
+        result["screenshots"] = [str(s1), str(s2), str(s3)]
         result["console_messages"] = console_messages[-50:]
 
         browser.close()
