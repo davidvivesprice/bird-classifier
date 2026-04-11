@@ -164,13 +164,17 @@ class CameraProcessThread:
             track.needs_classification = False
 
     def _update_health(self, frame: Frame, det_ms: float):
+        import numpy as np
         samples = self._stats["yolo_ms_samples"]
-        if samples:
-            yolo_avg = sum(samples) / len(samples)
-            yolo_p99 = sorted(samples)[-max(1, len(samples) // 100)]
+        if len(samples) >= 10:
+            yolo_avg = float(np.mean(samples))
+            yolo_p99 = float(np.percentile(samples, 99))
+        elif samples:
+            yolo_avg = float(np.mean(samples))
+            yolo_p99 = None  # insufficient_samples — honesty contract
         else:
-            yolo_avg = 0
-            yolo_p99 = 0
+            yolo_avg = 0.0
+            yolo_p99 = None
         age_ms = (time.time() * 1000) - frame.wall_time_ms
         self.health.update(self.name, "capture", {
             "last_frame_age_ms": int(age_ms),
@@ -178,7 +182,8 @@ class CameraProcessThread:
         })
         self.health.update(self.name, "detector", {
             "yolo_ms_avg": round(yolo_avg),
-            "yolo_ms_p99": round(yolo_p99),
+            "yolo_ms_p99": round(yolo_p99) if yolo_p99 is not None else None,
+            "yolo_samples_count": len(samples),
             "detections_total": self._stats["detections"],
         })
         try:

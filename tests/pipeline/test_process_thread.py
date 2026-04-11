@@ -167,3 +167,52 @@ def test_process_thread_retries_track_when_coral_busy():
     # Attempts counter incremented
     assert track.classification_attempts == 1
     thread.stop()
+
+
+def test_yolo_p99_uses_np_percentile_and_returns_none_for_few_samples():
+    """p99 must be computed via np.percentile (not sorted slice hack) AND
+    must return None when fewer than 10 samples are available."""
+    import numpy as np
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+
+    # Case A: only 3 samples → p99 must be None
+    t._stats = {
+        "frames_processed": 3, "detections": 0,
+        "yolo_ms_samples": [50.0, 60.0, 70.0],
+    }
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+    t.classifier = MagicMock()
+    t.classifier.stats = {}
+    t.health = MagicMock()
+    captured = {}
+    def capture(camera, section, payload):
+        captured[section] = payload
+    t.health.update = capture
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="test", width=640, height=360)
+    t._update_health(frame, det_ms=50.0)
+
+    assert captured["detector"]["yolo_ms_p99"] is None, (
+        f"with 3 samples p99 must be None, got {captured['detector']['yolo_ms_p99']}"
+    )
+
+    # Case B: 100 samples with a clean distribution → np.percentile(samples, 99) exact
+    samples = [10.0] * 50 + [20.0] * 40 + [1000.0] * 10  # top 10% = 1000
+    t._stats["yolo_ms_samples"] = list(samples)
+    captured.clear()
+    t._update_health(frame, det_ms=10.0)
+    expected = round(float(np.percentile(samples, 99)))
+    assert captured["detector"]["yolo_ms_p99"] == expected, (
+        f"yolo_ms_p99={captured['detector']['yolo_ms_p99']}, expected {expected}"
+    )
