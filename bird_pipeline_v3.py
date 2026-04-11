@@ -20,8 +20,8 @@ PIPELINE_DB = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
 REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 
 CAMERAS = {
-    "feeder": "rtsp://127.0.0.1:8554/feeder-main",
-    "ground": "rtsp://127.0.0.1:8554/ground-main",
+    "feeder": "rtsp://127.0.0.1:8554/feeder-sub",
+    "ground": "rtsp://127.0.0.1:8554/ground-sub",
 }
 
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
@@ -132,7 +132,7 @@ def main():
         try:
             frame_q = queue.Queue(maxsize=2)
             capture = FrameCapture(name, url, out_queue=frame_q,
-                                   width=1920, height=1080, fps=5)
+                                   width=640, height=360, fps=5)
             motion_gate = MotionGate()
             tracker = BirdTracker()
             detector = BirdDetector(
@@ -151,8 +151,8 @@ def main():
                 annotator=None,
                 health=health,
                 sse_server=sse_server,
-                frame_width=1920,  # TODO Task 12 will switch to 640x360 substream
-                frame_height=1080,
+                frame_width=640,
+                frame_height=360,
             )
             recorder = HlsRecorder(name, url, str(HLS_DIR / name))
 
