@@ -206,6 +206,7 @@ class CameraProcessThread:
         except Exception:
             pass
         try:
-            self.health.update(self.name, "classifier", dict(self.classifier.stats))
+            cam_classifier_stats = self.classifier.stats.get(self.name, {})
+            self.health.update(self.name, "classifier", dict(cam_classifier_stats))
         except Exception:
             pass

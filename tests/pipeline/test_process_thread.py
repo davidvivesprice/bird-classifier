@@ -339,3 +339,55 @@ def test_write_track_summary_uses_per_track_frame_count():
     assert call_kwargs["num_frames"] == 42, (
         f"expected num_frames=42 (per-track), got {call_kwargs['num_frames']}"
     )
+
+
+def test_classifier_stats_reported_per_camera_not_global():
+    """process_thread must pull only its own camera's slice of classifier stats."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 1, "detections": 0,
+        "yolo_ms_samples": [10.0] * 15,  # ≥10 so p99 isn't None
+        "yolo_runs_total": 15, "yolo_skipped_motion": 0,
+    }
+
+    classifier = MagicMock()
+    classifier.stats = {
+        "feeder": {"yard": 42, "aiy": 3, "unlabeled_call": 1,
+                   "both_agree": 0, "lock_timeouts": 0, "retries": 0},
+        "ground": {"yard": 0, "aiy": 100, "unlabeled_call": 5,
+                   "both_agree": 0, "lock_timeouts": 0, "retries": 0},
+    }
+    t.classifier = classifier
+
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+
+    captured = {}
+    health = MagicMock()
+    def fake_update(camera, section, payload):
+        captured[(camera, section)] = payload
+    health.update = fake_update
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+    t._update_health(frame, det_ms=0.0)
+
+    feeder_classifier_stats = captured[("feeder", "classifier")]
+    assert feeder_classifier_stats["yard"] == 42
+    assert feeder_classifier_stats["aiy"] == 3
+    # Ground's aiy=100 must NOT leak into feeder's stats
+    assert feeder_classifier_stats["aiy"] != 100
+    # And ground's stats must NOT appear anywhere in the feeder update
+    assert "ground" not in feeder_classifier_stats
