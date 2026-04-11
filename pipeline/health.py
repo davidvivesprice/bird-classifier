@@ -6,6 +6,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
+try:
+    from solar_utils import is_nighttime
+except Exception:
+    def is_nighttime():
+        return False
+
 
 class HealthState:
     def __init__(self):
@@ -36,29 +42,54 @@ class HealthState:
         return data
 
     def _compute_status(self, data: dict) -> str:
-        """Roll-up: ok / degraded / broken."""
-        order = {"ok": 0, "degraded": 1, "broken": 2}
+        """Compute overall health status from per-camera metrics.
+
+        Precedence: broken > degraded > ok. Worst state wins.
+
+        Rules (matches docs/superpowers/specs/2026-04-11-live-detection-v3-design.md §6):
+        - broken:
+            * any camera capture.last_frame_age_ms > 60000 during daytime
+            * any camera capture.ffmpeg_restarts_last_hour > 10
+        - degraded:
+            * any camera detector.yolo_ms_p99 (when not None) > 1000
+            * any camera with (dropped_oldest / max(frames_processed, 1)) > 0.05
+            * any camera classifier.lock_timeouts > 5
+        - ok: none of the above
+        """
         worst = "ok"
-        for cam, comps in data.get("pipeline", {}).items():
-            cap = comps.get("capture", {})
-            fps = cap.get("fps")
-            age_ms = cap.get("last_frame_age_ms")
-            if age_ms is not None and age_ms > 60_000:
-                return "broken"
-            if fps is not None and fps < 3:
-                return "broken"
-            if fps is not None and fps < 4.5:
-                if order[worst] < order["degraded"]:
-                    worst = "degraded"
+        night = is_nighttime()
+
+        for _cam, comps in data.get("pipeline", {}).items():
+            capture = comps.get("capture", {})
             detector = comps.get("detector", {})
-            p99 = detector.get("yolo_ms_p99")
-            if p99 is not None and p99 > 150:
-                if order[worst] < order["degraded"]:
-                    worst = "degraded"
             classifier = comps.get("classifier", {})
-            if classifier.get("lock_timeouts", 0) > 10:
-                if order[worst] < order["degraded"]:
-                    worst = "degraded"
+
+            # BROKEN checks — short-circuit to broken immediately
+            if not night:
+                frame_age = capture.get("last_frame_age_ms")
+                if frame_age is not None and frame_age > 60_000:
+                    return "broken"
+
+            restart_storm = capture.get("ffmpeg_restarts_last_hour", 0)
+            if restart_storm > 10:
+                return "broken"
+
+            # DEGRADED checks (accumulate; only escalate if not already broken)
+            if worst == "broken":
+                continue
+
+            yolo_p99 = detector.get("yolo_ms_p99")
+            if yolo_p99 is not None and yolo_p99 > 1000:
+                worst = "degraded"
+
+            frames = max(capture.get("frames_processed", 0), 1)
+            dropped = capture.get("dropped_oldest", 0)
+            if dropped / frames > 0.05:
+                worst = "degraded"
+
+            if classifier.get("lock_timeouts", 0) > 5:
+                worst = "degraded"
+
         return worst
 
 
