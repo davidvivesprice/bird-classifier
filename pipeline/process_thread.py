@@ -37,6 +37,8 @@ class CameraProcessThread:
             "frames_processed": 0,
             "detections": 0,
             "yolo_ms_samples": [],
+            "yolo_runs_total": 0,
+            "yolo_skipped_motion": 0,
         }
 
     def start(self):
@@ -78,9 +80,19 @@ class CameraProcessThread:
         t_det = time.monotonic()
         detections = self.detector.detect(frame, regions, forced_full=forced_full)
         det_ms = (time.monotonic() - t_det) * 1000
-        self._stats["yolo_ms_samples"].append(det_ms)
-        if len(self._stats["yolo_ms_samples"]) > 100:
-            self._stats["yolo_ms_samples"] = self._stats["yolo_ms_samples"][-100:]
+        # Only record the timing when YOLO actually ran. BirdDetector.detect returns
+        # an empty list instantly when motion_regions is empty and forced_full is False —
+        # those near-zero timings pollute yolo_ms_avg (observed: ground cam 7ms because
+        # most frames are skipped). Filter them out so the histogram reflects real
+        # inference cost, and track "frames where YOLO was actually invoked" separately.
+        yolo_actually_ran = bool(regions) or forced_full
+        if yolo_actually_ran:
+            self._stats["yolo_ms_samples"].append(det_ms)
+            if len(self._stats["yolo_ms_samples"]) > 100:
+                self._stats["yolo_ms_samples"] = self._stats["yolo_ms_samples"][-100:]
+            self._stats["yolo_runs_total"] += 1
+        else:
+            self._stats["yolo_skipped_motion"] += 1
         self._stats["detections"] += len(detections)
 
         # 4. Track

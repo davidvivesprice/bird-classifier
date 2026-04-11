@@ -216,3 +216,68 @@ def test_yolo_p99_uses_np_percentile_and_returns_none_for_few_samples():
     assert captured["detector"]["yolo_ms_p99"] == expected, (
         f"yolo_ms_p99={captured['detector']['yolo_ms_p99']}, expected {expected}"
     )
+
+
+def test_yolo_samples_excludes_skip_frames():
+    """When motion_regions is empty and not forced_full, YOLO is skipped and
+    that zero-cost timing must NOT be recorded in yolo_ms_samples."""
+    import queue, threading, time
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0,
+        "detections": 0,
+        "yolo_ms_samples": [],
+        "yolo_runs_total": 0,
+        "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()  # not due for forced full
+
+    motion_gate = MagicMock()
+    motion_gate.regions.return_value = []  # no motion
+
+    detector = MagicMock()
+    detector.detect.return_value = []  # empty fast-path
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []
+    tracker_out.expired = []
+    tracker = MagicMock()
+    tracker.update.return_value = tracker_out
+    tracker.tracks = []
+    tracker.stationary_regions.return_value = []
+
+    classifier = MagicMock(); classifier.stats = {}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="test", width=640, height=360,
+    )
+
+    for _ in range(5):
+        t._process_frame(frame)
+
+    assert t._stats["yolo_ms_samples"] == [], (
+        f"Expected empty samples, got {t._stats['yolo_ms_samples']}"
+    )
+    assert t._stats["yolo_skipped_motion"] == 5
+    assert t._stats["yolo_runs_total"] == 0
