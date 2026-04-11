@@ -20,7 +20,7 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 class CameraProcessThread:
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
-                 event_store, annotator, health, sse_server=None,
+                 event_store, annotator=None, health=None, sse_server=None,
                  frame_width: int = 640, frame_height: int = 360):
         self.name = name
         self.frame_queue = frame_queue
@@ -152,8 +152,9 @@ class CameraProcessThread:
             except Exception as e:
                 log.warning("[%s] write_track_summary error: %s", self.name, e)
 
-        # 8. Annotate + push
-        self.annotator.submit(frame, tracker_out.active)
+        # 8. Annotate + push — v3: deleted, labels move client-side
+        if self.annotator is not None:
+            self.annotator.submit(frame, tracker_out.active)
 
         # 9. Update health
         self._update_health(frame, det_ms)

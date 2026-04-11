@@ -27,8 +27,6 @@ def test_empty_video_produces_no_events(tmp_path):
     from pipeline.detector import BirdDetector
     from pipeline.classifier import ClassificationResult
     from pipeline.event_store import EventStore
-    from pipeline.annotator import FrameAnnotator
-    from pipeline.debug_stream import DebugStream
     from pipeline.health import HealthState
     from pipeline.process_thread import CameraProcessThread
 
@@ -55,8 +53,6 @@ def test_empty_video_produces_no_events(tmp_path):
             return ClassificationResult(None, 0, None, False)
 
     event_store = EventStore(str(tmp_path / "pipeline.db"))
-    debug_stream = DebugStream(port=0)
-    annotator = FrameAnnotator("test", debug_stream, out_width=320, out_height=180)
     health = HealthState()
 
     process = CameraProcessThread(
@@ -67,12 +63,11 @@ def test_empty_video_produces_no_events(tmp_path):
         tracker=tracker,
         classifier=DummyClassifier(),
         event_store=event_store,
-        annotator=annotator,
+        annotator=None,
         health=health,
     )
 
     capture.start()
-    annotator.start()
     process.start()
 
     # Run for 20 seconds (enough to validate the wiring + prove no crashes)
@@ -80,7 +75,6 @@ def test_empty_video_produces_no_events(tmp_path):
 
     capture.stop()
     process.stop()
-    annotator.stop()
     event_store.shutdown()
 
     # Verify health was updated (proves pipeline ran)
