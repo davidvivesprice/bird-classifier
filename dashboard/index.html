@@ -7500,9 +7500,22 @@ function hideToast(id) {
 
     // First pass: build placements with interpolated x
     const placements = [];
+    const STALE_MS = 800;     // if no events for this long, start fading out
+    const FADE_OUT_MS = 300;  // duration of the fade-out animation
     for (const [trackId, state] of trackStates) {
       const elapsed = now - state.last_t;
-      if (elapsed > 3000) {
+
+      // Trigger fade-out when the SSE stream goes quiet for this track
+      // (bird left the frame, pipeline stopped emitting). Without this,
+      // the SSE handler only marks fadeOutAt when ANOTHER event arrives
+      // that doesn't include this track — so a lone bird leaving alone
+      // would vanish abruptly instead of fading.
+      if (elapsed > STALE_MS && !state.fadeOutAt) {
+        state.fadeOutAt = now;
+      }
+
+      // Delete once the fade-out animation has fully played out
+      if (state.fadeOutAt && (now - state.fadeOutAt) > FADE_OUT_MS) {
         trackStates.delete(trackId);
         continue;
       }
