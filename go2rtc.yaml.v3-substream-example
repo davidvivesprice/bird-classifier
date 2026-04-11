@@ -1,0 +1,22 @@
+# Example go2rtc.yaml with feeder-sub and ground-sub transcoded substreams for
+# the v3 live detection pipeline. At cutover time, merge the `feeder-sub` and
+# `ground-sub` entries into the production go2rtc.yaml (which is gitignored and
+# contains real camera URLs) and run:
+#   curl -X POST http://127.0.0.1:1984/api/restart
+# to reload go2rtc and expose the new streams.
+
+streams:
+  feeder-main:
+    - rtsp://192.168.4.9:7447/dTARm8n5b7quCxFU#tcp
+  feeder-sub:
+    - "ffmpeg:feeder-main#video=h264#width=640#height=360#hardware"
+  ground-main:
+    - rtsp://192.168.4.9:7447/NAnYEZf5KJK5dgNM#tcp
+  ground-sub:
+    - "ffmpeg:ground-main#video=h264#width=640#height=360#hardware"
+
+api:
+  listen: ":1984"
+
+log:
+  level: info
