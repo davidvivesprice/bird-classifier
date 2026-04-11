@@ -4,6 +4,7 @@ Owns one ffmpeg subprocess per camera. Reads raw BGR frames from stdout
 into a bounded queue. Drops oldest on backpressure. Restarts ffmpeg if
 stalled for >10s.
 """
+import collections
 import logging
 import queue
 import subprocess
@@ -42,6 +43,7 @@ class FrameCapture:
             "ffmpeg_restarts": 0,
             "last_frame_ms": None,
         }
+        self._restart_timestamps: collections.deque = collections.deque()
 
     def start(self):
         self._stop_event.clear()
@@ -176,6 +178,18 @@ class FrameCapture:
             # Reset the frame-age clock so the watchdog doesn't re-fire
             # on the stale timestamp before the new ffmpeg can produce a frame.
             self.stats["last_frame_ms"] = time.time() * 1000
+            now = time.time()
+            self._restart_timestamps.append(now)
+            self._prune_restart_window(now)
         except Exception as e:
             log.error("[%s] failed to respawn ffmpeg: %s", self.camera_name, e)
             # Leave self.proc as it was; watchdog will retry on next iteration
+
+    def _prune_restart_window(self, now_s: float) -> None:
+        cutoff = now_s - 3600
+        while self._restart_timestamps and self._restart_timestamps[0] < cutoff:
+            self._restart_timestamps.popleft()
+
+    def restarts_last_hour(self) -> int:
+        self._prune_restart_window(time.time())
+        return len(self._restart_timestamps)

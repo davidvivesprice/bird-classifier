@@ -4,13 +4,16 @@ import logging
 import queue
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from PIL import Image
 
 from pipeline.frame import Frame
 from pipeline.classifier import MAX_CLASSIFICATION_ATTEMPTS
+
+if TYPE_CHECKING:
+    from pipeline.frame_capture import FrameCapture
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +24,8 @@ class CameraProcessThread:
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
                  event_store, annotator=None, health=None, sse_server=None,
-                 frame_width: int = 640, frame_height: int = 360):
+                 frame_width: int = 640, frame_height: int = 360,
+                 capture: "Optional[FrameCapture]" = None):
         self.name = name
         self.frame_queue = frame_queue
         self.motion_gate = motion_gate
@@ -34,6 +38,7 @@ class CameraProcessThread:
         self.sse_server = sse_server
         self.frame_width = frame_width
         self.frame_height = frame_height
+        self.capture = capture
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_forced_full = 0.0
@@ -216,10 +221,19 @@ class CameraProcessThread:
             yolo_avg = 0.0
             yolo_p99 = None
         age_ms = (time.time() * 1000) - frame.wall_time_ms
-        self.health.update(self.name, "capture", {
+        capture_payload = {
             "last_frame_age_ms": int(age_ms),
             "frames_processed": self._stats["frames_processed"],
-        })
+        }
+        if getattr(self, "capture", None) is not None:
+            # Merge FrameCapture's own stats so honesty-contract fields
+            # (ffmpeg_restarts, dropped_oldest, ffmpeg_restarts_last_hour)
+            # actually exist in the health snapshot.
+            capture_payload["frames_captured"] = self.capture.stats.get("frames", 0)
+            capture_payload["dropped_oldest"] = self.capture.stats.get("dropped_oldest", 0)
+            capture_payload["ffmpeg_restarts"] = self.capture.stats.get("ffmpeg_restarts", 0)
+            capture_payload["ffmpeg_restarts_last_hour"] = self.capture.restarts_last_hour()
+        self.health.update(self.name, "capture", capture_payload)
         self.health.update(self.name, "detector", {
             "yolo_ms_avg": round(yolo_avg),
             "yolo_ms_p99": round(yolo_p99) if yolo_p99 is not None else None,

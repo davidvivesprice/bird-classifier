@@ -153,6 +153,7 @@ def main():
                 sse_server=sse_server,
                 frame_width=640,
                 frame_height=360,
+                capture=capture,
             )
             recorder = HlsRecorder(name, url, str(HLS_DIR / name))
 
@@ -178,6 +179,12 @@ def main():
     log.info("Pipeline running with %d camera(s)", len(camera_stacks))
     paused_for_night = False
     while running:
+        # Publish SSE server stats to the shared health section so they
+        # show up in the /api/pipeline/health endpoint.
+        try:
+            health.update_shared("sse", dict(sse_server.stats))
+        except Exception:
+            pass
         time.sleep(10)
         # Daytime-only detection — HLS recording keeps running independently
         night = is_nighttime()

@@ -197,3 +197,111 @@ def test_worst_state_wins():
     with patch("pipeline.health.is_nighttime", return_value=False, create=True):
         snap = h.snapshot()
     assert snap["overall"] == "broken", f"broken should beat degraded, got {snap['overall']}"
+
+
+def test_capture_health_payload_includes_framecapture_stats():
+    """process_thread._update_health must merge FrameCapture.stats fields into
+    the capture health payload so the rules can actually fire in production."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 100, "detections": 0,
+                "yolo_ms_samples": [50.0] * 15,
+                "yolo_runs_total": 15, "yolo_skipped_motion": 0}
+
+    # Fake FrameCapture with its own stats
+    fake_capture = MagicMock()
+    fake_capture.stats = {
+        "frames": 120,
+        "dropped_oldest": 8,
+        "ffmpeg_restarts": 3,
+        "last_frame_ms": time.time() * 1000,
+    }
+    fake_capture.restarts_last_hour.return_value = 11
+    t.capture = fake_capture
+
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+    t.classifier = MagicMock()
+    t.classifier.stats = {"test": {"yard": 0, "aiy": 0, "lock_timeouts": 0,
+                                    "unlabeled_call": 0, "both_agree": 0, "retries": 0}}
+
+    captured = {}
+    health = MagicMock()
+    def capture_update(camera, section, payload):
+        captured[section] = payload
+    health.update = capture_update
+    t.health = health
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="test", width=640, height=360)
+    t._update_health(frame, det_ms=50.0)
+
+    cap = captured["capture"]
+    assert cap["frames_processed"] == 100  # from process thread
+    assert cap["frames_captured"] == 120   # from FrameCapture.stats
+    assert cap["dropped_oldest"] == 8
+    assert cap["ffmpeg_restarts"] == 3
+    assert cap["ffmpeg_restarts_last_hour"] == 11
+
+
+def test_production_like_ffmpeg_restart_storm_triggers_broken():
+    """Wire a real FrameCapture with 11 fake restarts; push through
+    CameraProcessThread; confirm overall health shows broken.
+
+    This is the production-path version of test_ffmpeg_restart_storm_marks_broken
+    that fabricates state at the HealthState layer. This one proves the
+    full plumbing works: FrameCapture → CameraProcessThread → HealthState → _compute_status.
+    """
+    from unittest.mock import MagicMock, patch
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame_capture import FrameCapture
+    from pipeline.frame import Frame
+    from pipeline.health import HealthState
+    import numpy as np, queue, threading, time, collections
+
+    # Real HealthState instance
+    h = HealthState()
+
+    # Real FrameCapture instance with fabricated restart history
+    fc = FrameCapture.__new__(FrameCapture)
+    fc.camera_name = "test"
+    fc.stats = {"frames": 100, "dropped_oldest": 0,
+                "ffmpeg_restarts": 11, "last_frame_ms": time.time() * 1000}
+    fc._restart_timestamps = collections.deque(
+        [time.time() - i for i in range(11)]  # 11 restarts in the last 11 seconds
+    )
+
+    # Real CameraProcessThread with mocked collaborators but real FrameCapture + HealthState
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 100, "detections": 0,
+                "yolo_ms_samples": [50.0] * 15,
+                "yolo_runs_total": 15, "yolo_skipped_motion": 0}
+    t.capture = fc
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+    t.classifier = MagicMock()
+    t.classifier.stats = {"test": {"yard": 0, "aiy": 0, "lock_timeouts": 0,
+                                    "unlabeled_call": 0, "both_agree": 0, "retries": 0}}
+    t.health = h
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="test", width=640, height=360)
+    t._update_health(frame, det_ms=50.0)
+
+    with patch("pipeline.health.is_nighttime", return_value=False, create=True):
+        snap = h.snapshot()
+    assert snap["overall"] == "broken", (
+        f"expected broken from 11 restarts in last hour, got {snap['overall']}"
+    )
