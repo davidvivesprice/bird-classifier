@@ -1,7 +1,6 @@
 """SmartClassifier — Smart B decision tree with Coral lock and retry semantics."""
 from __future__ import annotations
 import logging
-import sqlite3
 import threading
 from dataclasses import dataclass
 from typing import Optional
@@ -27,7 +26,7 @@ class ClassificationResult:
 class SmartClassifier:
     def __init__(self, yard_model_path: str, yard_labels_path: str,
                  aiy_model_path: str, aiy_labels_path: str,
-                 regional_species, audio_db_path: Optional[str] = None):
+                 regional_species):
         from yard_classifier import YardClassifier
         from bird_inference import SpeciesClassifier
 
@@ -36,10 +35,9 @@ class SmartClassifier:
             aiy_model_path, aiy_labels_path,
             regional_species=regional_species,
         )
-        self.audio_db_path = audio_db_path
         self._coral_lock = threading.Lock()
         self.stats = {
-            "yard": 0, "aiy": 0, "both_agree": 0, "audio_confirmed": 0,
+            "yard": 0, "aiy": 0, "both_agree": 0,
             "unlabeled": 0, "lock_timeouts": 0, "retries": 0,
         }
 
@@ -84,15 +82,7 @@ class SmartClassifier:
                     "both_agree", False
                 )
 
-            # Path 4: disagreement → audio cross-check
-            audio_species = self._audio_lookup(camera, frame_time_ms)
-            if audio_species and audio_species in (yard_res.species, aiy_res.species):
-                self.stats["audio_confirmed"] += 1
-                return ClassificationResult(
-                    audio_species,
-                    max(yard_res.confidence, aiy_res.confidence),
-                    "audio_confirmed", False
-                )
+            # Path 4 (audio cross-check) removed in v3 — see docs/superpowers/specs/2026-04-11-live-detection-v3-design.md § 10 forget-me-nots
 
             self.stats["unlabeled"] += 1
             return ClassificationResult(None, 0.0, None, False)
@@ -134,23 +124,3 @@ class SmartClassifier:
             log.debug("AIY classify error: %s", e)
             return None
 
-    def _audio_lookup(self, camera: str, frame_time_ms: float) -> Optional[str]:
-        """Query birdnet_local.db for a detection within ±5s on this camera."""
-        if not self.audio_db_path:
-            return None
-        try:
-            conn = sqlite3.connect(self.audio_db_path, timeout=2)
-            conn.row_factory = sqlite3.Row
-            start_ms = int(frame_time_ms - 5000)
-            end_ms = int(frame_time_ms + 5000)
-            row = conn.execute(
-                """SELECT common_name FROM detections
-                   WHERE camera = ? AND timestamp_ms BETWEEN ? AND ?
-                   ORDER BY confidence DESC LIMIT 1""",
-                (camera, start_ms, end_ms),
-            ).fetchone()
-            conn.close()
-            return row["common_name"] if row else None
-        except Exception as e:
-            log.debug("Audio lookup error: %s", e)
-            return None

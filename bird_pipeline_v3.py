@@ -17,7 +17,6 @@ BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / "models"
 HLS_DIR = Path.home() / "bird-snapshots" / "hls"
 PIPELINE_DB = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
-BIRDNET_DB = Path.home() / "bird-snapshots" / "logs" / "birdnet_local.db"
 REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 
 CAMERAS = {
@@ -106,7 +105,6 @@ def main():
     debug_stream.start()
 
     regional_species = load_regional_species()
-    audio_db_path = str(BIRDNET_DB) if BIRDNET_DB.exists() else None
     try:
         classifier = SmartClassifier(
             yard_model_path=YARD_MODEL,
@@ -114,7 +112,6 @@ def main():
             aiy_model_path=AIY_MODEL,
             aiy_labels_path=AIY_LABELS,
             regional_species=regional_species,
-            audio_db_path=audio_db_path,
         )
     except Exception as e:
         log.error("Failed to load classifiers: %s — pipeline will not start", e)

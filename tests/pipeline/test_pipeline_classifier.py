@@ -20,12 +20,10 @@ def test_yard_confident_returns_yard():
     c._coral_lock = threading.Lock()
     c.yard = MagicMock()
     c.aiy = MagicMock()
-    c.audio_db_path = None
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock(return_value=_result("Black-capped Chickadee", 0.82))
     c._run_aiy = MagicMock()
-    c._audio_lookup = MagicMock()
 
     r = c.classify(_make_pil(), frame_time_ms=0, camera="feeder")
     assert r.species == "Black-capped Chickadee"
@@ -40,12 +38,11 @@ def test_yard_useless_aiy_rescues():
     from pipeline.classifier import SmartClassifier
     c = SmartClassifier.__new__(SmartClassifier)
     c._coral_lock = threading.Lock()
-    c.yard = MagicMock(); c.aiy = MagicMock(); c.audio_db_path = None
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.yard = MagicMock(); c.aiy = MagicMock()
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock(return_value=_result("noise", 0.10))
     c._run_aiy = MagicMock(return_value=_result("American Robin", 0.75))
-    c._audio_lookup = MagicMock()
 
     r = c.classify(_make_pil(), 0, "feeder")
     assert r.species == "American Robin"
@@ -58,12 +55,11 @@ def test_yard_uncertain_both_agree():
     from pipeline.classifier import SmartClassifier
     c = SmartClassifier.__new__(SmartClassifier)
     c._coral_lock = threading.Lock()
-    c.yard = MagicMock(); c.aiy = MagicMock(); c.audio_db_path = None
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.yard = MagicMock(); c.aiy = MagicMock()
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock(return_value=_result("Downy Woodpecker", 0.45))
     c._run_aiy = MagicMock(return_value=_result("Downy Woodpecker", 0.50))
-    c._audio_lookup = MagicMock()
 
     r = c.classify(_make_pil(), 0, "feeder")
     assert r.species == "Downy Woodpecker"
@@ -72,35 +68,33 @@ def test_yard_uncertain_both_agree():
     assert c.stats["both_agree"] == 1
 
 
-def test_disagreement_audio_confirms():
-    """Path 4: Yard and AIY disagree, audio confirms one → audio_confirmed."""
+def test_disagreement_falls_through_to_unlabeled():
+    """Path 4 removed: yard/AIY disagree → unlabeled (no audio tiebreaker)."""
     from pipeline.classifier import SmartClassifier
     c = SmartClassifier.__new__(SmartClassifier)
     c._coral_lock = threading.Lock()
-    c.yard = MagicMock(); c.aiy = MagicMock(); c.audio_db_path = "fake.db"
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.yard = MagicMock(); c.aiy = MagicMock()
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock(return_value=_result("Downy Woodpecker", 0.50))
     c._run_aiy = MagicMock(return_value=_result("Hairy Woodpecker", 0.55))
-    c._audio_lookup = MagicMock(return_value="Hairy Woodpecker")
 
     r = c.classify(_make_pil(), 0, "feeder")
-    assert r.species == "Hairy Woodpecker"
-    assert r.model_source == "audio_confirmed"
-    assert c.stats["audio_confirmed"] == 1
+    assert r.species is None
+    assert r.model_source is None
+    assert c.stats["unlabeled"] == 1
 
 
 def test_no_confident_answer_returns_unlabeled():
-    """Nothing agrees, no audio → unlabeled, should_retry=False."""
+    """Nothing agrees → unlabeled, should_retry=False."""
     from pipeline.classifier import SmartClassifier
     c = SmartClassifier.__new__(SmartClassifier)
     c._coral_lock = threading.Lock()
-    c.yard = MagicMock(); c.aiy = MagicMock(); c.audio_db_path = None
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.yard = MagicMock(); c.aiy = MagicMock()
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock(return_value=_result("X", 0.40))
     c._run_aiy = MagicMock(return_value=_result("Y", 0.40))
-    c._audio_lookup = MagicMock(return_value=None)
 
     r = c.classify(_make_pil(), 0, "feeder")
     assert r.species is None
@@ -115,12 +109,11 @@ def test_coral_lock_timeout_returns_should_retry():
     # Hold the lock elsewhere
     c._coral_lock = threading.Lock()
     c._coral_lock.acquire()
-    c.yard = MagicMock(); c.aiy = MagicMock(); c.audio_db_path = None
-    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree", "audio_confirmed",
+    c.yard = MagicMock(); c.aiy = MagicMock()
+    c.stats = {k: 0 for k in ["yard", "aiy", "both_agree",
                                "unlabeled", "lock_timeouts", "retries"]}
     c._run_yard = MagicMock()
     c._run_aiy = MagicMock()
-    c._audio_lookup = MagicMock()
 
     # Shorten the timeout for test speed
     with patch("pipeline.classifier.CORAL_ACQUIRE_TIMEOUT", 0.2):
@@ -129,3 +122,21 @@ def test_coral_lock_timeout_returns_should_retry():
     assert r.species is None
     assert c.stats["lock_timeouts"] == 1
     c._coral_lock.release()
+
+
+def test_classifier_has_no_audio_lookup_method():
+    """Path 4 (audio cross-check) is dropped in v3. The method must not exist."""
+    from pipeline.classifier import SmartClassifier
+    assert not hasattr(SmartClassifier, "_audio_lookup"), (
+        "SmartClassifier._audio_lookup was supposed to be deleted in v3"
+    )
+
+
+def test_classifier_has_no_audio_confirmed_stat():
+    """audio_confirmed counter is removed along with Path 4."""
+    from pipeline.classifier import SmartClassifier
+    import inspect
+    source = inspect.getsource(SmartClassifier)
+    assert "audio_confirmed" not in source, (
+        "audio_confirmed still referenced in SmartClassifier source"
+    )
