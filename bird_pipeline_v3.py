@@ -105,6 +105,14 @@ def main():
     debug_stream.start()
 
     regional_species = load_regional_species()
+
+    from pipeline.camera_config import CameraClassifierConfig
+
+    camera_configs = {
+        "feeder": CameraClassifierConfig(use_yard=True),
+        "ground": CameraClassifierConfig(use_yard=False),
+    }
+
     try:
         classifier = SmartClassifier(
             yard_model_path=YARD_MODEL,
@@ -112,6 +120,7 @@ def main():
             aiy_model_path=AIY_MODEL,
             aiy_labels_path=AIY_LABELS,
             regional_species=regional_species,
+            camera_configs=camera_configs,
         )
     except Exception as e:
         log.error("Failed to load classifiers: %s — pipeline will not start", e)
