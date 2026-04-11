@@ -2174,9 +2174,6 @@
             <button class="live-enhance-btn active" id="live-enhance-btn" onclick="toggleAudioEnhance()" title="Toggle audio enhancement">
               Enhanced
             </button>
-            <button class="live-enhance-btn" id="pipeline-toggle" onclick="togglePipelineSSE()" title="Switch detection source">
-              <span id="pipeline-toggle-label">New Det</span>
-            </button>
             <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
               <span id="fs-icon">&#x26F6;</span>
             </button>
@@ -2185,6 +2182,15 @@
             <span class="big">&#x1F4F7;</span>
             <div id="live-offline-text">Connecting to camera...</div>
             <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network access</div>
+          </div>
+          <div id="v3-live-container" style="position: relative; width: 100%; max-width: 1280px; margin: 0 auto; background: #000; display: none;">
+            <video id="v3-live-video" autoplay muted playsinline
+                   style="width: 100%; height: auto; display: block; background: #000;">
+            </video>
+            <canvas id="v3-label-overlay"
+                    style="position: absolute; top: 0; left: 0;
+                           width: 100%; height: 100%; pointer-events: none;">
+            </canvas>
           </div>
         </div>
       </div>
@@ -5825,23 +5831,12 @@
   }
 
   window.switchStream = function(streamName) {
-    // v2: New Det doesn't support 'both' — silently coerce to feeder
-    if (_usePipeline && streamName === 'both') {
-      streamName = 'feeder-main';
-    }
     if (streamName === currentStream) return;
     currentStream = streamName;
     // Update button states
     document.getElementById('stream-btn-feeder').classList.toggle('active', streamName === 'feeder-main');
     document.getElementById('stream-btn-ground').classList.toggle('active', streamName === 'ground-main');
     document.getElementById('stream-btn-both').classList.toggle('active', streamName === 'both');
-
-    // v2: switch the MJPEG stream to the new camera (when New Det is on)
-    if (_usePipeline && typeof connectDebugStreamV2 === 'function') {
-      var v2cam = streamName.replace('-main', '');
-      if (v2cam === 'both') v2cam = 'feeder'; // both view defaults to feeder mjpeg
-      connectDebugStreamV2(v2cam);
-    }
 
     // Clear detection overlay
     liveDetections = [];
@@ -5896,117 +5891,6 @@
     });
     if (window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
   }
-
-  // ── Pipeline SSE (unified bird_pipeline on port 8100) ──
-  var _pipelineSessionId = null;
-  var _usePipeline = localStorage.getItem('usePipeline') === 'true';
-
-  function connectPipelineSSE() {
-    if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
-
-    var es = new EventSource('/pipeline/events');
-    liveDetectionSource = es;
-
-    es.addEventListener('open', function() {
-      console.log('[Pipeline SSE] Connected');
-      var dot = document.getElementById('live-detect-status');
-      if (dot) { dot.style.color = '#22c55e'; dot.title = 'Pipeline: connected'; }
-    });
-
-    es.addEventListener('error', function() {
-      var dot = document.getElementById('live-detect-status');
-      if (dot) { dot.style.color = '#ef4444'; dot.title = 'Pipeline: disconnected'; }
-    });
-
-    es.addEventListener('message', function(event) {
-      try {
-        var data = JSON.parse(event.data);
-        if (data.type === 'connected') {
-          console.log('[Pipeline SSE] Stream primed');
-          return;
-        }
-
-        // Detect pipeline restart
-        if (data.session_id && data.session_id !== _pipelineSessionId) {
-          _pipelineSessionId = data.session_id;
-          liveDetections = [];
-        }
-
-        if (data.tracks) {
-          var cam = currentStream.replace('-main', '');
-          liveDetections = data.tracks.filter(function(t) {
-            return !data.camera || data.camera === cam;
-          }).map(function(t) {
-            return {
-              species: t.species + ((t.trust_level === 'unusual' || t.trust_level === 'probably_wrong') ? '?' : ''),
-              bbox: t.bbox,
-              confidence: t.confidence,
-              camera: data.camera,
-              track_id: t.track_id,
-              trust_level: t.trust_level || 'normal',
-              _expireAt: Date.now() + 2000
-            };
-          });
-
-          // Flash status dot
-          var dot = document.getElementById('live-detect-status');
-          if (dot && data.tracks.length > 0) {
-            dot.style.color = '#4a9eff';
-            setTimeout(function() { dot.style.color = '#22c55e'; }, 500);
-          }
-
-          // Inject new tracks into Recent Sightings
-          data.tracks.forEach(function(t) {
-            if (!t.is_new) return;  // only inject on first appearance
-            if (t.species === 'unidentified bird') return;
-            var trustTag = (t.trust_level === 'unusual' || t.trust_level === 'probably_wrong') ? ' ⚠️' : '';
-            console.log('[Pipeline] ' + t.species + trustTag + ' (' + data.camera + ', track ' + t.track_id + ')');
-
-            var now = Date.now();
-            // Dedup: skip if same species+camera in last 30s
-            var dominated = recentDetections.some(function(r) {
-              if (r.action !== 'live') return false;
-              if (!r.top_prediction || r.top_prediction.common_name !== t.species) return false;
-              if (r.camera !== data.camera) return false;
-              var rTime = parseTimestamp(r.source_timestamp);
-              return (now - rTime) < 30000;
-            });
-            if (!dominated) {
-              recentDetections.unshift({
-                file: null,
-                source_timestamp: data.timestamp,
-                timestamp: data.timestamp,
-                camera: data.camera,
-                action: 'live',
-                top_prediction: { common_name: t.species, scientific_name: '' },
-                best_detection: { confidence: t.confidence, box: t.bbox },
-              });
-              if (recentDetections.length > 50) recentDetections = recentDetections.slice(0, 50);
-              renderRecent();
-            }
-          });
-        }
-      } catch(e) {
-        console.warn('[Pipeline SSE] Parse error:', e);
-      }
-    });
-  }
-
-  window.togglePipelineSSE = function() {
-    _usePipeline = !_usePipeline;
-    localStorage.setItem('usePipeline', String(_usePipeline));
-    // v2: also toggle the MJPEG stream
-    if (typeof connectDebugStreamV2 === 'function') {
-      if (_usePipeline) {
-        var cam = (currentStream || 'feeder-main').replace('-main', '');
-        if (cam === 'both') cam = 'feeder';
-        connectDebugStreamV2(cam);
-      } else {
-        if (typeof disconnectDebugStreamV2 === 'function') disconnectDebugStreamV2();
-      }
-    }
-    location.reload();
-  };
 
   // ── Live Detection SSE (bounding boxes) ──
   function _handleLiveDetection(event) {
@@ -6171,12 +6055,6 @@
   var _detOverlayRAF = null;
   function renderDetectionOverlay() {
     var now = Date.now();
-
-    // v2: when MJPEG mode is active, labels are baked into the img — skip overlay
-    if (_usePipeline && typeof _v2Active !== 'undefined' && _v2Active) {
-      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
-      return;
-    }
 
     if (currentStream === 'both') {
       // Split mode: render on each camera's overlay canvas
@@ -7399,44 +7277,11 @@
     }
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
-    if (_usePipeline) {
-      // v2: New Det requires single-camera mode. If user is on 'both',
-      // force-switch to feeder cam first so split-feed doesn't fight us.
-      if (currentStream === 'both') {
-        currentStream = 'feeder-main';
-        var btnFeeder = document.getElementById('stream-btn-feeder');
-        var btnBoth = document.getElementById('stream-btn-both');
-        if (btnFeeder) btnFeeder.classList.add('active');
-        if (btnBoth) btnBoth.classList.remove('active');
-        var wrapperEl = document.getElementById('live-wrapper');
-        if (wrapperEl) wrapperEl.classList.remove('both-active');
-      }
-      // v2: connect ONLY the MJPEG debug stream. Labels are baked into the
-      // frames server-side — do NOT also run connectPipelineSSE (which would
-      // try to draw red ?? boxes from a stale 404 SSE source on top of our img).
-      // Defer with setTimeout(0) so the v2 var initializers (declared after this
-      // IIFE) have run before we set _v2Active = true. Otherwise their `var x = false`
-      // overwrites our update.
-      var _initCam = (currentStream || 'feeder-main').replace('-main', '');
-      setTimeout(function() {
-        if (typeof connectDebugStreamV2 === 'function') {
-          connectDebugStreamV2(_initCam);
-        }
-      }, 0);
-      // Clear any leftover detection state from before the page load
-      liveDetections = [];
-    } else {
-      connectLiveDetectionSSE();
-    }
+    connectLiveDetectionSSE();
     renderDetectionOverlay(); // start overlay rendering loop
     // Set initial overlay toggle state
     var overlayBtn = document.getElementById('overlay-toggle');
     if (overlayBtn) overlayBtn.classList.toggle('active', showDetectionOverlay);
-    // Set pipeline toggle button label
-    var pipeLabel = document.getElementById('pipeline-toggle-label');
-    var pipeBtn = document.getElementById('pipeline-toggle');
-    if (pipeLabel) pipeLabel.textContent = _usePipeline ? 'New Det ✓' : 'Old Det';
-    if (pipeBtn) pipeBtn.classList.toggle('active', _usePipeline);
     await Promise.all([loadStats(), loadAllRecent(), loadAvailableDates()]);
     renderRecent();
     await loadSpeciesData();
@@ -7471,136 +7316,6 @@
   setManagedInterval('yard', function() { renderYardPanel(); }, 30000);
 })();
 
-/* ====== New Det v2: MJPEG over WebSocket ==========================
- * When _usePipeline (New Det mode) is active, this module takes over
- * the video display entirely. It creates a full-coverage canvas inside
- * the .live-wrapper element, hides the underlying <video> + detection
- * overlay, and renders server-drawn JPEG frames (with labels baked in)
- * directly to the canvas. On disconnect it restores the old video path.
- * ================================================================== */
-var _v2Ws = null;
-var _v2Canvas = null;
-var _v2Ctx = null;
-var _v2LastFrameMs = 0;
-var _v2ReconnectDelay = 1000;
-var _v2CurrentCamera = 'feeder';
-var _v2Active = false;
-
-function _v2EnsureImg() {
-  var wrapper = document.getElementById('live-wrapper');
-  if (!wrapper) return null;
-  var img = document.getElementById('v2-mjpeg-img');
-  if (!img) {
-    img = document.createElement('img');
-    img.id = 'v2-mjpeg-img';
-    img.style.position = 'absolute';
-    img.style.top = '0';
-    img.style.left = '0';
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'contain';
-    img.style.zIndex = '50';
-    img.style.background = '#000';
-    img.style.display = 'none';
-    img.alt = 'live feed';
-    wrapper.appendChild(img);
-  }
-  return img;
-}
-
-function _v2ShowImg() {
-  var img = _v2EnsureImg();
-  if (img) img.style.display = 'block';
-  var video = document.getElementById('live-video');
-  if (video) video.style.visibility = 'hidden';
-  var overlay = document.getElementById('detection-overlay');
-  if (overlay) overlay.style.visibility = 'hidden';
-}
-
-function _v2HideImg() {
-  var img = document.getElementById('v2-mjpeg-img');
-  if (img) {
-    img.style.display = 'none';
-    img.src = ''; // stop the stream
-  }
-  var video = document.getElementById('live-video');
-  if (video) video.style.visibility = '';
-  var overlay = document.getElementById('detection-overlay');
-  if (overlay) overlay.style.visibility = '';
-}
-
-function connectDebugStreamV2(camera) {
-  // Accept either 'feeder' or 'feeder-main' style
-  if (camera && camera.endsWith('-main')) camera = camera.replace('-main', '');
-  if (camera !== 'feeder' && camera !== 'ground') camera = 'feeder';
-  _v2CurrentCamera = camera;
-  _v2Active = true;
-
-  var img = _v2EnsureImg();
-  if (!img) { console.warn('[v2] no live-wrapper found'); return; }
-
-  // Wire up freshness tracking via load events on the img
-  if (!img._v2WiredOnLoad) {
-    img._v2WiredOnLoad = true;
-    img.addEventListener('load', function() {
-      _v2LastFrameMs = Date.now();
-      hideToast('v2-reconnect');
-    });
-    img.addEventListener('error', function() {
-      console.warn('[v2] mjpeg img error — reconnecting');
-      if (_v2Active) {
-        showToast('v2-reconnect', 'Reconnecting...');
-        setTimeout(function() {
-          if (_v2Active && document.visibilityState !== 'hidden') {
-            connectDebugStreamV2(_v2CurrentCamera);
-          }
-        }, _v2ReconnectDelay);
-        _v2ReconnectDelay = Math.min(_v2ReconnectDelay * 2, 30000);
-      }
-    });
-  }
-
-  // Cache-bust query param so the browser opens a fresh stream every time
-  var url = '/bird-api/debug-stream-mjpeg/' + camera + '?t=' + Date.now();
-  console.log('[v2] connecting', url);
-  img.src = url;
-  _v2ShowImg();
-  _v2ReconnectDelay = 1000;
-}
-
-function disconnectDebugStreamV2() {
-  _v2Active = false;
-  _v2HideImg();
-  hideToast('v2-reconnect');
-}
-
-// Expose for external callers (toggle + stream switch)
-window.connectDebugStreamV2 = connectDebugStreamV2;
-window.disconnectDebugStreamV2 = disconnectDebugStreamV2;
-
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'hidden' && _v2Ws) {
-    try { _v2Ws.close(); } catch(e) {}
-    _v2Ws = null;
-  } else if (document.visibilityState === 'visible' && _v2Active && !_v2Ws) {
-    connectDebugStreamV2(_v2CurrentCamera);
-  }
-});
-
-/* Live freshness indicator */
-setInterval(function() {
-  var dot = document.getElementById('live-dot');
-  if (!dot) return;
-  var age = Date.now() - _v2LastFrameMs;
-  if (age < 2000) {
-    dot.classList.add('pulsing');
-    dot.classList.remove('stale');
-  } else {
-    dot.classList.remove('pulsing');
-    dot.classList.add('stale');
-  }
-}, 500);
-
 function showToast(id, text) {
   var t = document.getElementById(id);
   if (!t) {
@@ -7616,6 +7331,80 @@ function hideToast(id) {
   var t = document.getElementById(id);
   if (t) t.style.display = 'none';
 }
+</script>
+
+<script>
+(function setupV3LiveVideo() {
+  var video = document.getElementById('v3-live-video');
+  if (!video) return;
+
+  var go2rtcHost = window.GO2RTC_HOST || (location.hostname + ':1984');
+  var streamName = 'feeder-main';
+  var ws = null;
+  var mediaSource = null;
+  var sourceBuffer = null;
+  var queue = [];
+
+  function connect() {
+    var wsUrl = 'ws://' + go2rtcHost + '/api/ws?src=' + streamName;
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.addEventListener('open', function() {
+      // Request MSE mode with a common H.264 codec profile.
+      // go2rtc will reply with a 'mse' message containing the actual codec string.
+      ws.send(JSON.stringify({ type: 'mse', value: 'avc1.640029,mp4a.40.2' }));
+    });
+
+    ws.addEventListener('message', function(ev) {
+      if (typeof ev.data === 'string') {
+        try {
+          var msg = JSON.parse(ev.data);
+          if (msg.type === 'mse') {
+            mediaSource = new MediaSource();
+            video.src = URL.createObjectURL(mediaSource);
+            mediaSource.addEventListener('sourceopen', function() {
+              try {
+                sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="' + msg.value + '"');
+                sourceBuffer.mode = 'segments';
+                sourceBuffer.addEventListener('updateend', flushQueue);
+                flushQueue();
+              } catch (e) {
+                console.warn('v3 MSE addSourceBuffer failed', e);
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('v3 MSE unexpected string message', ev.data);
+        }
+        return;
+      }
+      // Binary MP4 fragment
+      queue.push(new Uint8Array(ev.data));
+      flushQueue();
+    });
+
+    ws.addEventListener('error', function(e) { console.warn('v3 WS error', e); });
+    ws.addEventListener('close', function() {
+      console.log('v3 WS closed, reconnecting in 3s');
+      setTimeout(connect, 3000);
+    });
+  }
+
+  function flushQueue() {
+    if (!sourceBuffer || sourceBuffer.updating) return;
+    while (queue.length > 0 && !sourceBuffer.updating) {
+      try {
+        sourceBuffer.appendBuffer(queue.shift());
+      } catch (e) {
+        console.warn('v3 MSE appendBuffer error', e);
+        return;
+      }
+    }
+  }
+
+  connect();
+})();
 </script>
 </body>
 </html>
