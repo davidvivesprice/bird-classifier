@@ -83,3 +83,36 @@ def test_drops_oldest_when_queue_full():
         assert fc.stats["dropped_oldest"] > 0
     finally:
         fc.stop()
+
+
+def test_restart_resets_last_frame_ms():
+    """_restart() must update last_frame_ms so the watchdog doesn't immediately re-fire."""
+    import queue
+    from pipeline.frame_capture import FrameCapture
+
+    fc = FrameCapture.__new__(FrameCapture)
+    fc.camera_name = "test"
+    fc.rtsp_url = "rtsp://127.0.0.1:9999/nonexistent"
+    fc.out_queue = queue.Queue(maxsize=2)
+    fc.proc = None
+    fc._stop_event = __import__("threading").Event()
+    fc.stats = {
+        "frames": 0, "dropped_oldest": 0, "ffmpeg_restarts": 0,
+        "last_frame_ms": 1000.0,  # stale old value
+    }
+    fc.width = 640
+    fc.height = 360
+    fc.fps = 5
+
+    # Monkeypatch _spawn_ffmpeg so it doesn't actually spawn anything
+    fc._spawn_ffmpeg = lambda: None
+
+    before = __import__("time").time() * 1000
+    fc._restart()
+    after = __import__("time").time() * 1000
+
+    # Must have been reset to roughly "now"
+    assert before <= fc.stats["last_frame_ms"] <= after, (
+        f"last_frame_ms={fc.stats['last_frame_ms']} not in [{before}, {after}]"
+    )
+    assert fc.stats["ffmpeg_restarts"] == 1

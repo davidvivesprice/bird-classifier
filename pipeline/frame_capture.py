@@ -173,6 +173,9 @@ class FrameCapture:
         try:
             self._spawn_ffmpeg()
             self.stats["ffmpeg_restarts"] += 1
+            # Reset the frame-age clock so the watchdog doesn't re-fire
+            # on the stale timestamp before the new ffmpeg can produce a frame.
+            self.stats["last_frame_ms"] = time.time() * 1000
         except Exception as e:
             log.error("[%s] failed to respawn ffmpeg: %s", self.camera_name, e)
             # Leave self.proc as it was; watchdog will retry on next iteration
