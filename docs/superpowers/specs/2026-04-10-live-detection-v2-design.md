@@ -1,7 +1,11 @@
 # Live Detection Pipeline v2 — Frigate-Inspired Architecture
 
+> **SUPERSEDED by [2026-04-11-live-detection-v3-design.md](./2026-04-11-live-detection-v3-design.md).**
+>
+> v2 shipped April 10, 2026 but diverged from this design in three load-bearing ways after merge (see [2026-04-10-live-detection-v2-review.md](../reviews/2026-04-10-live-detection-v2-review.md)). v3 is the successor spec. Kept here as historical context.
+
 **Date:** 2026-04-10
-**Status:** Approved (revised after three-reviewer audit)
+**Status:** Superseded by v3 on 2026-04-11
 **Author:** Claude + David
 **Revisions:** Incorporates findings from architecture review, UX review, and implementation-risk review
 
