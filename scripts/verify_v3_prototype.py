@@ -159,7 +159,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--health-url",
                         default=os.environ.get("V3_HEALTH_URL",
-                                               "http://127.0.0.1:8102/health"))
+                                               "http://127.0.0.1:8102/api/pipeline/health"))
     parser.add_argument("--sse-url",
                         default=os.environ.get("V3_SSE_URL",
                                                "http://127.0.0.1:8104/events/sse?camera=feeder"))
