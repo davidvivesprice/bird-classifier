@@ -2183,7 +2183,7 @@
             <div id="live-offline-text">Connecting to camera...</div>
             <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network access</div>
           </div>
-          <div id="v3-live-container" style="position: relative; width: 100%; max-width: 1280px; margin: 0 auto; background: #000; display: none;">
+          <div id="v3-live-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 1;">
             <video id="v3-live-video" autoplay muted playsinline
                    style="width: 100%; height: auto; display: block; background: #000;">
             </video>
@@ -7404,6 +7404,128 @@ function hideToast(id) {
   }
 
   connect();
+})();
+</script>
+
+<script>
+(function setupV3LabelRenderer() {
+  const canvas = document.getElementById('v3-label-overlay');
+  const video = document.getElementById('v3-live-video');
+  if (!canvas || !video) return;
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvas() {
+    // Match canvas internal resolution to displayed size
+    const rect = video.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.floor(rect.width));
+    canvas.height = Math.max(1, Math.floor(rect.height));
+  }
+  window.addEventListener('resize', resizeCanvas);
+  video.addEventListener('loadedmetadata', resizeCanvas);
+  video.addEventListener('loadeddata', resizeCanvas);
+  // Poll as a fallback for cases where the size changes outside of events
+  setInterval(resizeCanvas, 500);
+  resizeCanvas();
+
+  // trackStates: Map<track_id, {
+  //   last_t, last_x, prev_t, prev_x, species, bbox_area,
+  //   frame_width, frame_height, first_seen_t, fadeOutAt
+  // }>
+  const trackStates = new Map();
+
+  // Expose for Task 14b SSE wiring
+  window.__v3TrackStates = trackStates;
+  window.__v3Canvas = canvas;
+  window.__v3Ctx = ctx;
+
+  const LABEL_FONT = '14px system-ui, -apple-system, sans-serif';
+  const LABEL_HEIGHT = 24;
+  const LABEL_PAD_X = 8;
+  const LABEL_PAD_Y = 4;
+  const BASE_Y_FRAC = 0.25;
+
+  function drawDot(x, y, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawLabel(x, y, text, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.font = LABEL_FONT;
+    const metrics = ctx.measureText(text);
+    const w = metrics.width + 2 * LABEL_PAD_X;
+    const h = LABEL_HEIGHT;
+
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const rx = x - w / 2;
+    const ry = y - h / 2;
+    const radius = 12;
+    ctx.beginPath();
+    ctx.moveTo(rx + radius, ry);
+    ctx.lineTo(rx + w - radius, ry);
+    ctx.quadraticCurveTo(rx + w, ry, rx + w, ry + radius);
+    ctx.lineTo(rx + w, ry + h - radius);
+    ctx.quadraticCurveTo(rx + w, ry + h, rx + w - radius, ry + h);
+    ctx.lineTo(rx + radius, ry + h);
+    ctx.quadraticCurveTo(rx, ry + h, rx, ry + h - radius);
+    ctx.lineTo(rx, ry + radius);
+    ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = 'rgba(255,255,255,1)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  function renderFrame() {
+    const now = performance.now();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const baseY = BASE_Y_FRAC * canvas.height;
+
+    for (const [trackId, state] of trackStates) {
+      const elapsed = now - state.last_t;
+      if (elapsed > 3000) {
+        trackStates.delete(trackId);
+        continue;
+      }
+      // Skeleton version: just snap to last known x (Task 14b adds interpolation)
+      const renderX = state.last_x;
+      // Scale substream coords (state.frame_width) to canvas coords
+      const canvasX = renderX * (canvas.width / (state.frame_width || canvas.width));
+
+      // Opacity: fade in over 200ms, fade out over 300ms
+      let opacity = 1;
+      if (state.fadeOutAt) {
+        opacity = Math.max(0, 1 - (now - state.fadeOutAt) / 300);
+      } else if (state.first_seen_t) {
+        opacity = Math.min(1, (now - state.first_seen_t) / 200);
+      }
+
+      if (state.species) {
+        drawLabel(canvasX, baseY, state.species, opacity);
+      } else {
+        drawDot(canvasX, baseY, opacity);
+      }
+    }
+
+    requestAnimationFrame(renderFrame);
+  }
+  requestAnimationFrame(renderFrame);
 })();
 </script>
 </body>
