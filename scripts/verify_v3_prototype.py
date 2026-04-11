@@ -160,27 +160,35 @@ def browser_check(dashboard_url: str, duration_s: float = 30) -> dict:
         log(f"  After-{int(duration_s)}s screenshot: {s2.name}")
 
         # Inject fake track events to test the LabelRenderer in isolation from
-        # the network path. Headless Chrome's MSE support is limited, so the
-        # real SSE→canvas path may not fire in this browser. Injection
-        # distinguishes "renderer is broken" from "network is broken".
+        # the network path. All state timestamps use Date.now() wall-clock ms
+        # (matching the v3 sync-delay semantics). We also seed the events
+        # at (Date.now() - SYNC_DELAY_MS - small) so the render loop's drain
+        # logic sees them as "ready to display".
         log("  Injecting fake track events to verify renderer...")
         page.evaluate("""
           () => {
             if (!window.__v3TrackStates) return;
-            const now = performance.now();
+            const syncDelayMs = window.__v3SyncDelayMs || 3000;
+            // Put the 'last seen' timestamp just past the displayedWallTime
+            // (100ms into the past from the displayed frame) so the label is
+            // fresh, fully faded in, and not stale.
+            const displayedWall = Date.now() - syncDelayMs;
+            const lastT = displayedWall - 100;
+            const prevT = displayedWall - 300;
+            const firstSeenT = displayedWall - 500;
             window.__v3TrackStates.set(1001, {
-              first_seen_t: now - 500,
-              prev_t: now - 200, prev_x: 150,
-              last_t: now, last_x: 200,
+              first_seen_t: firstSeenT,
+              prev_t: prevT, prev_x: 150,
+              last_t: lastT, last_x: 200,
               species: 'Downy Woodpecker',
               bbox_area: 40000,
               frame_width: 640, frame_height: 360,
               fadeOutAt: null,
             });
             window.__v3TrackStates.set(1002, {
-              first_seen_t: now - 400,
-              prev_t: now - 100, prev_x: 450,
-              last_t: now, last_x: 480,
+              first_seen_t: firstSeenT,
+              prev_t: prevT, prev_x: 450,
+              last_t: lastT, last_x: 480,
               species: 'House Finch',
               bbox_area: 30000,
               frame_width: 640, frame_height: 360,

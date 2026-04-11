@@ -7361,8 +7361,14 @@ window.__v3SyncDelayMs = (function() {
   var video = document.getElementById('v3-live-video');
   if (!video) return;
 
-  var go2rtcHost = window.GO2RTC_HOST || (location.hostname + ':1984');
+  // Route the WebSocket through the dashboard's /api/ws proxy instead of
+  // connecting directly to go2rtc on :1984. go2rtc rejects cross-origin
+  // WebSocket handshakes with 403, and the dashboard is on a different
+  // port (8099 in prod, 8199 in dev) than go2rtc (1984). The existing
+  // proxy_go2rtc_ws route in dashboard/api.py bridges them server-side.
+  var wsScheme = (location.protocol === 'https:') ? 'wss:' : 'ws:';
   var streamName = 'feeder-main';
+  var wsUrl = wsScheme + '//' + location.host + '/api/ws?src=' + streamName;
   var ws = null;
   var mediaSource = null;
   var sourceBuffer = null;
@@ -7384,7 +7390,6 @@ window.__v3SyncDelayMs = (function() {
   });
 
   function connect() {
-    var wsUrl = 'ws://' + go2rtcHost + '/api/ws?src=' + streamName;
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
