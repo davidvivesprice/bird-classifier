@@ -1,0 +1,240 @@
+{
+  "timestamp": 1775926556.962006,
+  "health": {
+    "pipeline": {
+      "feeder": {
+        "capture": {
+          "last_frame_age_ms": 4,
+          "frames_processed": 399
+        },
+        "detector": {
+          "yolo_ms_avg": 98,
+          "yolo_ms_p99": 207,
+          "yolo_samples_count": 100,
+          "detections_total": 166
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 8,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      },
+      "ground": {
+        "capture": {
+          "last_frame_age_ms": 3,
+          "frames_processed": 374
+        },
+        "detector": {
+          "yolo_ms_avg": 98,
+          "yolo_ms_p99": null,
+          "yolo_samples_count": 8,
+          "detections_total": 8
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 0,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      }
+    },
+    "shared": {},
+    "uptime_s": 86,
+    "overall": "ok"
+  },
+  "sse_event_count": 0,
+  "sse_has_events": false,
+  "sse_sample_events": [],
+  "browser": {
+    "v3_video": {
+      "present": true,
+      "readyState": 0,
+      "currentTime": 0
+    },
+    "v3_canvas": {
+      "present": true,
+      "width": 574,
+      "height": 150
+    },
+    "track_state_count_after_wait": 0,
+    "screenshots": [
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-initial-1775926573.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-after-30s-1775926605.png"
+    ],
+    "console_messages": [
+      {
+        "type": "log",
+        "text": "[SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[SSE] Detection: undefined NaN%"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Stream primed"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      }
+    ]
+  }
+}

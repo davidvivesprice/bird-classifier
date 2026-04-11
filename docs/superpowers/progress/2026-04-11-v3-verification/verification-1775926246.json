@@ -1,0 +1,65 @@
+{
+  "timestamp": 1775926246.208189,
+  "health": {
+    "pipeline": {
+      "feeder": {
+        "capture": {
+          "last_frame_age_ms": 476,
+          "frames_processed": 141962
+        },
+        "detector": {
+          "yolo_ms_avg": 111,
+          "yolo_ms_p99": 910,
+          "detections_total": 27275
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 2519,
+          "aiy": 0,
+          "both_agree": 6,
+          "audio_confirmed": 0,
+          "unlabeled": 10,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      },
+      "ground": {
+        "capture": {
+          "last_frame_age_ms": 118,
+          "frames_processed": 199530
+        },
+        "detector": {
+          "yolo_ms_avg": 11,
+          "yolo_ms_p99": 670,
+          "detections_total": 6267
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 2519,
+          "aiy": 0,
+          "both_agree": 6,
+          "audio_confirmed": 0,
+          "unlabeled": 10,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      }
+    },
+    "shared": {},
+    "uptime_s": 82700,
+    "overall": "degraded"
+  },
+  "sse_event_count": 0,
+  "sse_has_events": false,
+  "sse_sample_events": [],
+  "browser": {
+    "skipped": true,
+    "reason": "--no-browser"
+  }
+}
