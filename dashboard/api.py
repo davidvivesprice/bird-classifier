@@ -3335,6 +3335,38 @@ async def pipeline_health_proxy():
             return {"overall": "broken", "error": str(e)}
 
 
+@app.get("/api/pipeline/events/sse")
+async def proxy_pipeline_sse(camera: str = "feeder"):
+    """Proxy Server-Sent Events from the pipeline v3 SSE server.
+
+    The pipeline runs its own HTTP SSE server (pipeline/sse_events.py) on
+    port 8104 (dev) or 8100 (prod). This route forwards the stream so the
+    dashboard doesn't need to know where the pipeline process is running.
+    """
+    import httpx
+    from starlette.responses import StreamingResponse
+    _pipeline_sse_url = os.environ.get("PIPELINE_BACKEND_URL", "http://127.0.0.1:8104")
+
+    async def gen():
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "GET",
+                f"{_pipeline_sse_url}/events/sse",
+                params={"camera": camera},
+            ) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/api/pipeline/events")
 async def pipeline_events_proxy(camera: str, start: int, end: int):
     """Query the pipeline event store for scrubbing/historical playback."""

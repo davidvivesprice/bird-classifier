@@ -7496,19 +7496,29 @@ function hideToast(id) {
     const now = performance.now();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const baseY = BASE_Y_FRAC * canvas.height;
+    const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
 
+    // First pass: build placements with interpolated x
+    const placements = [];
     for (const [trackId, state] of trackStates) {
       const elapsed = now - state.last_t;
       if (elapsed > 3000) {
         trackStates.delete(trackId);
         continue;
       }
-      // Skeleton version: just snap to last known x (Task 14b adds interpolation)
-      const renderX = state.last_x;
-      // Scale substream coords (state.frame_width) to canvas coords
-      const canvasX = renderX * (canvas.width / (state.frame_width || canvas.width));
 
-      // Opacity: fade in over 200ms, fade out over 300ms
+      // Extrapolate x from last two known positions
+      let renderX = state.last_x;
+      const dt = state.last_t - state.prev_t;
+      if (dt > 0 && elapsed < 500) {
+        renderX = state.last_x + (state.last_x - state.prev_x) * (elapsed / dt);
+      }
+
+      // Scale substream coords to canvas coords
+      const frameW = state.frame_width || canvas.width;
+      const canvasX = renderX * (canvas.width / frameW);
+
+      // Opacity
       let opacity = 1;
       if (state.fadeOutAt) {
         opacity = Math.max(0, 1 - (now - state.fadeOutAt) / 300);
@@ -7516,16 +7526,96 @@ function hideToast(id) {
         opacity = Math.min(1, (now - state.first_seen_t) / 200);
       }
 
-      if (state.species) {
-        drawLabel(canvasX, baseY, state.species, opacity);
+      placements.push({
+        trackId,
+        x: canvasX,
+        y: baseY,
+        state,
+        opacity,
+      });
+    }
+
+    // Collision pass: larger bbox area wins the top slot
+    placements.sort((a, b) => (b.state.bbox_area || 0) - (a.state.bbox_area || 0));
+    const placed = [];
+    for (const p of placements) {
+      let y = p.y;
+      while (placed.some(q =>
+        Math.abs(q.x - p.x) < LABEL_W_ESTIMATE &&
+        Math.abs(q.y - y) < LABEL_HEIGHT + 8
+      )) {
+        y += LABEL_HEIGHT + 8;
+      }
+      p.y = y;
+      placed.push(p);
+    }
+
+    // Edge clamp
+    for (const p of placed) {
+      p.x = Math.max(LABEL_W_ESTIMATE / 2 + 8,
+                     Math.min(canvas.width - LABEL_W_ESTIMATE / 2 - 8, p.x));
+    }
+
+    // Draw
+    for (const p of placed) {
+      if (p.state.species) {
+        drawLabel(p.x, p.y, p.state.species, p.opacity);
       } else {
-        drawDot(canvasX, baseY, opacity);
+        drawDot(p.x, p.y, p.opacity);
       }
     }
 
     requestAnimationFrame(renderFrame);
   }
   requestAnimationFrame(renderFrame);
+})();
+</script>
+
+<script>
+(function setupV3SSESubscription() {
+  const trackStates = window.__v3TrackStates;
+  if (!trackStates) {
+    console.warn('v3 trackStates not initialized, SSE subscription skipped');
+    return;
+  }
+
+  const es = new EventSource('/api/pipeline/events/sse?camera=feeder');
+  es.addEventListener('message', (ev) => {
+    let data;
+    try { data = JSON.parse(ev.data); }
+    catch (e) { console.warn('v3 SSE parse error', e); return; }
+    if (!data.tracks) return;
+    const now = performance.now();
+    const seen = new Set();
+    for (const t of data.tracks) {
+      seen.add(t.track_id);
+      let state = trackStates.get(t.track_id);
+      if (!state) {
+        state = {
+          first_seen_t: now,
+          prev_t: now,
+          prev_x: t.bbox_center_x,
+        };
+        trackStates.set(t.track_id, state);
+      }
+      state.prev_t = state.last_t != null ? state.last_t : now;
+      state.prev_x = state.last_x != null ? state.last_x : t.bbox_center_x;
+      state.last_t = now;
+      state.last_x = t.bbox_center_x;
+      state.species = t.species;
+      state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
+      state.frame_width = t.frame_width;
+      state.frame_height = t.frame_height;
+      state.fadeOutAt = null;
+    }
+    // Any tracked id not in this event starts fading out
+    for (const [trackId, state] of trackStates) {
+      if (!seen.has(trackId) && !state.fadeOutAt) {
+        state.fadeOutAt = now;
+      }
+    }
+  });
+  es.addEventListener('error', (e) => console.warn('v3 SSE error', e));
 })();
 </script>
 </body>
