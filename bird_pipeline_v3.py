@@ -86,6 +86,7 @@ def main():
     from pipeline.hls_recorder import HlsRecorder
     from pipeline.health import HealthState, HealthServer
     from pipeline.process_thread import CameraProcessThread
+    from pipeline.sse_events import SSEEventServer
 
     log.info("Starting bird_pipeline_v3...")
 
@@ -93,8 +94,10 @@ def main():
     signal.signal(signal.SIGINT, shutdown_handler)
 
     # Port configuration for v3 (dev defaults)
+    # health=8102, debug_stream=8103, sse=8104
     HEALTH_PORT = int(os.environ.get("PIPELINE_HEALTH_PORT", "8102"))
     DEBUG_STREAM_PORT = int(os.environ.get("PIPELINE_DEBUG_PORT", "8103"))
+    SSE_PORT = int(os.environ.get("PIPELINE_SSE_PORT", "8104"))
 
     # Shared services
     event_store = EventStore(str(PIPELINE_DB))
@@ -103,6 +106,8 @@ def main():
     health_server.start()
     debug_stream = DebugStream(port=DEBUG_STREAM_PORT)
     debug_stream.start()
+    sse_server = SSEEventServer(port=SSE_PORT)
+    sse_server.start()
 
     regional_species = load_regional_species()
 
@@ -151,6 +156,9 @@ def main():
                 event_store=event_store,
                 annotator=annotator,
                 health=health,
+                sse_server=sse_server,
+                frame_width=1920,  # TODO Task 12 will switch to 640x360 substream
+                frame_height=1080,
             )
             recorder = HlsRecorder(name, url, str(HLS_DIR / name))
 
@@ -202,6 +210,8 @@ def main():
         try: recorder.stop()
         except Exception: pass
     try: debug_stream.stop()
+    except Exception: pass
+    try: sse_server.stop()
     except Exception: pass
     try: health_server.stop()
     except Exception: pass

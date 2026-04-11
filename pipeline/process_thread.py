@@ -20,7 +20,8 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 class CameraProcessThread:
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
-                 event_store, annotator, health):
+                 event_store, annotator, health, sse_server=None,
+                 frame_width: int = 640, frame_height: int = 360):
         self.name = name
         self.frame_queue = frame_queue
         self.motion_gate = motion_gate
@@ -30,6 +31,9 @@ class CameraProcessThread:
         self.event_store = event_store
         self.annotator = annotator
         self.health = health
+        self.sse_server = sse_server
+        self.frame_width = frame_width
+        self.frame_height = frame_height
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_forced_full = 0.0
@@ -113,6 +117,29 @@ class CameraProcessThread:
                 model_source=track.model_source,
                 bbox=track.bbox,
                 is_new=(track.track_id in new_ids),
+            )
+
+        # 6b. Emit SSE event for live dashboard consumption
+        if tracker_out.active and self.sse_server is not None:
+            tracks_payload = []
+            for track in tracker_out.active:
+                bbox = list(track.bbox)
+                tracks_payload.append({
+                    "track_id": track.track_id,
+                    "bbox": bbox,
+                    "bbox_center_x": (bbox[0] + bbox[2]) // 2,
+                    "frame_width": self.frame_width,
+                    "frame_height": self.frame_height,
+                    "species": track.species,
+                    "species_confidence": None,  # Phase 1: not yet stored separately
+                    "model_source": track.model_source,
+                    "is_locked": track.species is not None,  # Phase 1: locked when assigned
+                    "frame_count": getattr(track, "frame_count", 0),
+                })
+            self.sse_server.emit(
+                camera=self.name,
+                wall_time_ms=int(frame.wall_time_ms),
+                tracks=tracks_payload,
             )
 
         # 7. Track expired → write summary

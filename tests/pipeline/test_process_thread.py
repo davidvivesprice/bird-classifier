@@ -391,3 +391,146 @@ def test_classifier_stats_reported_per_camera_not_global():
     assert feeder_classifier_stats["aiy"] != 100
     # And ground's stats must NOT appear anywhere in the feeder update
     assert "ground" not in feeder_classifier_stats
+
+
+def test_process_thread_emits_sse_event_for_active_tracks():
+    """When a frame produces active tracks, process_thread must emit an SSE event
+    with the expected shape: camera, wall_time_ms, tracks[] with bbox_center_x,
+    frame_width, frame_height, species, model_source, is_locked, frame_count."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+        "yolo_runs_total": 0, "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time() - 9999  # not forced
+
+    # Fake track returned by tracker
+    fake_track = MagicMock()
+    fake_track.track_id = 7
+    fake_track.bbox = [100, 50, 300, 200]
+    fake_track.species = "Downy Woodpecker"
+    fake_track.confidence = 0.9
+    fake_track.model_source = "yard"
+    fake_track.frame_count = 5
+    fake_track.needs_classification = False
+    fake_track.classification_attempts = 0
+
+    tracker_out = MagicMock()
+    tracker_out.new = [fake_track]
+    tracker_out.active = [fake_track]
+    tracker_out.expired = []
+
+    motion_gate = MagicMock()
+    motion_gate.regions.return_value = [(0, 0, 640, 360)]
+    detector = MagicMock()
+    detector.detect.return_value = [MagicMock()]
+    tracker = MagicMock()
+    tracker.update.return_value = tracker_out
+    tracker.tracks = [fake_track]
+    tracker.stationary_regions.return_value = []
+    classifier = MagicMock()
+    classifier.stats = {"feeder": {"yard": 0, "aiy": 0}}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    sse_server = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+    t.sse_server = sse_server
+    t.frame_width = 640
+    t.frame_height = 360
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=1_700_000_000_000,
+        camera="feeder", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    assert sse_server.emit.call_count == 1, (
+        f"expected emit called once, got {sse_server.emit.call_count}"
+    )
+    call = sse_server.emit.call_args
+    kwargs = call.kwargs
+    assert kwargs["camera"] == "feeder"
+    assert kwargs["wall_time_ms"] == 1_700_000_000_000
+    tracks = kwargs["tracks"]
+    assert len(tracks) == 1
+    assert tracks[0]["track_id"] == 7
+    assert tracks[0]["species"] == "Downy Woodpecker"
+    assert tracks[0]["bbox"] == [100, 50, 300, 200]
+    assert tracks[0]["bbox_center_x"] == 200  # (100 + 300) // 2
+    assert tracks[0]["frame_width"] == 640
+    assert tracks[0]["frame_height"] == 360
+    assert tracks[0]["model_source"] == "yard"
+    assert tracks[0]["is_locked"] is True  # Phase 1: locked when species is set
+    assert tracks[0]["frame_count"] == 5
+
+
+def test_process_thread_does_not_emit_when_no_active_tracks():
+    """No active tracks → no SSE event (avoids spam)."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+        "yolo_runs_total": 0, "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []  # none
+    tracker_out.expired = []
+
+    motion_gate = MagicMock(); motion_gate.regions.return_value = []
+    detector = MagicMock(); detector.detect.return_value = []
+    tracker = MagicMock(); tracker.update.return_value = tracker_out
+    tracker.tracks = []; tracker.stationary_regions.return_value = []
+    classifier = MagicMock(); classifier.stats = {"feeder": {}}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    sse_server = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+    t.sse_server = sse_server
+    t.frame_width = 640
+    t.frame_height = 360
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    assert sse_server.emit.call_count == 0, (
+        f"expected no emit for empty tracks, got {sse_server.emit.call_count}"
+    )
