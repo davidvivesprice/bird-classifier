@@ -7334,6 +7334,29 @@ function hideToast(id) {
 </script>
 
 <script>
+// Shared delay between detect pipeline and live view.
+//
+// The bird observatory pipeline emits SSE track events with server wall_time_ms
+// soon after each frame is captured. The browser receives them with only
+// pipeline-processing + network latency (~300-500ms typical). The live video
+// arrives at the browser much closer to real time, so by default the label
+// arrives AFTER the bird is visible on screen.
+//
+// The fix: we pause the <video> for SYNC_DELAY_MS on first playable frame so
+// the video plays approximately that far behind wall clock. Labels are held in
+// a buffer keyed by wall_time_ms and drawn only when the video catches up to
+// their wall time. Result: by the time a bird walks into the visible frame,
+// its label is already positioned because we knew about it SYNC_DELAY_MS ago.
+//
+// 3000ms is comfortable headroom on a 300-500ms pipeline latency. Can be
+// tuned in localStorage: localStorage.setItem('v3SyncDelayMs', '5000').
+window.__v3SyncDelayMs = (function() {
+  var stored = parseInt(localStorage.getItem('v3SyncDelayMs') || '0', 10);
+  return (stored > 0) ? stored : 3000;
+})();
+</script>
+
+<script>
 (function setupV3LiveVideo() {
   var video = document.getElementById('v3-live-video');
   if (!video) return;
@@ -7344,6 +7367,21 @@ function hideToast(id) {
   var mediaSource = null;
   var sourceBuffer = null;
   var queue = [];
+
+  // Pause the video for SYNC_DELAY_MS on the first playable frame, then play.
+  // This makes the video lag live by approximately the delay, so labels
+  // arriving from the pipeline have time to be "held" until the video catches
+  // up. See the shared window.__v3SyncDelayMs comment.
+  var syncStarted = false;
+  video.addEventListener('canplay', function onFirstCanPlay() {
+    if (syncStarted) return;
+    syncStarted = true;
+    video.pause();
+    var delay = window.__v3SyncDelayMs || 3000;
+    setTimeout(function() {
+      video.play().catch(function(e) { console.warn('v3 video.play failed', e); });
+    }, delay);
+  });
 
   function connect() {
     var wsUrl = 'ws://' + go2rtcHost + '/api/ws?src=' + streamName;
@@ -7492,38 +7530,92 @@ function hideToast(id) {
     ctx.restore();
   }
 
+  // pendingEvents: SSE events held until their server wall_time_ms catches up
+  // to the delayed video's displayed wall time. Populated by setupV3SSESubscription
+  // below; drained at the top of each renderFrame tick.
+  const pendingEvents = [];
+  window.__v3PendingEvents = pendingEvents;
+
+  function applyEventToTrackStates(data) {
+    if (!data.tracks) return;
+    const eventWall = data.wall_time_ms;
+    const seen = new Set();
+    for (const t of data.tracks) {
+      seen.add(t.track_id);
+      let state = trackStates.get(t.track_id);
+      if (!state) {
+        state = {
+          first_seen_t: eventWall,
+          prev_t: eventWall,
+          prev_x: t.bbox_center_x,
+        };
+        trackStates.set(t.track_id, state);
+      }
+      state.prev_t = state.last_t != null ? state.last_t : eventWall;
+      state.prev_x = state.last_x != null ? state.last_x : t.bbox_center_x;
+      state.last_t = eventWall;
+      state.last_x = t.bbox_center_x;
+      state.species = t.species;
+      state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
+      state.frame_width = t.frame_width;
+      state.frame_height = t.frame_height;
+      state.fadeOutAt = null;
+    }
+    // Any tracked id present in trackStates but not in this event —
+    // only fade out if the event covers the same camera and moment.
+    // For now, single-camera dashboard, so treat any missing-from-event as gone.
+    for (const [trackId, state] of trackStates) {
+      if (!seen.has(trackId) && !state.fadeOutAt) {
+        state.fadeOutAt = eventWall;
+      }
+    }
+  }
+  window.__v3ApplyEvent = applyEventToTrackStates;
+
   function renderFrame() {
-    const now = performance.now();
+    // Wall clock of the frame the video is currently displaying.
+    // Video was paused for SYNC_DELAY_MS on first canplay, so it plays
+    // approximately that far behind real-time. Labels are held in
+    // pendingEvents until the video catches up to their wall_time_ms.
+    const SYNC_DELAY_MS = window.__v3SyncDelayMs || 0;
+    const displayedWallTime = Date.now() - SYNC_DELAY_MS;
+
+    // Drain SSE events whose server wall_time <= displayed video wall time
+    while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
+      applyEventToTrackStates(pendingEvents.shift());
+    }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const baseY = BASE_Y_FRAC * canvas.height;
     const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
 
     // First pass: build placements with interpolated x
     const placements = [];
-    const STALE_MS = 800;     // if no events for this long, start fading out
-    const FADE_OUT_MS = 300;  // duration of the fade-out animation
+    const STALE_MS = 800;     // no events for this wall-clock window → start fade
+    const FADE_OUT_MS = 300;
+    const FADE_IN_MS = 200;
     for (const [trackId, state] of trackStates) {
-      const elapsed = now - state.last_t;
+      // All timing in server wall_time_ms.
+      const elapsed = displayedWallTime - state.last_t;
 
-      // Trigger fade-out when the SSE stream goes quiet for this track
-      // (bird left the frame, pipeline stopped emitting). Without this,
-      // the SSE handler only marks fadeOutAt when ANOTHER event arrives
-      // that doesn't include this track — so a lone bird leaving alone
-      // would vanish abruptly instead of fading.
+      // Trigger fade-out when the SSE stream goes quiet for this track.
+      // "Quiet" means no events for STALE_MS in wall time — the bird has
+      // either left the frame or the pipeline stopped classifying.
       if (elapsed > STALE_MS && !state.fadeOutAt) {
-        state.fadeOutAt = now;
+        state.fadeOutAt = displayedWallTime;
       }
 
       // Delete once the fade-out animation has fully played out
-      if (state.fadeOutAt && (now - state.fadeOutAt) > FADE_OUT_MS) {
+      if (state.fadeOutAt && (displayedWallTime - state.fadeOutAt) > FADE_OUT_MS) {
         trackStates.delete(trackId);
         continue;
       }
 
-      // Extrapolate x from last two known positions
+      // Extrapolate x from last two known positions.
+      // elapsed here is time since last known event in wall clock.
       let renderX = state.last_x;
       const dt = state.last_t - state.prev_t;
-      if (dt > 0 && elapsed < 500) {
+      if (dt > 0 && elapsed >= 0 && elapsed < 500) {
         renderX = state.last_x + (state.last_x - state.prev_x) * (elapsed / dt);
       }
 
@@ -7531,12 +7623,14 @@ function hideToast(id) {
       const frameW = state.frame_width || canvas.width;
       const canvasX = renderX * (canvas.width / frameW);
 
-      // Opacity
+      // Opacity: fade in from first_seen_t over FADE_IN_MS,
+      // fade out from fadeOutAt over FADE_OUT_MS
       let opacity = 1;
       if (state.fadeOutAt) {
-        opacity = Math.max(0, 1 - (now - state.fadeOutAt) / 300);
+        opacity = Math.max(0, 1 - (displayedWallTime - state.fadeOutAt) / FADE_OUT_MS);
       } else if (state.first_seen_t) {
-        opacity = Math.min(1, (now - state.first_seen_t) / 200);
+        opacity = Math.min(1, (displayedWallTime - state.first_seen_t) / FADE_IN_MS);
+        opacity = Math.max(0, opacity);  // guard against displayedWallTime < first_seen_t
       }
 
       placements.push({
@@ -7586,9 +7680,9 @@ function hideToast(id) {
 
 <script>
 (function setupV3SSESubscription() {
-  const trackStates = window.__v3TrackStates;
-  if (!trackStates) {
-    console.warn('v3 trackStates not initialized, SSE subscription skipped');
+  const pendingEvents = window.__v3PendingEvents;
+  if (!pendingEvents) {
+    console.warn('v3 pendingEvents not initialized, SSE subscription skipped');
     return;
   }
 
@@ -7597,35 +7691,17 @@ function hideToast(id) {
     let data;
     try { data = JSON.parse(ev.data); }
     catch (e) { console.warn('v3 SSE parse error', e); return; }
-    if (!data.tracks) return;
-    const now = performance.now();
-    const seen = new Set();
-    for (const t of data.tracks) {
-      seen.add(t.track_id);
-      let state = trackStates.get(t.track_id);
-      if (!state) {
-        state = {
-          first_seen_t: now,
-          prev_t: now,
-          prev_x: t.bbox_center_x,
-        };
-        trackStates.set(t.track_id, state);
-      }
-      state.prev_t = state.last_t != null ? state.last_t : now;
-      state.prev_x = state.last_x != null ? state.last_x : t.bbox_center_x;
-      state.last_t = now;
-      state.last_x = t.bbox_center_x;
-      state.species = t.species;
-      state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
-      state.frame_width = t.frame_width;
-      state.frame_height = t.frame_height;
-      state.fadeOutAt = null;
-    }
-    // Any tracked id not in this event starts fading out
-    for (const [trackId, state] of trackStates) {
-      if (!seen.has(trackId) && !state.fadeOutAt) {
-        state.fadeOutAt = now;
-      }
+    if (!data.tracks || data.wall_time_ms == null) return;
+    // Push into the pending queue — the render loop will apply it when
+    // the delayed video catches up to data.wall_time_ms. See SYNC_DELAY_MS.
+    // The render loop's applyEventToTrackStates does all the state mutation
+    // including marking tracks absent-from-this-event as fading out.
+    pendingEvents.push(data);
+    // Defensive cap: if events pile up (network burst, video paused too long,
+    // tab backgrounded, etc.) drop oldest so memory doesn't grow unbounded.
+    const MAX_PENDING = 1000;
+    if (pendingEvents.length > MAX_PENDING) {
+      pendingEvents.splice(0, pendingEvents.length - MAX_PENDING);
     }
   });
   es.addEventListener('error', (e) => console.warn('v3 SSE error', e));
