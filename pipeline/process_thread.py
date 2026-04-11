@@ -120,7 +120,7 @@ class CameraProcessThread:
             try:
                 self.event_store.write_track_summary(
                     camera=self.name, track=track,
-                    num_frames=self._stats["frames_processed"],
+                    num_frames=track.frame_count,
                 )
             except Exception as e:
                 log.warning("[%s] write_track_summary error: %s", self.name, e)

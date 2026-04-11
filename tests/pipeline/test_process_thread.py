@@ -281,3 +281,61 @@ def test_yolo_samples_excludes_skip_frames():
     )
     assert t._stats["yolo_skipped_motion"] == 5
     assert t._stats["yolo_runs_total"] == 0
+
+
+def test_write_track_summary_uses_per_track_frame_count():
+    """write_track_summary must pass track.frame_count, not a global counter."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 9999,  # deliberately big, not per-track
+        "detections": 0,
+        "yolo_ms_samples": [],
+        "yolo_runs_total": 0,
+        "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()
+
+    fake_track = MagicMock()
+    fake_track.frame_count = 42
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []
+    tracker_out.expired = [fake_track]
+
+    motion_gate = MagicMock(); motion_gate.regions.return_value = []
+    detector = MagicMock(); detector.detect.return_value = []
+    tracker = MagicMock(); tracker.update.return_value = tracker_out
+    tracker.tracks = []; tracker.stationary_regions.return_value = []
+    classifier = MagicMock(); classifier.stats = {}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="test", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    event_store.write_track_summary.assert_called_once()
+    call_kwargs = event_store.write_track_summary.call_args.kwargs
+    assert call_kwargs["num_frames"] == 42, (
+        f"expected num_frames=42 (per-track), got {call_kwargs['num_frames']}"
+    )
