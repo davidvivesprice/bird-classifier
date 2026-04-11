@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Optional
 
+import numpy as np
 from PIL import Image
 
 from pipeline.frame import Frame
@@ -164,7 +165,6 @@ class CameraProcessThread:
             track.needs_classification = False
 
     def _update_health(self, frame: Frame, det_ms: float):
-        import numpy as np
         samples = self._stats["yolo_ms_samples"]
         if len(samples) >= 10:
             yolo_avg = float(np.mean(samples))
