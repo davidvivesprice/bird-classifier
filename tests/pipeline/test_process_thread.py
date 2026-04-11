@@ -360,9 +360,9 @@ def test_classifier_stats_reported_per_camera_not_global():
     classifier = MagicMock()
     classifier.stats = {
         "feeder": {"yard": 42, "aiy": 3, "unlabeled_call": 1,
-                   "both_agree": 0, "lock_timeouts": 0, "retries": 0},
+                   "both_agree": 0, "lock_timeouts": 0},
         "ground": {"yard": 0, "aiy": 100, "unlabeled_call": 5,
-                   "both_agree": 0, "lock_timeouts": 0, "retries": 0},
+                   "both_agree": 0, "lock_timeouts": 0},
     }
     t.classifier = classifier
 
@@ -534,3 +534,57 @@ def test_process_thread_does_not_emit_when_no_active_tracks():
     assert sse_server.emit.call_count == 0, (
         f"expected no emit for empty tracks, got {sse_server.emit.call_count}"
     )
+
+
+def test_species_confidence_separate_from_yolo_confidence():
+    """After classification, track.species_confidence holds the classifier's
+    score and track.confidence still holds the YOLO bbox score."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.classifier import ClassificationResult
+    from pipeline.frame import Frame
+    from PIL import Image
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+
+    fake_track = MagicMock()
+    fake_track.needs_classification = True
+    fake_track.classification_attempts = 0
+    fake_track.bbox = [100, 100, 300, 300]
+    fake_track.confidence = 0.85  # YOLO bbox score (the tracker mutates this)
+    fake_track.species = None
+    fake_track.species_confidence = None
+    fake_track.model_source = None
+
+    classifier = MagicMock()
+    classifier.classify.return_value = ClassificationResult(
+        species="Downy Woodpecker",
+        confidence=0.92,  # classifier score
+        model_source="yard",
+        should_retry=False,
+    )
+    t.classifier = classifier
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+
+    t._classify_tracks(frame, [fake_track])
+
+    assert fake_track.species == "Downy Woodpecker"
+    assert fake_track.species_confidence == 0.92, (
+        f"expected species_confidence=0.92, got {fake_track.species_confidence}"
+    )
+    # YOLO bbox confidence should NOT have been stomped
+    assert fake_track.confidence == 0.85, (
+        f"expected track.confidence=0.85 (YOLO, preserved), got {fake_track.confidence}"
+    )
+    assert fake_track.model_source == "yard"
+    assert fake_track.needs_classification is False

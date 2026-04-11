@@ -36,7 +36,7 @@ def _populate_healthy(h, camera="feeder"):
     })
     h.update(camera, "classifier", {
         "yard": 10, "aiy": 2, "both_agree": 0,
-        "unlabeled_call": 0, "lock_timeouts": 0, "retries": 0,
+        "unlabeled_call": 0, "lock_timeouts": 0,
     })
 
 

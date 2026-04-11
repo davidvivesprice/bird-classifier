@@ -19,6 +19,7 @@ class Track:
     bbox: list = field(default_factory=lambda: [0, 0, 0, 0])
     confidence: float = 0.0
     species: Optional[str] = None
+    species_confidence: Optional[float] = None
     model_source: Optional[str] = None
     trust_level: str = "normal"
     needs_classification: bool = True

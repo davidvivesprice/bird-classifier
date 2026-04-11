@@ -23,6 +23,15 @@ class ClassificationResult:
     should_retry: bool  # True if Coral was busy — retry on next frame
 
 
+class _YardLockTimeout:
+    """Sentinel returned by _run_yard when the Coral lock could not be acquired.
+
+    Distinguishes 'yard had no confident answer' (returns None) from
+    'yard couldn't run due to lock contention, caller should retry' (returns
+    this sentinel class object).
+    """
+
+
 class SmartClassifier:
     def __init__(
         self,
@@ -46,7 +55,7 @@ class SmartClassifier:
         self.stats = {
             camera: {
                 "yard": 0, "aiy": 0, "both_agree": 0,
-                "unlabeled_call": 0, "lock_timeouts": 0, "retries": 0,
+                "unlabeled_call": 0, "lock_timeouts": 0,
             }
             for camera in camera_configs
         }
@@ -60,67 +69,75 @@ class SmartClassifier:
 
         cam_stats = self.stats.setdefault(camera, {
             "yard": 0, "aiy": 0, "both_agree": 0,
-            "unlabeled_call": 0, "lock_timeouts": 0, "retries": 0,
+            "unlabeled_call": 0, "lock_timeouts": 0,
         })
 
+        if not config.use_yard:
+            # Ground path: AIY only. Never touches the Coral lock.
+            aiy_res = self._run_aiy(crop_pil)
+            if aiy_res and aiy_res.confidence >= config.confident_threshold:
+                cam_stats["aiy"] += 1
+                return ClassificationResult(
+                    aiy_res.species, aiy_res.confidence, "aiy", False
+                )
+            cam_stats["unlabeled_call"] += 1
+            return ClassificationResult(None, 0.0, None, False)
+
+        # Feeder path: yard-first decision tree.
+        # Coral lock is acquired inside _run_yard only during yard inference.
+        yard_res = self._run_yard(crop_pil, cam_stats)
+        if yard_res is _YardLockTimeout:
+            return ClassificationResult(None, 0.0, None, should_retry=True)
+
+        if yard_res and yard_res.confidence >= config.confident_threshold:
+            cam_stats["yard"] += 1
+            return ClassificationResult(
+                yard_res.species, yard_res.confidence, "yard", False
+            )
+
+        if not yard_res or yard_res.confidence < config.uncertain_low:
+            aiy_res = self._run_aiy(crop_pil)
+            if aiy_res and aiy_res.confidence >= config.confident_threshold:
+                cam_stats["aiy"] += 1
+                return ClassificationResult(
+                    aiy_res.species, aiy_res.confidence, "aiy", False
+                )
+            cam_stats["unlabeled_call"] += 1
+            return ClassificationResult(None, 0.0, None, False)
+
+        # Yard is in the uncertain band — cross-check with AIY.
+        aiy_res = self._run_aiy(crop_pil)
+        if not aiy_res:
+            cam_stats["unlabeled_call"] += 1
+            return ClassificationResult(None, 0.0, None, False)
+
+        if aiy_res.species == yard_res.species:
+            cam_stats["both_agree"] += 1
+            return ClassificationResult(
+                yard_res.species,
+                max(yard_res.confidence, aiy_res.confidence),
+                "both_agree", False
+            )
+
+        # Disagreement: Path 4 (audio cross-check) removed in v3 — see
+        # docs/superpowers/specs/2026-04-11-live-detection-v3-design.md § 10.
+        cam_stats["unlabeled_call"] += 1
+        return ClassificationResult(None, 0.0, None, False)
+
+    def _run_yard(self, crop_pil, cam_stats):
+        """Run yard classifier. Returns object with .species and .confidence, or None.
+
+        Holds the Coral lock for the duration of yard inference because yard
+        runs on the Coral Edge TPU and Coral USB is single-session.
+
+        Returns _YardLockTimeout (the sentinel class) if the lock could not be
+        acquired within CORAL_ACQUIRE_TIMEOUT — the caller should retry on the
+        next frame rather than fall through to AIY.
+        """
         got = self._coral_lock.acquire(timeout=CORAL_ACQUIRE_TIMEOUT)
         if not got:
             cam_stats["lock_timeouts"] += 1
-            return ClassificationResult(None, 0.0, None, should_retry=True)
-
-        try:
-            if not config.use_yard:
-                # Ground path: AIY only.
-                aiy_res = self._run_aiy(crop_pil)
-                if aiy_res and aiy_res.confidence >= config.confident_threshold:
-                    cam_stats["aiy"] += 1
-                    return ClassificationResult(
-                        aiy_res.species, aiy_res.confidence, "aiy", False
-                    )
-                cam_stats["unlabeled_call"] += 1
-                return ClassificationResult(None, 0.0, None, False)
-
-            # Feeder path: yard-first decision tree.
-            yard_res = self._run_yard(crop_pil)
-            if yard_res and yard_res.confidence >= config.confident_threshold:
-                cam_stats["yard"] += 1
-                return ClassificationResult(
-                    yard_res.species, yard_res.confidence, "yard", False
-                )
-
-            if not yard_res or yard_res.confidence < config.uncertain_low:
-                aiy_res = self._run_aiy(crop_pil)
-                if aiy_res and aiy_res.confidence >= config.confident_threshold:
-                    cam_stats["aiy"] += 1
-                    return ClassificationResult(
-                        aiy_res.species, aiy_res.confidence, "aiy", False
-                    )
-                cam_stats["unlabeled_call"] += 1
-                return ClassificationResult(None, 0.0, None, False)
-
-            # Yard is in the uncertain band — cross-check with AIY.
-            aiy_res = self._run_aiy(crop_pil)
-            if not aiy_res:
-                cam_stats["unlabeled_call"] += 1
-                return ClassificationResult(None, 0.0, None, False)
-
-            if aiy_res.species == yard_res.species:
-                cam_stats["both_agree"] += 1
-                return ClassificationResult(
-                    yard_res.species,
-                    max(yard_res.confidence, aiy_res.confidence),
-                    "both_agree", False
-                )
-
-            # Disagreement: Path 4 (audio cross-check) removed in v3 — see
-            # docs/superpowers/specs/2026-04-11-live-detection-v3-design.md § 10.
-            cam_stats["unlabeled_call"] += 1
-            return ClassificationResult(None, 0.0, None, False)
-        finally:
-            self._coral_lock.release()
-
-    def _run_yard(self, crop_pil):
-        """Run yard classifier. Returns object with .species and .confidence, or None."""
+            return _YardLockTimeout
         try:
             results = self.yard.classify(crop_pil)
             if not results:
@@ -133,6 +150,8 @@ class SmartClassifier:
         except Exception as e:
             log.warning("Yard classify error: %s", e)
             return None
+        finally:
+            self._coral_lock.release()
 
     def _run_aiy(self, crop_pil):
         """Run AIY classifier. Returns object with .species and .confidence, or None."""

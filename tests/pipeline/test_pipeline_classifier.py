@@ -28,7 +28,7 @@ def _make_classifier(camera="feeder"):
     c.camera_configs = configs
     c.stats = {
         camera: {k: 0 for k in ["yard", "aiy", "both_agree",
-                                 "unlabeled_call", "lock_timeouts", "retries"]}
+                                 "unlabeled_call", "lock_timeouts"]}
     }
     return c, camera
 
@@ -97,12 +97,14 @@ def test_no_confident_answer_returns_unlabeled():
 
 
 def test_coral_lock_timeout_returns_should_retry():
-    """If another thread holds the Coral lock past timeout, return should_retry=True."""
+    """If another thread holds the Coral lock past timeout, return should_retry=True.
+
+    With the narrowed lock scope (I2), the lock is acquired inside _run_yard.
+    We hold the lock externally and let the real _run_yard try and fail to acquire it.
+    """
     c, cam = _make_classifier()
-    # Hold the lock elsewhere
+    # Hold the lock elsewhere — real _run_yard will try to acquire and time out.
     c._coral_lock.acquire()
-    c._run_yard = MagicMock()
-    c._run_aiy = MagicMock()
 
     # Shorten the timeout for test speed
     with patch("pipeline.classifier.CORAL_ACQUIRE_TIMEOUT", 0.2):
@@ -148,7 +150,7 @@ def test_ground_camera_skips_yard_entirely():
     classifier._coral_lock = __import__("threading").Lock()
     classifier.stats = {
         cam: {"yard": 0, "aiy": 0, "both_agree": 0,
-              "unlabeled_call": 0, "lock_timeouts": 0, "retries": 0}
+              "unlabeled_call": 0, "lock_timeouts": 0}
         for cam in configs
     }
 
@@ -158,7 +160,7 @@ def test_ground_camera_skips_yard_entirely():
     yard_called = [0]
     aiy_called = [0]
 
-    def fake_yard(crop):
+    def fake_yard(crop, cam_stats):
         yard_called[0] += 1
         return type("YR", (), {"species": "Northern Cardinal", "confidence": 0.9})()
 
@@ -183,3 +185,50 @@ def test_ground_camera_skips_yard_entirely():
     assert yard_called[0] == 1, f"yard should run for feeder, ran {yard_called[0]} times"
     assert result2.species == "Northern Cardinal"
     assert result2.model_source == "yard"
+
+
+def test_ground_path_does_not_hold_coral_lock():
+    """With use_yard=False, classify() must never acquire the Coral lock,
+    so a busy Coral on feeder doesn't block ground classification."""
+    from unittest.mock import MagicMock
+    from pipeline.classifier import SmartClassifier
+    from pipeline.camera_config import CameraClassifierConfig
+    from PIL import Image
+    import threading
+
+    configs = {
+        "feeder": CameraClassifierConfig(use_yard=True),
+        "ground": CameraClassifierConfig(use_yard=False),
+    }
+
+    classifier = SmartClassifier.__new__(SmartClassifier)
+    classifier.camera_configs = configs
+    classifier._coral_lock = threading.Lock()
+    classifier.stats = {
+        cam: {"yard": 0, "aiy": 0, "both_agree": 0,
+              "unlabeled_call": 0, "lock_timeouts": 0}
+        for cam in configs
+    }
+
+    # Grab the Coral lock — simulate feeder mid-yard-inference
+    classifier._coral_lock.acquire()
+
+    classifier._run_yard = MagicMock(return_value=None)
+    classifier._run_aiy = MagicMock(return_value=type("R", (), {
+        "species": "Mourning Dove", "confidence": 0.9})())
+
+    # Ground call should NOT block on the held Coral lock
+    result_holder = {}
+
+    def call_ground():
+        img = Image.new("RGB", (100, 100))
+        result_holder["r"] = classifier.classify(img, 0, "ground")
+
+    t = threading.Thread(target=call_ground)
+    t.start()
+    t.join(timeout=2.0)  # if we're blocked on the lock, this times out
+    assert not t.is_alive(), "ground classify blocked on Coral lock while yard held it"
+    assert result_holder["r"].species == "Mourning Dove"
+    assert result_holder["r"].model_source == "aiy"
+
+    classifier._coral_lock.release()

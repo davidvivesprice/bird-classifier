@@ -136,7 +136,7 @@ class CameraProcessThread:
                     "frame_width": self.frame_width,
                     "frame_height": self.frame_height,
                     "species": track.species,
-                    "species_confidence": None,  # Phase 1: not yet stored separately
+                    "species_confidence": getattr(track, "species_confidence", None),
                     "model_source": track.model_source,
                     "is_locked": track.species is not None,  # Phase 1: locked when assigned
                     "frame_count": getattr(track, "frame_count", 0),
@@ -204,9 +204,9 @@ class CameraProcessThread:
                 continue
             # Got a final answer (species may be None = unlabeled)
             track.species = result.species
-            if result.confidence:
-                track.confidence = result.confidence
+            track.species_confidence = result.confidence if result.confidence else None
             track.model_source = result.model_source
+            # Note: track.confidence remains the YOLO bbox confidence (managed by tracker)
             track.needs_classification = False
 
     def _update_health(self, frame: Frame, det_ms: float):

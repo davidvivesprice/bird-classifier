@@ -48,7 +48,7 @@ def test_empty_video_produces_no_events(tmp_path):
     # Dummy classifier: never return a species (tests pipeline wiring, not ML)
     class DummyClassifier:
         stats = {"yard": 0, "aiy": 0, "both_agree": 0,
-                 "unlabeled": 0, "lock_timeouts": 0, "retries": 0}
+                 "unlabeled": 0, "lock_timeouts": 0}
         def classify(self, *a, **k):
             return ClassificationResult(None, 0, None, False)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bird_pipeline_v3 — Frigate-inspired live detection orchestrator.
 
-See docs/superpowers/specs/2026-04-10-live-detection-v2-design.md
+See docs/superpowers/specs/2026-04-11-live-detection-v3-design.md
 """
 from __future__ import annotations
 import logging

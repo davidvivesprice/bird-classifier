@@ -100,7 +100,7 @@ class SSEEventServer:
         self._clients_lock = threading.Lock()
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
-        self.stats = {"events_emitted": 0, "clients_connected": 0}
+        self.stats = {"events_emitted": 0, "clients_lifetime_total": 0, "clients_currently": 0}
 
     def start(self) -> None:
         handler_cls = _SSEHandler
@@ -137,9 +137,11 @@ class SSEEventServer:
     def _add_client(self, camera: str, q: "queue.Queue") -> None:
         with self._clients_lock:
             self._clients.setdefault(camera, []).append(q)
-            self.stats["clients_connected"] += 1
+            self.stats["clients_lifetime_total"] += 1
+            self.stats["clients_currently"] += 1
 
     def _remove_client(self, camera: str, q: "queue.Queue") -> None:
         with self._clients_lock:
             if camera in self._clients and q in self._clients[camera]:
                 self._clients[camera].remove(q)
+                self.stats["clients_currently"] = max(0, self.stats["clients_currently"] - 1)

@@ -46,7 +46,7 @@ def test_benchmark_60s_run():
 
     class FastClassifier:
         stats = {"yard": 0, "aiy": 0, "both_agree": 0,
-                 "unlabeled": 0, "lock_timeouts": 0, "retries": 0}
+                 "unlabeled": 0, "lock_timeouts": 0}
         def classify(self, crop, frame_time_ms, camera):
             return ClassificationResult("Black-capped Chickadee", 0.9, "yard", False)
 
