@@ -7408,7 +7408,13 @@ window.__v3SyncDelayMs = (function() {
             video.src = URL.createObjectURL(mediaSource);
             mediaSource.addEventListener('sourceopen', function() {
               try {
-                sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="' + msg.value + '"');
+                // go2rtc returns msg.value as the FULL mime type string,
+                // e.g. `video/mp4; codecs="avc1.4D0029"`. Do NOT wrap it in
+                // another video/mp4; codecs="..." — that produces an invalid
+                // double-wrapped type and addSourceBuffer throws silently.
+                // This was the root cause of "video is black" in v3 and of
+                // headless readyState=0 blamed on headless codec limits.
+                sourceBuffer = mediaSource.addSourceBuffer(msg.value);
                 sourceBuffer.mode = 'segments';
                 sourceBuffer.addEventListener('updateend', flushQueue);
                 flushQueue();
