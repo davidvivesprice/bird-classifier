@@ -7381,8 +7381,34 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   var sourceBuffer = null;
   var queue = [];
 
-  // No more pause-for-delay. Video plays immediately at whatever speed the
-  // MSE buffer allows. Label sync is tied to video.currentTime (see renderFrame).
+  // Maintain the video at a controlled delay behind the MSE live edge.
+  // Labels are applied immediately when SSE events arrive. The video delay
+  // gives labels time to arrive and be positioned BEFORE the bird appears
+  // on the delayed video. This is the sync mechanism.
+  //
+  // DESIRED_DELAY_S: seconds behind the MSE buffer's live edge.
+  // Too small = labels lag video. Too large = video feels sluggish.
+  // Default 1.2s gives ~800ms of headroom for the substream transcode
+  // + pipeline processing latency (~400ms combined).
+  // Tune: localStorage.setItem('v3VideoDelayS', '1.5')
+  var DESIRED_DELAY_S = parseFloat(localStorage.getItem('v3VideoDelayS') || '1.2');
+  setInterval(function maintainDelay() {
+    if (!video || video.readyState < 2) return;
+    try {
+      var buffered = video.buffered;
+      if (buffered.length === 0) return;
+      var liveEdge = buffered.end(buffered.length - 1);
+      var currentDelay = liveEdge - video.currentTime;
+      // If video is within 0.3s of live edge, it's too close — seek back
+      if (currentDelay < 0.3) {
+        video.currentTime = Math.max(buffered.start(0), liveEdge - DESIRED_DELAY_S);
+      }
+      // If video fell too far behind (>3x desired), seek forward
+      if (currentDelay > DESIRED_DELAY_S * 3) {
+        video.currentTime = liveEdge - DESIRED_DELAY_S;
+      }
+    } catch (e) { /* buffered range may be empty during startup */ }
+  }, 1000);
 
   function connect() {
     ws = new WebSocket(wsUrl);
