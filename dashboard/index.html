@@ -7582,31 +7582,24 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   window.__v3ApplyEvent = applyEventToTrackStates;
 
   function renderFrame() {
-    // Wall clock of the frame the video is currently displaying.
+    // Drain ALL pending SSE events immediately — no buffering.
     //
-    // Computed from (mse_epoch_wall + video.currentTime * 1000) which
-    // tracks the ACTUAL video playback position, adapting automatically
-    // to whatever MSE buffer the browser maintains. No more guessing a
-    // fixed delay constant.
+    // Previous approaches tried to sync labels to video by holding them
+    // in a buffer keyed by wall_time_ms and draining based on a guessed
+    // video delay (SYNC_DELAY_MS) or video.currentTime. Both failed:
+    // - Fixed delay: video plays through the buffer and catches up, labels lag
+    // - video.currentTime: MSE timeline offset is unknowable from JS, labels lag
     //
-    // Fine-tune: localStorage.setItem('v3SyncOffsetMs', '-200') shifts
-    // labels 200ms earlier. Default 0.
-    const video = document.getElementById('v3-live-video');
-    const offsetMs = window.__v3SyncOffsetMs || 0;
-    let displayedWallTime;
-    if (window.__v3MseEpochWall && video && video.currentTime > 0) {
-      displayedWallTime = window.__v3MseEpochWall + video.currentTime * 1000 + offsetMs;
-    } else {
-      // MSE not connected or video hasn't started playing yet.
-      // Show labels immediately (no sync) so the dashboard isn't blank
-      // while the stream loads. Once currentTime > 0, sync kicks in.
-      displayedWallTime = Date.now();
-    }
-
-    // Drain SSE events whose server wall_time <= displayed video wall time
-    while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
+    // The permanent solution: don't buffer. Labels arrive ~300-400ms after
+    // the frame was captured (pipeline processing + network). The video arrives
+    // ~500-1500ms after capture (MSE buffer). So labels arrive BEFORE the
+    // video frame they describe. By applying them immediately, the label is
+    // already positioned when the bird appears on screen moments later.
+    // The natural pipeline-to-MSE timing difference IS the sync mechanism.
+    while (pendingEvents.length > 0) {
       applyEventToTrackStates(pendingEvents.shift());
     }
+    const displayedWallTime = Date.now();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const baseY = BASE_Y_FRAC * canvas.height;
