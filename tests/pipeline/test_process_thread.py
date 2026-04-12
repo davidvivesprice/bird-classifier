@@ -421,6 +421,7 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     fake_track.frame_count = 5
     fake_track.needs_classification = False
     fake_track.classification_attempts = 0
+    fake_track.is_locked = True  # Phase 2: locked by vote consensus
 
     tracker_out = MagicMock()
     tracker_out.new = [fake_track]
@@ -477,7 +478,7 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     assert tracks[0]["frame_width"] == 640
     assert tracks[0]["frame_height"] == 360
     assert tracks[0]["model_source"] == "yard"
-    assert tracks[0]["is_locked"] is True  # Phase 1: locked when species is set
+    assert tracks[0]["is_locked"] is True  # Phase 2: locked by vote consensus
     assert tracks[0]["frame_count"] == 5
 
 
@@ -537,8 +538,12 @@ def test_process_thread_does_not_emit_when_no_active_tracks():
 
 
 def test_species_confidence_separate_from_yolo_confidence():
-    """After classification, track.species_confidence holds the classifier's
-    score and track.confidence still holds the YOLO bbox score."""
+    """After the first vote, track.species_confidence holds the classifier's
+    score and track.confidence still holds the YOLO bbox score.
+
+    Phase 2 note: a single vote shows the species immediately (before lock)
+    but does NOT set needs_classification=False — that requires 3+ votes.
+    """
     from unittest.mock import MagicMock
     from pipeline.process_thread import CameraProcessThread
     from pipeline.classifier import ClassificationResult
@@ -555,6 +560,8 @@ def test_species_confidence_separate_from_yolo_confidence():
     fake_track = MagicMock()
     fake_track.needs_classification = True
     fake_track.classification_attempts = 0
+    fake_track.vote_history = []
+    fake_track.is_locked = False
     fake_track.bbox = [100, 100, 300, 300]
     fake_track.confidence = 0.85  # YOLO bbox score (the tracker mutates this)
     fake_track.species = None
@@ -578,6 +585,7 @@ def test_species_confidence_separate_from_yolo_confidence():
 
     t._classify_tracks(frame, [fake_track])
 
+    # Species is shown immediately from first vote (before lock)
     assert fake_track.species == "Downy Woodpecker"
     assert fake_track.species_confidence == 0.92, (
         f"expected species_confidence=0.92, got {fake_track.species_confidence}"
@@ -587,4 +595,103 @@ def test_species_confidence_separate_from_yolo_confidence():
         f"expected track.confidence=0.85 (YOLO, preserved), got {fake_track.confidence}"
     )
     assert fake_track.model_source == "yard"
+    # One vote is not enough to lock — track stays open for more votes
+    assert fake_track.needs_classification is True
+    assert fake_track.is_locked is False
+    assert len(fake_track.vote_history) == 1
+
+
+def test_voting_locks_species_after_consensus():
+    """Species locks after 3 agreeing votes with sufficient confidence."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.classifier import ClassificationResult, MAX_CLASSIFICATION_ATTEMPTS
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+
+    # Fake track that needs classification
+    fake_track = MagicMock()
+    fake_track.needs_classification = True
+    fake_track.classification_attempts = 0
+    fake_track.vote_history = []
+    fake_track.is_locked = False
+    fake_track.bbox = [100, 100, 300, 300]
+    fake_track.species = None
+    fake_track.species_confidence = None
+    fake_track.model_source = None
+    fake_track.confidence = 0.9
+
+    # Classifier returns "Downy Woodpecker" 3 times
+    call_count = [0]
+    def fake_classify(crop, wall_t, camera):
+        call_count[0] += 1
+        return ClassificationResult(
+            species="Downy Woodpecker", confidence=0.85,
+            model_source="yard", should_retry=False
+        )
+    classifier = MagicMock()
+    classifier.classify = fake_classify
+    t.classifier = classifier
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="feeder", width=640, height=360)
+
+    # Run classification 3 times (simulating 3 successive frames)
+    for i in range(3):
+        fake_track.needs_classification = True  # reset for each "frame"
+        fake_track.classification_attempts = i  # simulate incremental attempts
+        t._classify_tracks(frame, [fake_track])
+
+    assert fake_track.species == "Downy Woodpecker"
+    assert fake_track.is_locked is True
+    assert fake_track.species_confidence == 0.85
+    assert len(fake_track.vote_history) == 3
     assert fake_track.needs_classification is False
+
+
+def test_voting_takes_plurality_at_attempt_cap():
+    """At MAX_CLASSIFICATION_ATTEMPTS without consensus, take the plurality."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.classifier import ClassificationResult, MAX_CLASSIFICATION_ATTEMPTS
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+
+    fake_track = MagicMock()
+    fake_track.needs_classification = True
+    fake_track.classification_attempts = MAX_CLASSIFICATION_ATTEMPTS  # at cap
+    fake_track.vote_history = [
+        ("Downy Woodpecker", 0.7),
+        ("Hairy Woodpecker", 0.6),
+        ("Downy Woodpecker", 0.8),
+        ("House Finch", 0.5),
+        ("Downy Woodpecker", 0.75),
+    ]  # 3/5 Downy → 60% agreement, should be taken as plurality
+    fake_track.is_locked = False
+    fake_track.species = None
+    fake_track.species_confidence = None
+    fake_track.model_source = None
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="feeder", width=640, height=360)
+
+    t._classify_tracks(frame, [fake_track])
+
+    assert fake_track.species == "Downy Woodpecker"
+    assert fake_track.species_confidence == 0.8  # max confidence for the winning species
+    assert fake_track.needs_classification is False
+    assert fake_track.model_source == "vote_plurality"

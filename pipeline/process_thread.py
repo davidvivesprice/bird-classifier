@@ -138,7 +138,7 @@ class CameraProcessThread:
                     "species": track.species,
                     "species_confidence": getattr(track, "species_confidence", None),
                     "model_source": track.model_source,
-                    "is_locked": track.species is not None,  # Phase 1: locked when assigned
+                    "is_locked": track.is_locked,
                     "frame_count": getattr(track, "frame_count", 0),
                 })
             self.sse_server.emit(
@@ -165,11 +165,26 @@ class CameraProcessThread:
         self._update_health(frame, det_ms)
 
     def _classify_tracks(self, frame: Frame, tracks: list):
-        """Run SmartClassifier on any track that still needs classification."""
+        """Run SmartClassifier on tracks that still need classification.
+
+        Phase 2 voting: accumulate classification votes across multiple frames.
+        Lock the species only when enough votes agree. This fixes the
+        "first-blurry-crop permanently mislabels the bird" problem from Phase 1.
+        """
+        from collections import Counter
         for track in tracks:
             if not track.needs_classification:
                 continue
             if track.classification_attempts >= MAX_CLASSIFICATION_ATTEMPTS:
+                # Attempt cap reached without consensus. Take the plurality
+                # winner if any votes exist, otherwise leave unlabeled.
+                if track.vote_history and not track.is_locked:
+                    species_counts = Counter(s for s, c in track.vote_history)
+                    top_species, top_count = species_counts.most_common(1)[0]
+                    top_conf = max(c for s, c in track.vote_history if s == top_species)
+                    track.species = top_species
+                    track.species_confidence = top_conf
+                    track.model_source = "vote_plurality"
                 track.needs_classification = False
                 continue
 
@@ -202,12 +217,32 @@ class CameraProcessThread:
             if result.should_retry:
                 # Will retry on next frame (needs_classification stays True)
                 continue
-            # Got a final answer (species may be None = unlabeled)
-            track.species = result.species
-            track.species_confidence = result.confidence if result.confidence else None
-            track.model_source = result.model_source
-            # Note: track.confidence remains the YOLO bbox confidence (managed by tracker)
-            track.needs_classification = False
+
+            # Got a result — add to vote history
+            if result.species is not None:
+                track.vote_history.append((result.species, result.confidence))
+                # Propagate model_source from the latest vote
+                track.model_source = result.model_source
+                # Show the current top-voted species even before lock
+                # (so the label shows something while votes accumulate)
+                species_counts = Counter(s for s, c in track.vote_history)
+                top_species, _ = species_counts.most_common(1)[0]
+                track.species = top_species
+                track.species_confidence = max(
+                    c for s, c in track.vote_history if s == top_species
+                )
+
+                # Check lock condition
+                if (len(track.vote_history) >= 3 and
+                        track.species_confidence >= 0.6 and
+                        species_counts[top_species] / len(track.vote_history) >= 0.6):
+                    track.is_locked = True
+                    track.needs_classification = False
+            else:
+                # Classifier returned None (unlabeled) — counts as an attempt
+                # but doesn't add a vote. Track stays needs_classification=True
+                # for next frame.
+                pass
 
     def _update_health(self, frame: Frame, det_ms: float):
         samples = self._stats["yolo_ms_samples"]

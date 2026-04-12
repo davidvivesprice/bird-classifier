@@ -26,6 +26,8 @@ class Track:
     classification_attempts: int = 0
     frame_count: int = 0
     motion_history: deque = field(default_factory=lambda: deque(maxlen=10))
+    vote_history: list = field(default_factory=list)
+    is_locked: bool = False
 
     @property
     def is_stationary(self) -> bool:

@@ -12,7 +12,7 @@ from pipeline.camera_config import CameraClassifierConfig
 log = logging.getLogger(__name__)
 
 CORAL_ACQUIRE_TIMEOUT = 5.0  # seconds to wait FOR the lock (not inference itself)
-MAX_CLASSIFICATION_ATTEMPTS = 3
+MAX_CLASSIFICATION_ATTEMPTS = 5
 
 
 @dataclass
