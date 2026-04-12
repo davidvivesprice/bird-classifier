@@ -7410,6 +7410,30 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     } catch (e) { /* buffered range may be empty during startup */ }
   }, 1000);
 
+  // Parse baseMediaDecodeTime from an fMP4 chunk's tfdt box.
+  // go2rtc writes version-1 (64-bit) tfdt in every moof fragment.
+  // Returns BigInt ticks at 90000 Hz, or null for init segments.
+  function parseTfdt(bytes) {
+    // Scan for "tfdt" magic (0x74666474)
+    for (var i = 0; i < bytes.length - 16; i++) {
+      if (bytes[i] === 0x74 && bytes[i+1] === 0x66 &&
+          bytes[i+2] === 0x64 && bytes[i+3] === 0x74) {
+        var version = bytes[i + 4];
+        if (version === 1) {
+          // 64-bit: read as two 32-bit big-endian values
+          var dv = new DataView(bytes.buffer, bytes.byteOffset + i + 8, 8);
+          var hi = dv.getUint32(0, false);
+          var lo = dv.getUint32(4, false);
+          return BigInt(hi) * BigInt(0x100000000) + BigInt(lo);
+        } else {
+          var dv0 = new DataView(bytes.buffer, bytes.byteOffset + i + 8, 4);
+          return BigInt(dv0.getUint32(0, false));
+        }
+      }
+    }
+    return null;
+  }
+
   function connect() {
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -7448,8 +7472,23 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
         }
         return;
       }
-      // Binary MP4 fragment
-      queue.push(new Uint8Array(ev.data));
+      // Binary MP4 fragment — parse baseMediaDecodeTime from the tfdt box
+      // before appending. Combined with Date.now(), this gives us the exact
+      // wall-clock-to-media-time mapping for frame-precise label sync.
+      var chunk = new Uint8Array(ev.data);
+      var bdt = parseTfdt(chunk);
+      if (bdt !== null) {
+        var mediaTimeSec = Number(bdt) / 90000;  // H.264 clock rate
+        var arrivalMs = Date.now();
+        var rawEpoch = arrivalMs - mediaTimeSec * 1000;
+        if (window.__v3StreamEpochEma === undefined) {
+          window.__v3StreamEpochEma = rawEpoch;
+        } else {
+          // Exponential moving average to smooth network jitter
+          window.__v3StreamEpochEma = window.__v3StreamEpochEma * 0.9 + rawEpoch * 0.1;
+        }
+      }
+      queue.push(chunk);
       flushQueue();
     });
 
@@ -7609,24 +7648,35 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   window.__v3ApplyEvent = applyEventToTrackStates;
 
   function renderFrame() {
-    // Drain ALL pending SSE events immediately — no buffering.
+    // Frame-precise label sync via fMP4 baseMediaDecodeTime.
     //
-    // Previous approaches tried to sync labels to video by holding them
-    // in a buffer keyed by wall_time_ms and draining based on a guessed
-    // video delay (SYNC_DELAY_MS) or video.currentTime. Both failed:
-    // - Fixed delay: video plays through the buffer and catches up, labels lag
-    // - video.currentTime: MSE timeline offset is unknowable from JS, labels lag
+    // Each binary MSE chunk's tfdt box contains baseMediaDecodeTime (90kHz
+    // ticks since stream start). Combined with the chunk's arrival wall time,
+    // we compute streamEpochEma: the EMA-smoothed server wall time that
+    // corresponds to media t=0. Then:
     //
-    // The permanent solution: don't buffer. Labels arrive ~300-400ms after
-    // the frame was captured (pipeline processing + network). The video arrives
-    // ~500-1500ms after capture (MSE buffer). So labels arrive BEFORE the
-    // video frame they describe. By applying them immediately, the label is
-    // already positioned when the bird appears on screen moments later.
-    // The natural pipeline-to-MSE timing difference IS the sync mechanism.
-    while (pendingEvents.length > 0) {
+    //   displayedWallTime = streamEpochEma + video.currentTime * 1000
+    //
+    // This is the wall time of the frame currently on screen. Labels
+    // (which carry server wall_time_ms) drain when they match this value.
+    //
+    // A tunable offset (localStorage 'v3SyncOffsetMs', default 0) shifts
+    // labels relative to the video. Positive = labels appear later.
+    // Negative = labels appear earlier. Use this to compensate for the
+    // go2rtc substream transcode delay (~300-800ms) if labels lag.
+    const video = document.getElementById('v3-live-video');
+    const syncOffset = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0', 10);
+    let displayedWallTime;
+    if (window.__v3StreamEpochEma && video && video.currentTime > 0) {
+      displayedWallTime = window.__v3StreamEpochEma + video.currentTime * 1000 + syncOffset;
+    } else {
+      displayedWallTime = Date.now() + syncOffset;
+    }
+
+    // Drain labels whose wall_time_ms <= the displayed frame's wall time
+    while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
       applyEventToTrackStates(pendingEvents.shift());
     }
-    const displayedWallTime = Date.now();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
