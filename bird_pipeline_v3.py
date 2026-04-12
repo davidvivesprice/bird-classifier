@@ -186,6 +186,9 @@ def main():
     # Main loop: nighttime pause + shutdown wait
     log.info("Pipeline running with %d camera(s)", len(camera_stacks))
     paused_for_night = False
+    night_bypass = os.environ.get("PIPELINE_NIGHT_BYPASS", "0") == "1"
+    if night_bypass:
+        log.info("PIPELINE_NIGHT_BYPASS=1 — nighttime pause disabled")
     while running:
         # Publish SSE server stats to the shared health section so they
         # show up in the /api/pipeline/health endpoint.
@@ -194,8 +197,10 @@ def main():
         except Exception:
             pass
         time.sleep(10)
-        # Daytime-only detection — HLS recording keeps running independently
-        night = is_nighttime()
+        # Daytime-only detection — HLS recording keeps running independently.
+        # PIPELINE_NIGHT_BYPASS=1 forces the pipeline to keep processing even at
+        # night (used when verifying v3 after-hours against a recorded test loop).
+        night = (not night_bypass) and is_nighttime()
         if night and not paused_for_night:
             for name, cap, _proc, _rec in camera_stacks:
                 log.info("[%s] Nighttime pause — stopping capture", name)
