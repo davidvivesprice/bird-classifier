@@ -7622,17 +7622,45 @@ window.__v3SyncDelayMs = (function() {
         continue;
       }
 
-      // Extrapolate x from last two known positions.
-      // elapsed here is time since last known event in wall clock.
-      let renderX = state.last_x;
+      // Compute target x with velocity-clamped extrapolation.
+      //
+      // Problem this solves: when a bird moves fast between two detections
+      // (e.g. crosses the whole feeder in one 200ms interval), the old
+      // extrapolation formula projected that velocity forward in time,
+      // sending the label flying off screen. Then when the next detection
+      // arrived at a reasonable position, the label snapped back.
+      //
+      // Fix: clamp the extrapolation velocity (max 0.5 px/ms in substream
+      // coords = ~half frame width per second) AND cap the total distance
+      // extrapolated beyond last known position to 40px. Then use exponential
+      // smoothing (lerp) so the rendered position eases toward the target
+      // instead of snapping. The label follows the bird at a pace the eye
+      // can track, with no overshoot or snap-back.
       const dt = state.last_t - state.prev_t;
+      let targetX = state.last_x;
       if (dt > 0 && elapsed >= 0 && elapsed < 500) {
-        renderX = state.last_x + (state.last_x - state.prev_x) * (elapsed / dt);
+        const velocity = (state.last_x - state.prev_x) / dt;  // px/ms in substream coords
+        const MAX_VEL = 0.5;   // px/ms — half of 640px frame width per second
+        const clampedVel = Math.max(-MAX_VEL, Math.min(MAX_VEL, velocity));
+        const MAX_EXTRAP = 40; // px beyond last known position
+        const extraDist = clampedVel * elapsed;
+        targetX = state.last_x + Math.max(-MAX_EXTRAP, Math.min(MAX_EXTRAP, extraDist));
+      }
+
+      // Exponential smoothing: ease the rendered position toward the target.
+      // ~20% convergence per animation frame at 60fps → settles within ~10
+      // frames (~170ms). Prevents the "snap" when a new event contradicts the
+      // extrapolated position, and prevents the "zoom off screen" when
+      // extrapolation overshoots during a fast bird movement.
+      if (state.rendered_x == null) {
+        state.rendered_x = targetX;  // first render, no smoothing
+      } else {
+        state.rendered_x += (targetX - state.rendered_x) * 0.2;
       }
 
       // Scale substream coords to canvas coords
       const frameW = state.frame_width || canvas.width;
-      const canvasX = renderX * (canvas.width / frameW);
+      const canvasX = state.rendered_x * (canvas.width / frameW);
 
       // Opacity: fade in from first_seen_t over FADE_IN_MS,
       // fade out from fadeOutAt over FADE_OUT_MS
