@@ -19,9 +19,16 @@ HLS_DIR = Path.home() / "bird-snapshots" / "hls"
 PIPELINE_DB = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
 REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 
-CAMERAS = {
+# Detection/classification runs on a 640x360 @ 5fps transcoded substream
+# via go2rtc. HLS recording continues from the full HD main stream so
+# archived video stays at full quality for later review and training.
+CAMERAS_SUB = {
     "feeder": "rtsp://127.0.0.1:8554/feeder-sub",
     "ground": "rtsp://127.0.0.1:8554/ground-sub",
+}
+CAMERAS_MAIN = {
+    "feeder": "rtsp://127.0.0.1:8554/feeder-main",
+    "ground": "rtsp://127.0.0.1:8554/ground-main",
 }
 
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
@@ -128,10 +135,11 @@ def main():
 
     # Per-camera stack
     camera_stacks = []
-    for name, url in CAMERAS.items():
+    for name, sub_url in CAMERAS_SUB.items():
+        main_url = CAMERAS_MAIN[name]
         try:
             frame_q = queue.Queue(maxsize=2)
-            capture = FrameCapture(name, url, out_queue=frame_q,
+            capture = FrameCapture(name, sub_url, out_queue=frame_q,
                                    width=640, height=360, fps=5)
             motion_gate = MotionGate()
             tracker = BirdTracker()
@@ -155,7 +163,7 @@ def main():
                 frame_height=360,
                 capture=capture,
             )
-            recorder = HlsRecorder(name, url, str(HLS_DIR / name))
+            recorder = HlsRecorder(name, main_url, str(HLS_DIR / name))
 
             capture.start()
             process.start()
