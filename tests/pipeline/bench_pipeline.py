@@ -30,8 +30,6 @@ def test_benchmark_60s_run():
     from pipeline.detector import BirdDetector
     from pipeline.classifier import ClassificationResult
     from pipeline.event_store import EventStore
-    from pipeline.annotator import FrameAnnotator
-    from pipeline.debug_stream import DebugStream
     from pipeline.health import HealthState
     from pipeline.process_thread import CameraProcessThread
 
@@ -47,33 +45,29 @@ def test_benchmark_60s_run():
     )
 
     class FastClassifier:
-        stats = {"yard": 0, "aiy": 0, "both_agree": 0, "audio_confirmed": 0,
-                 "unlabeled": 0, "lock_timeouts": 0, "retries": 0}
+        stats = {"yard": 0, "aiy": 0, "both_agree": 0,
+                 "unlabeled": 0, "lock_timeouts": 0}
         def classify(self, crop, frame_time_ms, camera):
             return ClassificationResult("Black-capped Chickadee", 0.9, "yard", False)
 
     import tempfile
     tmp = Path(tempfile.mkdtemp())
     event_store = EventStore(str(tmp / "pipeline.db"))
-    debug_stream = DebugStream(port=0)
-    annotator = FrameAnnotator("bench", debug_stream, out_width=960, out_height=540)
     health = HealthState()
 
     process = CameraProcessThread(
         name="bench", frame_queue=frame_q, motion_gate=motion_gate,
         detector=detector, tracker=tracker, classifier=FastClassifier(),
-        event_store=event_store, annotator=annotator, health=health,
+        event_store=event_store, annotator=None, health=health,
     )
 
     tracemalloc.start()
     capture.start()
-    annotator.start()
     process.start()
     t_start = time.time()
     time.sleep(60)
     capture.stop()
     process.stop()
-    annotator.stop()
     event_store.shutdown()
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()

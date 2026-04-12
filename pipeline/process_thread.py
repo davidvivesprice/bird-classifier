@@ -4,12 +4,16 @@ import logging
 import queue
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
+import numpy as np
 from PIL import Image
 
 from pipeline.frame import Frame
 from pipeline.classifier import MAX_CLASSIFICATION_ATTEMPTS
+
+if TYPE_CHECKING:
+    from pipeline.frame_capture import FrameCapture
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +23,9 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 class CameraProcessThread:
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
-                 event_store, annotator, health):
+                 event_store, annotator=None, health=None, sse_server=None,
+                 frame_width: int = 640, frame_height: int = 360,
+                 capture: "Optional[FrameCapture]" = None):
         self.name = name
         self.frame_queue = frame_queue
         self.motion_gate = motion_gate
@@ -29,6 +35,10 @@ class CameraProcessThread:
         self.event_store = event_store
         self.annotator = annotator
         self.health = health
+        self.sse_server = sse_server
+        self.frame_width = frame_width
+        self.frame_height = frame_height
+        self.capture = capture
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_forced_full = 0.0
@@ -36,6 +46,8 @@ class CameraProcessThread:
             "frames_processed": 0,
             "detections": 0,
             "yolo_ms_samples": [],
+            "yolo_runs_total": 0,
+            "yolo_skipped_motion": 0,
         }
 
     def start(self):
@@ -77,9 +89,19 @@ class CameraProcessThread:
         t_det = time.monotonic()
         detections = self.detector.detect(frame, regions, forced_full=forced_full)
         det_ms = (time.monotonic() - t_det) * 1000
-        self._stats["yolo_ms_samples"].append(det_ms)
-        if len(self._stats["yolo_ms_samples"]) > 100:
-            self._stats["yolo_ms_samples"] = self._stats["yolo_ms_samples"][-100:]
+        # Only record the timing when YOLO actually ran. BirdDetector.detect returns
+        # an empty list instantly when motion_regions is empty and forced_full is False —
+        # those near-zero timings pollute yolo_ms_avg (observed: ground cam 7ms because
+        # most frames are skipped). Filter them out so the histogram reflects real
+        # inference cost, and track "frames where YOLO was actually invoked" separately.
+        yolo_actually_ran = bool(regions) or forced_full
+        if yolo_actually_ran:
+            self._stats["yolo_ms_samples"].append(det_ms)
+            if len(self._stats["yolo_ms_samples"]) > 100:
+                self._stats["yolo_ms_samples"] = self._stats["yolo_ms_samples"][-100:]
+            self._stats["yolo_runs_total"] += 1
+        else:
+            self._stats["yolo_skipped_motion"] += 1
         self._stats["detections"] += len(detections)
 
         # 4. Track
@@ -102,18 +124,42 @@ class CameraProcessThread:
                 is_new=(track.track_id in new_ids),
             )
 
+        # 6b. Emit SSE event for live dashboard consumption
+        if tracker_out.active and self.sse_server is not None:
+            tracks_payload = []
+            for track in tracker_out.active:
+                bbox = list(track.bbox)
+                tracks_payload.append({
+                    "track_id": track.track_id,
+                    "bbox": bbox,
+                    "bbox_center_x": (bbox[0] + bbox[2]) // 2,
+                    "frame_width": self.frame_width,
+                    "frame_height": self.frame_height,
+                    "species": track.species,
+                    "species_confidence": getattr(track, "species_confidence", None),
+                    "model_source": track.model_source,
+                    "is_locked": track.species is not None,  # Phase 1: locked when assigned
+                    "frame_count": getattr(track, "frame_count", 0),
+                })
+            self.sse_server.emit(
+                camera=self.name,
+                wall_time_ms=int(frame.wall_time_ms),
+                tracks=tracks_payload,
+            )
+
         # 7. Track expired → write summary
         for track in tracker_out.expired:
             try:
                 self.event_store.write_track_summary(
                     camera=self.name, track=track,
-                    num_frames=self._stats["frames_processed"],
+                    num_frames=track.frame_count,
                 )
             except Exception as e:
                 log.warning("[%s] write_track_summary error: %s", self.name, e)
 
-        # 8. Annotate + push
-        self.annotator.submit(frame, tracker_out.active)
+        # 8. Annotate + push — v3: deleted, labels move client-side
+        if self.annotator is not None:
+            self.annotator.submit(frame, tracker_out.active)
 
         # 9. Update health
         self._update_health(frame, det_ms)
@@ -158,27 +204,40 @@ class CameraProcessThread:
                 continue
             # Got a final answer (species may be None = unlabeled)
             track.species = result.species
-            if result.confidence:
-                track.confidence = result.confidence
+            track.species_confidence = result.confidence if result.confidence else None
             track.model_source = result.model_source
+            # Note: track.confidence remains the YOLO bbox confidence (managed by tracker)
             track.needs_classification = False
 
     def _update_health(self, frame: Frame, det_ms: float):
         samples = self._stats["yolo_ms_samples"]
-        if samples:
-            yolo_avg = sum(samples) / len(samples)
-            yolo_p99 = sorted(samples)[-max(1, len(samples) // 100)]
+        if len(samples) >= 10:
+            yolo_avg = float(np.mean(samples))
+            yolo_p99 = float(np.percentile(samples, 99))
+        elif samples:
+            yolo_avg = float(np.mean(samples))
+            yolo_p99 = None  # insufficient_samples — honesty contract
         else:
-            yolo_avg = 0
-            yolo_p99 = 0
+            yolo_avg = 0.0
+            yolo_p99 = None
         age_ms = (time.time() * 1000) - frame.wall_time_ms
-        self.health.update(self.name, "capture", {
+        capture_payload = {
             "last_frame_age_ms": int(age_ms),
             "frames_processed": self._stats["frames_processed"],
-        })
+        }
+        if getattr(self, "capture", None) is not None:
+            # Merge FrameCapture's own stats so honesty-contract fields
+            # (ffmpeg_restarts, dropped_oldest, ffmpeg_restarts_last_hour)
+            # actually exist in the health snapshot.
+            capture_payload["frames_captured"] = self.capture.stats.get("frames", 0)
+            capture_payload["dropped_oldest"] = self.capture.stats.get("dropped_oldest", 0)
+            capture_payload["ffmpeg_restarts"] = self.capture.stats.get("ffmpeg_restarts", 0)
+            capture_payload["ffmpeg_restarts_last_hour"] = self.capture.restarts_last_hour()
+        self.health.update(self.name, "capture", capture_payload)
         self.health.update(self.name, "detector", {
             "yolo_ms_avg": round(yolo_avg),
-            "yolo_ms_p99": round(yolo_p99),
+            "yolo_ms_p99": round(yolo_p99) if yolo_p99 is not None else None,
+            "yolo_samples_count": len(samples),
             "detections_total": self._stats["detections"],
         })
         try:
@@ -189,6 +248,7 @@ class CameraProcessThread:
         except Exception:
             pass
         try:
-            self.health.update(self.name, "classifier", dict(self.classifier.stats))
+            cam_classifier_stats = self.classifier.stats.get(self.name, {})
+            self.health.update(self.name, "classifier", dict(cam_classifier_stats))
         except Exception:
             pass

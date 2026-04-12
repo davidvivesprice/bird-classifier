@@ -167,3 +167,424 @@ def test_process_thread_retries_track_when_coral_busy():
     # Attempts counter incremented
     assert track.classification_attempts == 1
     thread.stop()
+
+
+def test_yolo_p99_uses_np_percentile_and_returns_none_for_few_samples():
+    """p99 must be computed via np.percentile (not sorted slice hack) AND
+    must return None when fewer than 10 samples are available."""
+    import numpy as np
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+
+    # Case A: only 3 samples → p99 must be None
+    t._stats = {
+        "frames_processed": 3, "detections": 0,
+        "yolo_ms_samples": [50.0, 60.0, 70.0],
+    }
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+    t.classifier = MagicMock()
+    t.classifier.stats = {}
+    t.health = MagicMock()
+    captured = {}
+    def capture(camera, section, payload):
+        captured[section] = payload
+    t.health.update = capture
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="test", width=640, height=360)
+    t._update_health(frame, det_ms=50.0)
+
+    assert captured["detector"]["yolo_ms_p99"] is None, (
+        f"with 3 samples p99 must be None, got {captured['detector']['yolo_ms_p99']}"
+    )
+
+    # Case B: 100 samples with a clean distribution → np.percentile(samples, 99) exact
+    samples = [10.0] * 50 + [20.0] * 40 + [1000.0] * 10  # top 10% = 1000
+    t._stats["yolo_ms_samples"] = list(samples)
+    captured.clear()
+    t._update_health(frame, det_ms=10.0)
+    expected = round(float(np.percentile(samples, 99)))
+    assert captured["detector"]["yolo_ms_p99"] == expected, (
+        f"yolo_ms_p99={captured['detector']['yolo_ms_p99']}, expected {expected}"
+    )
+
+
+def test_yolo_samples_excludes_skip_frames():
+    """When motion_regions is empty and not forced_full, YOLO is skipped and
+    that zero-cost timing must NOT be recorded in yolo_ms_samples."""
+    import queue, threading, time
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0,
+        "detections": 0,
+        "yolo_ms_samples": [],
+        "yolo_runs_total": 0,
+        "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()  # not due for forced full
+
+    motion_gate = MagicMock()
+    motion_gate.regions.return_value = []  # no motion
+
+    detector = MagicMock()
+    detector.detect.return_value = []  # empty fast-path
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []
+    tracker_out.expired = []
+    tracker = MagicMock()
+    tracker.update.return_value = tracker_out
+    tracker.tracks = []
+    tracker.stationary_regions.return_value = []
+
+    classifier = MagicMock(); classifier.stats = {}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="test", width=640, height=360,
+    )
+
+    for _ in range(5):
+        t._process_frame(frame)
+
+    assert t._stats["yolo_ms_samples"] == [], (
+        f"Expected empty samples, got {t._stats['yolo_ms_samples']}"
+    )
+    assert t._stats["yolo_skipped_motion"] == 5
+    assert t._stats["yolo_runs_total"] == 0
+
+
+def test_write_track_summary_uses_per_track_frame_count():
+    """write_track_summary must pass track.frame_count, not a global counter."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "test"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 9999,  # deliberately big, not per-track
+        "detections": 0,
+        "yolo_ms_samples": [],
+        "yolo_runs_total": 0,
+        "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()
+
+    fake_track = MagicMock()
+    fake_track.frame_count = 42
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []
+    tracker_out.expired = [fake_track]
+
+    motion_gate = MagicMock(); motion_gate.regions.return_value = []
+    detector = MagicMock(); detector.detect.return_value = []
+    tracker = MagicMock(); tracker.update.return_value = tracker_out
+    tracker.tracks = []; tracker.stationary_regions.return_value = []
+    classifier = MagicMock(); classifier.stats = {}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="test", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    event_store.write_track_summary.assert_called_once()
+    call_kwargs = event_store.write_track_summary.call_args.kwargs
+    assert call_kwargs["num_frames"] == 42, (
+        f"expected num_frames=42 (per-track), got {call_kwargs['num_frames']}"
+    )
+
+
+def test_classifier_stats_reported_per_camera_not_global():
+    """process_thread must pull only its own camera's slice of classifier stats."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 1, "detections": 0,
+        "yolo_ms_samples": [10.0] * 15,  # ≥10 so p99 isn't None
+        "yolo_runs_total": 15, "yolo_skipped_motion": 0,
+    }
+
+    classifier = MagicMock()
+    classifier.stats = {
+        "feeder": {"yard": 42, "aiy": 3, "unlabeled_call": 1,
+                   "both_agree": 0, "lock_timeouts": 0},
+        "ground": {"yard": 0, "aiy": 100, "unlabeled_call": 5,
+                   "both_agree": 0, "lock_timeouts": 0},
+    }
+    t.classifier = classifier
+
+    t.tracker = MagicMock()
+    t.tracker.tracks = []
+    t.tracker.stationary_regions.return_value = []
+
+    captured = {}
+    health = MagicMock()
+    def fake_update(camera, section, payload):
+        captured[(camera, section)] = payload
+    health.update = fake_update
+    t.health = health
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+    t._update_health(frame, det_ms=0.0)
+
+    feeder_classifier_stats = captured[("feeder", "classifier")]
+    assert feeder_classifier_stats["yard"] == 42
+    assert feeder_classifier_stats["aiy"] == 3
+    # Ground's aiy=100 must NOT leak into feeder's stats
+    assert feeder_classifier_stats["aiy"] != 100
+    # And ground's stats must NOT appear anywhere in the feeder update
+    assert "ground" not in feeder_classifier_stats
+
+
+def test_process_thread_emits_sse_event_for_active_tracks():
+    """When a frame produces active tracks, process_thread must emit an SSE event
+    with the expected shape: camera, wall_time_ms, tracks[] with bbox_center_x,
+    frame_width, frame_height, species, model_source, is_locked, frame_count."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+        "yolo_runs_total": 0, "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time() - 9999  # not forced
+
+    # Fake track returned by tracker
+    fake_track = MagicMock()
+    fake_track.track_id = 7
+    fake_track.bbox = [100, 50, 300, 200]
+    fake_track.species = "Downy Woodpecker"
+    fake_track.confidence = 0.9
+    fake_track.model_source = "yard"
+    fake_track.frame_count = 5
+    fake_track.needs_classification = False
+    fake_track.classification_attempts = 0
+
+    tracker_out = MagicMock()
+    tracker_out.new = [fake_track]
+    tracker_out.active = [fake_track]
+    tracker_out.expired = []
+
+    motion_gate = MagicMock()
+    motion_gate.regions.return_value = [(0, 0, 640, 360)]
+    detector = MagicMock()
+    detector.detect.return_value = [MagicMock()]
+    tracker = MagicMock()
+    tracker.update.return_value = tracker_out
+    tracker.tracks = [fake_track]
+    tracker.stationary_regions.return_value = []
+    classifier = MagicMock()
+    classifier.stats = {"feeder": {"yard": 0, "aiy": 0}}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    sse_server = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+    t.sse_server = sse_server
+    t.frame_width = 640
+    t.frame_height = 360
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=1_700_000_000_000,
+        camera="feeder", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    assert sse_server.emit.call_count == 1, (
+        f"expected emit called once, got {sse_server.emit.call_count}"
+    )
+    call = sse_server.emit.call_args
+    kwargs = call.kwargs
+    assert kwargs["camera"] == "feeder"
+    assert kwargs["wall_time_ms"] == 1_700_000_000_000
+    tracks = kwargs["tracks"]
+    assert len(tracks) == 1
+    assert tracks[0]["track_id"] == 7
+    assert tracks[0]["species"] == "Downy Woodpecker"
+    assert tracks[0]["bbox"] == [100, 50, 300, 200]
+    assert tracks[0]["bbox_center_x"] == 200  # (100 + 300) // 2
+    assert tracks[0]["frame_width"] == 640
+    assert tracks[0]["frame_height"] == 360
+    assert tracks[0]["model_source"] == "yard"
+    assert tracks[0]["is_locked"] is True  # Phase 1: locked when species is set
+    assert tracks[0]["frame_count"] == 5
+
+
+def test_process_thread_does_not_emit_when_no_active_tracks():
+    """No active tracks → no SSE event (avoids spam)."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.frame import Frame
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {
+        "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+        "yolo_runs_total": 0, "yolo_skipped_motion": 0,
+    }
+    t._last_forced_full = time.time()
+
+    tracker_out = MagicMock()
+    tracker_out.new = []
+    tracker_out.active = []  # none
+    tracker_out.expired = []
+
+    motion_gate = MagicMock(); motion_gate.regions.return_value = []
+    detector = MagicMock(); detector.detect.return_value = []
+    tracker = MagicMock(); tracker.update.return_value = tracker_out
+    tracker.tracks = []; tracker.stationary_regions.return_value = []
+    classifier = MagicMock(); classifier.stats = {"feeder": {}}
+    event_store = MagicMock()
+    annotator = MagicMock()
+    health = MagicMock()
+
+    sse_server = MagicMock()
+
+    t.motion_gate = motion_gate
+    t.detector = detector
+    t.tracker = tracker
+    t.classifier = classifier
+    t.event_store = event_store
+    t.annotator = annotator
+    t.health = health
+    t.sse_server = sse_server
+    t.frame_width = 640
+    t.frame_height = 360
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+    t._process_frame(frame)
+
+    assert sse_server.emit.call_count == 0, (
+        f"expected no emit for empty tracks, got {sse_server.emit.call_count}"
+    )
+
+
+def test_species_confidence_separate_from_yolo_confidence():
+    """After classification, track.species_confidence holds the classifier's
+    score and track.confidence still holds the YOLO bbox score."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.classifier import ClassificationResult
+    from pipeline.frame import Frame
+    from PIL import Image
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+
+    fake_track = MagicMock()
+    fake_track.needs_classification = True
+    fake_track.classification_attempts = 0
+    fake_track.bbox = [100, 100, 300, 300]
+    fake_track.confidence = 0.85  # YOLO bbox score (the tracker mutates this)
+    fake_track.species = None
+    fake_track.species_confidence = None
+    fake_track.model_source = None
+
+    classifier = MagicMock()
+    classifier.classify.return_value = ClassificationResult(
+        species="Downy Woodpecker",
+        confidence=0.92,  # classifier score
+        model_source="yard",
+        should_retry=False,
+    )
+    t.classifier = classifier
+
+    frame = Frame(
+        bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+        wall_time_ms=time.time() * 1000,
+        camera="feeder", width=640, height=360,
+    )
+
+    t._classify_tracks(frame, [fake_track])
+
+    assert fake_track.species == "Downy Woodpecker"
+    assert fake_track.species_confidence == 0.92, (
+        f"expected species_confidence=0.92, got {fake_track.species_confidence}"
+    )
+    # YOLO bbox confidence should NOT have been stomped
+    assert fake_track.confidence == 0.85, (
+        f"expected track.confidence=0.85 (YOLO, preserved), got {fake_track.confidence}"
+    )
+    assert fake_track.model_source == "yard"
+    assert fake_track.needs_classification is False

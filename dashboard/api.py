@@ -3324,131 +3324,6 @@ def api_visit_stats(date: str = "today"):
     return vdb.get_visit_stats(date)
 
 
-# ── Pipeline v2 proxy routes ─────────────────────────────────────
-
-@app.websocket("/api/debug-stream/{camera}")
-async def debug_stream_proxy(websocket: FastAPIWebSocket, camera: str):
-    """Proxy MJPEG frames from pipeline v2 debug stream on port 8101.
-
-    Uses asyncio.gather with two tasks (backend→client + client→backend).
-    First exit (disconnect or error) cancels the other.
-    """
-    import asyncio
-    import logging
-    import websockets as ws_lib
-
-    log = logging.getLogger("debug_stream_proxy")
-    await websocket.accept()
-    backend_url = f"ws://127.0.0.1:8101/debug-stream/{camera}"
-
-    backend = None
-    try:
-        backend = await ws_lib.connect(backend_url, max_size=None, open_timeout=5)
-    except Exception as e:
-        log.warning("[%s] backend connect failed: %s", camera, e)
-        try:
-            await websocket.close(code=1011, reason="backend unavailable")
-        except Exception:
-            pass
-        return
-
-    async def backend_to_client():
-        """Forward binary frames from pipeline backend to browser client."""
-        try:
-            async for msg in backend:
-                if isinstance(msg, (bytes, bytearray, memoryview)):
-                    await websocket.send_bytes(bytes(msg))
-                else:
-                    # Text frame — unusual, but forward as text
-                    await websocket.send_text(msg)
-        except Exception as e:
-            log.debug("[%s] backend→client ended: %s", camera, e)
-
-    async def client_to_backend():
-        """Drain client messages (mostly pings/keepalive). Browser never sends data."""
-        try:
-            while True:
-                await websocket.receive()
-        except Exception as e:
-            log.debug("[%s] client→backend ended: %s", camera, e)
-
-    try:
-        # Run both directions in parallel; exit when either ends
-        done, pending = await asyncio.wait(
-            [
-                asyncio.create_task(backend_to_client()),
-                asyncio.create_task(client_to_backend()),
-            ],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-        for task in pending:
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-    finally:
-        try:
-            await backend.close()
-        except Exception:
-            pass
-        try:
-            await websocket.close()
-        except Exception:
-            pass
-
-
-@app.get("/api/debug-stream-mjpeg/{camera}")
-async def debug_stream_mjpeg(camera: str):
-    """HTTP MJPEG (multipart/x-mixed-replace) stream of annotated frames.
-
-    Way simpler than the WebSocket proxy: browsers can use this directly
-    in <img src="..."> and they'll auto-update as frames arrive. This is
-    how every IP camera serves a live preview.
-
-    Connects to the pipeline v2 debug WebSocket on port 8101 and re-emits
-    frames as multipart parts.
-    """
-    import asyncio
-    import websockets as ws_lib
-    from fastapi.responses import StreamingResponse
-
-    if camera not in ("feeder", "ground"):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Unknown camera")
-
-    async def gen():
-        backend_url = f"ws://127.0.0.1:8101/debug-stream/{camera}"
-        boundary = b"--frame"
-        try:
-            async with ws_lib.connect(backend_url, max_size=None, open_timeout=5) as backend:
-                async for msg in backend:
-                    if not isinstance(msg, (bytes, bytearray, memoryview)):
-                        continue
-                    jpeg = bytes(msg)
-                    if not jpeg.startswith(b"\xff\xd8"):
-                        continue  # not a JPEG
-                    yield (
-                        boundary + b"\r\n"
-                        + b"Content-Type: image/jpeg\r\n"
-                        + b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n"
-                        + jpeg + b"\r\n"
-                    )
-        except Exception:
-            pass
-
-    return StreamingResponse(
-        gen(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
-
-
 @app.get("/api/pipeline/health")
 async def pipeline_health_proxy():
     import httpx
@@ -3458,6 +3333,38 @@ async def pipeline_health_proxy():
             return r.json()
         except Exception as e:
             return {"overall": "broken", "error": str(e)}
+
+
+@app.get("/api/pipeline/events/sse")
+async def proxy_pipeline_sse(camera: str = "feeder"):
+    """Proxy Server-Sent Events from the pipeline v3 SSE server.
+
+    The pipeline runs its own HTTP SSE server (pipeline/sse_events.py) on
+    port 8104 (dev) or 8100 (prod). This route forwards the stream so the
+    dashboard doesn't need to know where the pipeline process is running.
+    """
+    import httpx
+    from starlette.responses import StreamingResponse
+    _pipeline_sse_url = os.environ.get("PIPELINE_BACKEND_URL", "http://127.0.0.1:8104")
+
+    async def gen():
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "GET",
+                f"{_pipeline_sse_url}/events/sse",
+                params={"camera": camera},
+            ) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/pipeline/events")

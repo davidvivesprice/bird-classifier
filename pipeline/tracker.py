@@ -19,10 +19,12 @@ class Track:
     bbox: list = field(default_factory=lambda: [0, 0, 0, 0])
     confidence: float = 0.0
     species: Optional[str] = None
+    species_confidence: Optional[float] = None
     model_source: Optional[str] = None
     trust_level: str = "normal"
     needs_classification: bool = True
     classification_attempts: int = 0
+    frame_count: int = 0
     motion_history: deque = field(default_factory=lambda: deque(maxlen=10))
 
     @property
@@ -99,6 +101,11 @@ class BirdTracker:
                 data={"box": list(d.box), "w": x2 - x1, "h": y2 - y1},
             ))
 
+        # Snapshot hit_counters before update to detect which tracks got a hit.
+        # A track "got a hit" this frame when its hit_counter increases (matched
+        # to a detection) vs. decreases (coasting on Kalman prediction).
+        prev_hit_counters = {o.id: o.hit_counter for o in self.norfair.tracked_objects}
+
         tracked_objs = self.norfair.update(detections=norfair_dets)
 
         new_tracks = []
@@ -120,6 +127,11 @@ class BirdTracker:
             else:
                 track = self.tracks[tid]
                 track.last_updated_ms = frame_time_ms
+
+            # Increment frame_count only when this track received a detection hit
+            # this frame (hit_counter increased), not when it's coasting via Kalman.
+            if tobj.hit_counter > prev_hit_counters.get(tid, -1):
+                track.frame_count += 1
 
             # Update bbox from last detection
             if tobj.last_detection is not None:
