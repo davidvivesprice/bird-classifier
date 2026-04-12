@@ -7665,7 +7665,12 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     // Negative = labels appear earlier. Use this to compensate for the
     // go2rtc substream transcode delay (~300-800ms) if labels lag.
     const video = document.getElementById('v3-live-video');
-    const syncOffset = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0', 10);
+    // Default -800ms compensates for the go2rtc substream transcode delay
+    // (~300-500ms) + pipeline processing (~200-400ms). Negative = labels earlier.
+    // Frigate calls this "annotation_offset" and users report 100-500ms needed.
+    // Our substream + YOLO pipeline is longer, hence -800.
+    // Tune: localStorage.setItem('v3SyncOffsetMs', '-600')
+    const syncOffset = parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
     let displayedWallTime;
     if (window.__v3StreamEpochEma && video && video.currentTime > 0) {
       displayedWallTime = window.__v3StreamEpochEma + video.currentTime * 1000 + syncOffset;
