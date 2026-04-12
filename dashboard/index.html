@@ -7338,26 +7338,29 @@ function hideToast(id) {
 </script>
 
 <script>
-// Shared delay between detect pipeline and live view.
+// Label-to-video sync — the PERMANENT solution.
 //
-// The bird observatory pipeline emits SSE track events with server wall_time_ms
-// soon after each frame is captured. The browser receives them with only
-// pipeline-processing + network latency (~300-500ms typical). The live video
-// arrives at the browser much closer to real time, so by default the label
-// arrives AFTER the bird is visible on screen.
+// Labels arrive from the SSE pipeline with server wall_time_ms (the wall
+// clock when the frame was captured by ffmpeg on the iMac). The video
+// plays through go2rtc → MSE with some variable buffer delay (typically
+// 0.5–2s, varies by browser, network, and device).
 //
-// The fix: we pause the <video> for SYNC_DELAY_MS on first playable frame so
-// the video plays approximately that far behind wall clock. Labels are held in
-// a buffer keyed by wall_time_ms and drawn only when the video catches up to
-// their wall time. Result: by the time a bird walks into the visible frame,
-// its label is already positioned because we knew about it SYNC_DELAY_MS ago.
+// The old approach (pause the video for a fixed SYNC_DELAY_MS) was wrong:
+// the video played through the buffer and caught up to live within seconds,
+// after which labels lagged by the difference between the guessed delay
+// and the real buffer.
 //
-// 3000ms is comfortable headroom on a 300-500ms pipeline latency. Can be
-// tuned in localStorage: localStorage.setItem('v3SyncDelayMs', '5000').
-window.__v3SyncDelayMs = (function() {
-  var stored = parseInt(localStorage.getItem('v3SyncDelayMs') || '0', 10);
-  return (stored > 0) ? stored : 3000;
-})();
+// The permanent fix: record the wall clock when the MSE session opens
+// (window.__v3MseEpochWall). The displayed video's wall time at any moment
+// is approximately (mse_epoch_wall + video.currentTime * 1000). Labels are
+// drained when their wall_time_ms <= that value. This automatically adapts
+// to whatever buffer the browser uses — no guessing, no drifting.
+//
+// Fine-tune with localStorage.setItem('v3SyncOffsetMs', '-200') to shift
+// labels 200ms earlier (negative = labels lead, positive = labels lag).
+// Default 0.
+window.__v3MseEpochWall = null;
+window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0', 10);
 </script>
 
 <script>
@@ -7378,20 +7381,8 @@ window.__v3SyncDelayMs = (function() {
   var sourceBuffer = null;
   var queue = [];
 
-  // Pause the video for SYNC_DELAY_MS on the first playable frame, then play.
-  // This makes the video lag live by approximately the delay, so labels
-  // arriving from the pipeline have time to be "held" until the video catches
-  // up. See the shared window.__v3SyncDelayMs comment.
-  var syncStarted = false;
-  video.addEventListener('canplay', function onFirstCanPlay() {
-    if (syncStarted) return;
-    syncStarted = true;
-    video.pause();
-    var delay = window.__v3SyncDelayMs || 3000;
-    setTimeout(function() {
-      video.play().catch(function(e) { console.warn('v3 video.play failed', e); });
-    }, delay);
-  });
+  // No more pause-for-delay. Video plays immediately at whatever speed the
+  // MSE buffer allows. Label sync is tied to video.currentTime (see renderFrame).
 
   function connect() {
     ws = new WebSocket(wsUrl);
@@ -7411,13 +7402,12 @@ window.__v3SyncDelayMs = (function() {
             mediaSource = new MediaSource();
             video.src = URL.createObjectURL(mediaSource);
             mediaSource.addEventListener('sourceopen', function() {
+              // Record when the MSE session opened. Combined with
+              // video.currentTime, this lets the label renderer know the
+              // wall time of the frame currently on screen — the permanent
+              // label-to-video sync solution.
+              window.__v3MseEpochWall = Date.now();
               try {
-                // go2rtc returns msg.value as the FULL mime type string,
-                // e.g. `video/mp4; codecs="avc1.4D0029"`. Do NOT wrap it in
-                // another video/mp4; codecs="..." — that produces an invalid
-                // double-wrapped type and addSourceBuffer throws silently.
-                // This was the root cause of "video is black" in v3 and of
-                // headless readyState=0 blamed on headless codec limits.
                 sourceBuffer = mediaSource.addSourceBuffer(msg.value);
                 sourceBuffer.mode = 'segments';
                 sourceBuffer.addEventListener('updateend', flushQueue);
@@ -7593,11 +7583,25 @@ window.__v3SyncDelayMs = (function() {
 
   function renderFrame() {
     // Wall clock of the frame the video is currently displaying.
-    // Video was paused for SYNC_DELAY_MS on first canplay, so it plays
-    // approximately that far behind real-time. Labels are held in
-    // pendingEvents until the video catches up to their wall_time_ms.
-    const SYNC_DELAY_MS = window.__v3SyncDelayMs || 0;
-    const displayedWallTime = Date.now() - SYNC_DELAY_MS;
+    //
+    // Computed from (mse_epoch_wall + video.currentTime * 1000) which
+    // tracks the ACTUAL video playback position, adapting automatically
+    // to whatever MSE buffer the browser maintains. No more guessing a
+    // fixed delay constant.
+    //
+    // Fine-tune: localStorage.setItem('v3SyncOffsetMs', '-200') shifts
+    // labels 200ms earlier. Default 0.
+    const video = document.getElementById('v3-live-video');
+    const offsetMs = window.__v3SyncOffsetMs || 0;
+    let displayedWallTime;
+    if (window.__v3MseEpochWall && video && video.currentTime > 0) {
+      displayedWallTime = window.__v3MseEpochWall + video.currentTime * 1000 + offsetMs;
+    } else {
+      // MSE not connected or video hasn't started playing yet.
+      // Show labels immediately (no sync) so the dashboard isn't blank
+      // while the stream loads. Once currentTime > 0, sync kicks in.
+      displayedWallTime = Date.now();
+    }
 
     // Drain SSE events whose server wall_time <= displayed video wall time
     while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
@@ -7740,7 +7744,7 @@ window.__v3SyncDelayMs = (function() {
     catch (e) { console.warn('v3 SSE parse error', e); return; }
     if (!data.tracks || data.wall_time_ms == null) return;
     // Push into the pending queue — the render loop will apply it when
-    // the delayed video catches up to data.wall_time_ms. See SYNC_DELAY_MS.
+    // the video catches up to data.wall_time_ms. See video.currentTime sync in renderFrame.
     // The render loop's applyEventToTrackStates does all the state mutation
     // including marking tracks absent-from-this-event as fading out.
     pendingEvents.push(data);
