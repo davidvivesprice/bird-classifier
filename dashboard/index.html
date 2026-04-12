@@ -7566,6 +7566,7 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
       state.last_x = t.bbox_center_x;
       state.species = t.species;
       state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
+      state.bbox_top = t.bbox[1];  // y1 in substream coords — label sits just above this
       state.frame_width = t.frame_width;
       state.frame_height = t.frame_height;
       state.fadeOutAt = null;
@@ -7602,7 +7603,6 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     const displayedWallTime = Date.now();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const baseY = BASE_Y_FRAC * canvas.height;
     const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
 
     // First pass: build placements with interpolated x
@@ -7665,7 +7665,15 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
 
       // Scale substream coords to canvas coords
       const frameW = state.frame_width || canvas.width;
-      const canvasX = state.rendered_x * (canvas.width / frameW);
+      const frameH = state.frame_height || canvas.height;
+      const scaleX = canvas.width / frameW;
+      const scaleY = canvas.height / frameH;
+      const canvasX = state.rendered_x * scaleX;
+      // Label sits just above the bird's bounding box top edge.
+      // bbox_top is in substream coords; scale to canvas. Clamp so the
+      // label doesn't go above the canvas (minimum 22px from top).
+      const bboxTopCanvas = (state.bbox_top || 0) * scaleY;
+      const labelY = Math.max(22, bboxTopCanvas - 8);
 
       // Opacity: fade in from first_seen_t over FADE_IN_MS,
       // fade out from fadeOutAt over FADE_OUT_MS
@@ -7680,7 +7688,7 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
       placements.push({
         trackId,
         x: canvasX,
-        y: baseY,
+        y: labelY,
         state,
         opacity,
       });
