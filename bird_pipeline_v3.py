@@ -19,12 +19,14 @@ HLS_DIR = Path.home() / "bird-snapshots" / "hls"
 PIPELINE_DB = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
 REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 
-# Detection/classification runs on a 640x360 @ 5fps transcoded substream
-# via go2rtc. HLS recording continues from the full HD main stream so
-# archived video stays at full quality for later review and training.
-CAMERAS_SUB = {
-    "feeder": "rtsp://127.0.0.1:8554/feeder-sub",
-    "ground": "rtsp://127.0.0.1:8554/ground-sub",
+# Detection reads from the MAIN stream (same as the video the browser plays)
+# and scales to 640x360 internally via ffmpeg's -vf scale filter. This
+# eliminates the go2rtc substream transcode delay (~500-1000ms) that was
+# causing labels to lag behind the video. The ffmpeg decode+scale is ~30ms
+# per frame vs the transcode re-encode which was 500-1000ms.
+CAMERAS_DETECT = {
+    "feeder": "rtsp://127.0.0.1:8554/feeder-main",
+    "ground": "rtsp://127.0.0.1:8554/ground-main",
 }
 CAMERAS_MAIN = {
     "feeder": "rtsp://127.0.0.1:8554/feeder-main",
@@ -135,11 +137,14 @@ def main():
 
     # Per-camera stack
     camera_stacks = []
-    for name, sub_url in CAMERAS_SUB.items():
+    for name, detect_url in CAMERAS_DETECT.items():
         main_url = CAMERAS_MAIN[name]
         try:
             frame_q = queue.Queue(maxsize=2)
-            capture = FrameCapture(name, sub_url, out_queue=frame_q,
+            # Reads from feeder-main (same stream as browser video), scales
+            # to 640x360 internally via ffmpeg -vf scale. No go2rtc transcode
+            # delay → labels sync with video naturally.
+            capture = FrameCapture(name, detect_url, out_queue=frame_q,
                                    width=640, height=360, fps=5)
             motion_gate = MotionGate()
             tracker = BirdTracker()

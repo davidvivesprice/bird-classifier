@@ -86,7 +86,7 @@ class FrameCapture:
             FFMPEG,
             "-loglevel", "warning",
             *self._input_args(self.rtsp_url),
-            "-vf", f"fps={self.fps}",
+            "-vf", f"fps={self.fps},scale={self.width}:{self.height}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-",
