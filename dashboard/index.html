@@ -7629,10 +7629,16 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
       state.last_t = eventWall;
       state.last_x = t.bbox_center_x;
       state.species = t.species;
+      state.bbox = t.bbox;  // [x1, y1, x2, y2] in substream coords
       state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
-      state.bbox_top = t.bbox[1];  // y1 in substream coords — label sits just above this
+      state.bbox_top = t.bbox[1];
       state.frame_width = t.frame_width;
       state.frame_height = t.frame_height;
+      state.track_id = t.track_id;
+      state.species_confidence = t.species_confidence;
+      state.model_source = t.model_source;
+      state.is_locked = t.is_locked;
+      state.frame_count = t.frame_count;
       state.fadeOutAt = null;
     }
     // Any tracked id present in trackStates but not in this event —
@@ -7798,14 +7804,68 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
                      Math.min(canvas.width - LABEL_W_ESTIMATE / 2 - 8, p.x));
     }
 
-    // Draw
+    // Draw bounding boxes + labels + debug info
     for (const p of placed) {
-      if (p.state.species) {
-        drawLabel(p.x, p.y, p.state.species, p.opacity);
+      const s = p.state;
+      const frameW = s.frame_width || canvas.width;
+      const frameH = s.frame_height || canvas.height;
+      const sx = canvas.width / frameW;
+      const sy = canvas.height / frameH;
+
+      // Bounding box
+      if (s.bbox) {
+        ctx.save();
+        ctx.globalAlpha = p.opacity * 0.7;
+        ctx.strokeStyle = s.is_locked ? '#4ade80' : '#facc15';  // green if locked, yellow if voting
+        ctx.lineWidth = 2;
+        const bx1 = s.bbox[0] * sx, by1 = s.bbox[1] * sy;
+        const bw = (s.bbox[2] - s.bbox[0]) * sx;
+        const bh = (s.bbox[3] - s.bbox[1]) * sy;
+        ctx.strokeRect(bx1, by1, bw, bh);
+        ctx.restore();
+      }
+
+      // Species label above bbox
+      if (s.species) {
+        var conf = s.species_confidence != null ? ' ' + Math.round(s.species_confidence * 100) + '%' : '';
+        var lockIcon = s.is_locked ? ' ✓' : ' …';
+        drawLabel(p.x, p.y, s.species + conf + lockIcon, p.opacity);
       } else {
         drawDot(p.x, p.y, p.opacity);
       }
+
+      // Small debug text below bbox: track ID, model, frame count
+      if (s.bbox) {
+        ctx.save();
+        ctx.globalAlpha = p.opacity * 0.5;
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#aaa';
+        var debugY = s.bbox[3] * sy + 12;
+        var debugX = s.bbox[0] * sx;
+        ctx.fillText('T' + (s.track_id || '?') + ' ' + (s.model_source || '') + ' f' + (s.frame_count || 0), debugX, debugY);
+        ctx.restore();
+      }
     }
+
+    // Pipeline stats overlay (top-right corner)
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#4ade80';
+    ctx.textAlign = 'right';
+    var statsY = 14;
+    ctx.fillText('tracks: ' + trackStates.size, canvas.width - 8, statsY);
+    statsY += 14;
+    if (window.__v3LabelAgeEma) {
+      ctx.fillText('label age: ' + Math.round(window.__v3LabelAgeEma) + 'ms', canvas.width - 8, statsY);
+      statsY += 14;
+    }
+    var pendingCount = pendingEvents ? pendingEvents.length : 0;
+    if (pendingCount > 0) {
+      ctx.fillStyle = '#f87171';
+      ctx.fillText('pending: ' + pendingCount, canvas.width - 8, statsY);
+    }
+    ctx.restore();
 
     requestAnimationFrame(renderFrame);
   }
