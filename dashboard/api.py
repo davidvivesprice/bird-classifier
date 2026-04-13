@@ -3367,6 +3367,25 @@ async def proxy_pipeline_sse(camera: str = "feeder"):
     )
 
 
+@app.get("/api/pipeline/debug/latest.jpg")
+async def proxy_debug_latest_jpg():
+    """Proxy the pipeline's debug frame (latest YOLO-annotated frame)."""
+    import httpx
+    from starlette.responses import Response
+    _pipeline_health_url = os.environ.get("PIPELINE_BACKEND_URL", "http://127.0.0.1:8105")
+    # The debug endpoint is on the HEALTH server (same port as /api/pipeline/health)
+    _health_port = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get(f"{_health_port}/debug/latest.jpg")
+            if resp.status_code == 200:
+                return Response(content=resp.content, media_type="image/jpeg",
+                                headers={"Cache-Control": "no-cache"})
+            return Response(status_code=resp.status_code)
+    except Exception:
+        return Response(status_code=502)
+
+
 @app.get("/api/pipeline/events")
 async def pipeline_events_proxy(camera: str, start: int, end: int):
     """Query the pipeline event store for scrubbing/historical playback."""

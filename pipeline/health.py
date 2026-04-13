@@ -94,12 +94,15 @@ class HealthState:
 
 
 class HealthServer:
-    """Minimal HTTP server that exposes /api/pipeline/health as JSON."""
+    """HTTP server: /api/pipeline/health (JSON) + /debug/latest.jpg (annotated frame)."""
     def __init__(self, health: HealthState, port: int = 8100):
         self.health = health
         self.port = port
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
+        # Latest debug frame: JPEG bytes with YOLO boxes drawn.
+        # Written by CameraProcessThread, served by GET /debug/latest.jpg.
+        self.latest_debug_jpeg: Optional[bytes] = None
 
     def start(self):
         health = self.health
@@ -108,18 +111,31 @@ class HealthServer:
             def log_message(self, fmt, *args):
                 pass  # silence access log
 
-            def do_GET(self):
-                if self.path.startswith("/api/pipeline/health"):
+            def do_GET(inner_self):
+                if inner_self.path.startswith("/api/pipeline/health"):
                     body = json.dumps(health.snapshot()).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                    inner_self.send_response(200)
+                    inner_self.send_header("Content-Type", "application/json")
+                    inner_self.send_header("Access-Control-Allow-Origin", "*")
+                    inner_self.send_header("Content-Length", str(len(body)))
+                    inner_self.end_headers()
+                    inner_self.wfile.write(body)
+                elif inner_self.path.startswith("/debug/latest.jpg"):
+                    jpeg = self.latest_debug_jpeg
+                    if jpeg:
+                        inner_self.send_response(200)
+                        inner_self.send_header("Content-Type", "image/jpeg")
+                        inner_self.send_header("Access-Control-Allow-Origin", "*")
+                        inner_self.send_header("Cache-Control", "no-cache")
+                        inner_self.send_header("Content-Length", str(len(jpeg)))
+                        inner_self.end_headers()
+                        inner_self.wfile.write(jpeg)
+                    else:
+                        inner_self.send_response(204)
+                        inner_self.end_headers()
                 else:
-                    self.send_response(404)
-                    self.end_headers()
+                    inner_self.send_response(404)
+                    inner_self.end_headers()
 
         self._server = ThreadingHTTPServer(("0.0.0.0", self.port), Handler)
         self._thread = threading.Thread(

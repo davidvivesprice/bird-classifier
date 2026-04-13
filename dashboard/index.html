@@ -2195,6 +2195,10 @@
                     style="position: absolute; top: 0; left: 0;
                            width: 100%; height: 100%; pointer-events: none;">
             </canvas>
+            <img id="v3-debug-pip" src="" alt=""
+                 style="position:absolute; bottom:40px; right:8px; z-index:3;
+                        width:240px; height:auto; border:2px solid #4ade80;
+                        border-radius:6px; opacity:0.9; display:block;">
             <div id="v3-sync-slider" style="position:absolute; bottom:8px; left:8px; right:8px; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.6); border-radius:8px; padding:4px 10px; font-size:11px; color:#ccc; pointer-events:auto;">
               <label for="v3-offset-range" style="white-space:nowrap;">Sync trim</label>
               <input type="range" id="v3-offset-range" min="-1000" max="1000" step="50" value="0"
@@ -7494,6 +7498,14 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   }
 
   connect();
+
+  // Debug PiP: poll /api/pipeline/debug/latest.jpg at 2fps
+  var debugPip = document.getElementById('v3-debug-pip');
+  if (debugPip) {
+    setInterval(function() {
+      debugPip.src = '/api/pipeline/debug/latest.jpg?t=' + Date.now();
+    }, 500);
+  }
 
   // Wire up the sync offset slider — live-updates the annotation offset
   // without requiring a page reload. Persists to localStorage.

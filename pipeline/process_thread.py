@@ -157,9 +157,29 @@ class CameraProcessThread:
             except Exception as e:
                 log.warning("[%s] write_track_summary error: %s", self.name, e)
 
-        # 8. Annotate + push — v3: deleted, labels move client-side
-        if self.annotator is not None:
-            self.annotator.submit(frame, tracker_out.active)
+        # 8. Debug frame: draw YOLO boxes on a small copy for /debug/latest.jpg
+        #    Only runs if health_server has the debug slot (low cost: one
+        #    cv2.resize + a few cv2.rectangle per frame, no JPEG encode
+        #    on frames with no tracks).
+        if tracker_out.active and hasattr(self.health, 'latest_debug_jpeg'):
+            try:
+                import cv2
+                debug = cv2.resize(frame.bgr, (640, 360), interpolation=cv2.INTER_LINEAR)
+                for track in tracker_out.active:
+                    x1, y1, x2, y2 = [int(v) for v in track.bbox]
+                    color = (128, 222, 74) if getattr(track, 'is_locked', False) else (21, 204, 250)
+                    cv2.rectangle(debug, (x1, y1), (x2, y2), color, 2)
+                    label = getattr(track, 'species', None) or '...'
+                    conf = getattr(track, 'species_confidence', None)
+                    if conf is not None:
+                        label += f' {int(conf*100)}%'
+                    cv2.putText(debug, label, (x1, max(y1-6, 12)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
+                ok, jpeg = cv2.imencode('.jpg', debug, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    self.health.latest_debug_jpeg = jpeg.tobytes()
+            except Exception:
+                pass
 
         # 9. Update health
         self._update_health(frame, det_ms)
