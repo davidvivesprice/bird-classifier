@@ -7387,34 +7387,10 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   var sourceBuffer = null;
   var queue = [];
 
-  // Maintain the video at a controlled delay behind the MSE live edge.
-  // Labels are applied immediately when SSE events arrive. The video delay
-  // gives labels time to arrive and be positioned BEFORE the bird appears
-  // on the delayed video. This is the sync mechanism.
-  //
-  // DESIRED_DELAY_S: seconds behind the MSE buffer's live edge.
-  // Too small = labels lag video. Too large = video feels sluggish.
-  // Default 1.2s gives ~800ms of headroom for the substream transcode
-  // + pipeline processing latency (~400ms combined).
-  // Tune: localStorage.setItem('v3VideoDelayS', '1.5')
-  var DESIRED_DELAY_S = parseFloat(localStorage.getItem('v3VideoDelayS') || '1.2');
-  setInterval(function maintainDelay() {
-    if (!video || video.readyState < 2) return;
-    try {
-      var buffered = video.buffered;
-      if (buffered.length === 0) return;
-      var liveEdge = buffered.end(buffered.length - 1);
-      var currentDelay = liveEdge - video.currentTime;
-      // If video is within 0.3s of live edge, it's too close — seek back
-      if (currentDelay < 0.3) {
-        video.currentTime = Math.max(buffered.start(0), liveEdge - DESIRED_DELAY_S);
-      }
-      // If video fell too far behind (>3x desired), seek forward
-      if (currentDelay > DESIRED_DELAY_S * 3) {
-        video.currentTime = liveEdge - DESIRED_DELAY_S;
-      }
-    } catch (e) { /* buffered range may be empty during startup */ }
-  }, 1000);
+  // No artificial video delay. Let MSE play at its natural latency.
+  // Both video and labels race to the screen independently — their
+  // natural latencies are similar (~400-500ms each), so they arrive
+  // roughly in sync without any intervention.
 
   // Parse baseMediaDecodeTime from an fMP4 chunk's tfdt box.
   // go2rtc writes version-1 (64-bit) tfdt in every moof fragment.
@@ -7689,50 +7665,25 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     // go2rtc substream transcode delay (~300-800ms) if labels lag.
     const video = document.getElementById('v3-live-video');
 
-    // AUTO-CALIBRATED sync offset.
+    // SIMPLE: drain all pending labels immediately. No buffering.
     //
-    // Measures two things continuously:
-    // 1. label_age: how old each SSE label is when it arrives at the browser
-    //    (Date.now() - event.wall_time_ms, tracked in __v3LabelAgeEma)
-    // 2. video_age: how old the currently-displayed video frame is
-    //    (Date.now() - displayedWallTime, computed from streamEpochEma)
+    // Both video and labels have similar natural latencies (~400-500ms).
+    // Video: camera → go2rtc → WebSocket → MSE buffer → display
+    // Labels: camera → go2rtc transcode → pipeline YOLO → SSE → browser
+    // They arrive at roughly the same time. Applying labels immediately
+    // means they appear within ~100ms of the matching video frame.
     //
-    // The required sync offset = label_age - video_age. If labels are more
-    // delayed than video, the offset is positive → labels drain earlier.
-    // Browser clock cancels out — offset depends only on server-side
-    // timing difference between the two paths.
+    // Previous approaches that failed:
+    // - Fixed delay (3s pause): video catches up, labels lag
+    // - video.currentTime epoch: MSE timeline unknowable, labels lag
+    // - tfdt epoch + auto-calibration: video delay sabotaged the calibration
+    // - All buffering approaches: added latency that caused labels to lag
     //
-    // The slider still works as a manual trim on top of auto-calibration.
-    const manualTrim = window.__v3LiveSyncOffset !== undefined
-      ? window.__v3LiveSyncOffset : 0;
-
-    let displayedWallTime;
-    let autoOffset = 0;
-    if (window.__v3StreamEpochEma && video && video.currentTime > 0) {
-      const rawDisplayedWall = window.__v3StreamEpochEma + video.currentTime * 1000;
-      const videoAge = Date.now() - rawDisplayedWall;
-
-      // Auto-calibrate: compare label arrival age to video display age
-      const labelAge = window.__v3LabelAgeEma || 0;
-      if (labelAge > 0 && videoAge > 0) {
-        autoOffset = labelAge - videoAge;
-      }
-      displayedWallTime = rawDisplayedWall + autoOffset + manualTrim;
-    } else {
-      displayedWallTime = Date.now() + manualTrim;
-    }
-
-    // Update the slider display to show the auto-computed offset
-    var valDisplay = document.getElementById('v3-offset-val');
-    if (valDisplay && autoOffset !== 0) {
-      valDisplay.textContent = (autoOffset + manualTrim >= 0 ? '+' : '') +
-        Math.round(autoOffset + manualTrim) + 'ms';
-    }
-
-    // Drain labels whose wall_time_ms <= the displayed frame's wall time
-    while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
+    // The slider remains as a manual time-shift if needed (default 0).
+    while (pendingEvents.length > 0) {
       applyEventToTrackStates(pendingEvents.shift());
     }
+    const displayedWallTime = Date.now();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
