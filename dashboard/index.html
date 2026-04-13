@@ -2195,6 +2195,12 @@
                     style="position: absolute; top: 0; left: 0;
                            width: 100%; height: 100%; pointer-events: none;">
             </canvas>
+            <div id="v3-sync-slider" style="position:absolute; bottom:8px; left:8px; right:8px; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.6); border-radius:8px; padding:4px 10px; font-size:11px; color:#ccc; pointer-events:auto;">
+              <label for="v3-offset-range" style="white-space:nowrap;">Sync</label>
+              <input type="range" id="v3-offset-range" min="-2000" max="500" step="50" value="-800"
+                     style="flex:1; height:4px; accent-color:#4ade80; cursor:pointer;">
+              <span id="v3-offset-val" style="min-width:48px; text-align:right; font-variant-numeric:tabular-nums;">-800ms</span>
+            </div>
           </div>
         </div>
       </div>
@@ -7512,6 +7518,23 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   }
 
   connect();
+
+  // Wire up the sync offset slider — live-updates the annotation offset
+  // without requiring a page reload. Persists to localStorage.
+  var slider = document.getElementById('v3-offset-range');
+  var valDisplay = document.getElementById('v3-offset-val');
+  if (slider) {
+    var saved = parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
+    slider.value = saved;
+    valDisplay.textContent = saved + 'ms';
+    slider.addEventListener('input', function() {
+      var v = parseInt(slider.value, 10);
+      valDisplay.textContent = v + 'ms';
+      window.__v3LiveSyncOffset = v;
+      localStorage.setItem('v3SyncOffsetMs', String(v));
+    });
+    window.__v3LiveSyncOffset = saved;
+  }
 })();
 </script>
 
@@ -7665,12 +7688,11 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     // Negative = labels appear earlier. Use this to compensate for the
     // go2rtc substream transcode delay (~300-800ms) if labels lag.
     const video = document.getElementById('v3-live-video');
-    // Default -800ms compensates for the go2rtc substream transcode delay
-    // (~300-500ms) + pipeline processing (~200-400ms). Negative = labels earlier.
-    // Frigate calls this "annotation_offset" and users report 100-500ms needed.
-    // Our substream + YOLO pipeline is longer, hence -800.
-    // Tune: localStorage.setItem('v3SyncOffsetMs', '-600')
-    const syncOffset = parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
+    // Annotation offset — live-updated by the sync slider UI.
+    // Negative = labels earlier. Default -800ms.
+    const syncOffset = window.__v3LiveSyncOffset !== undefined
+      ? window.__v3LiveSyncOffset
+      : parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
     let displayedWallTime;
     if (window.__v3StreamEpochEma && video && video.currentTime > 0) {
       displayedWallTime = window.__v3StreamEpochEma + video.currentTime * 1000 + syncOffset;
