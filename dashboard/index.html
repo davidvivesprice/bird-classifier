@@ -2196,14 +2196,14 @@
                            width: 100%; height: 100%; pointer-events: none;">
             </canvas>
             <img id="v3-debug-pip" src="" alt=""
-                 style="position:absolute; bottom:40px; right:8px; z-index:3;
-                        width:240px; height:auto; border:2px solid #4ade80;
-                        border-radius:6px; opacity:0.9; display:block;">
-            <div id="v3-sync-slider" style="position:absolute; bottom:8px; left:8px; right:8px; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.6); border-radius:8px; padding:4px 10px; font-size:11px; color:#ccc; pointer-events:auto;">
-              <label for="v3-offset-range" style="white-space:nowrap;">Sync trim</label>
-              <input type="range" id="v3-offset-range" min="-1000" max="1000" step="50" value="0"
-                     style="flex:1; height:4px; accent-color:#4ade80; cursor:pointer;">
-              <span id="v3-offset-val" style="min-width:60px; text-align:right; font-variant-numeric:tabular-nums;">auto</span>
+                 style="position:absolute; bottom:72px; right:8px; z-index:3;
+                        width:200px; height:auto; border:1px solid rgba(74,222,128,0.5);
+                        border-radius:4px; opacity:0.85; display:block;">
+            <div id="v3-sync-slider" style="position:absolute; bottom:36px; left:0; right:0; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.45); padding:3px 10px; font-size:10px; color:rgba(255,255,255,0.6); pointer-events:auto;">
+              <span style="white-space:nowrap;">⏱</span>
+              <input type="range" id="v3-offset-range" min="-2000" max="1000" step="50" value="0"
+                     style="flex:1; height:3px; accent-color:#4ade80; cursor:pointer;">
+              <span id="v3-offset-val" style="min-width:42px; text-align:right; font-variant-numeric:tabular-nums; font-size:10px;">0</span>
             </div>
           </div>
         </div>
