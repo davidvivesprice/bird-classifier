@@ -2196,10 +2196,10 @@
                            width: 100%; height: 100%; pointer-events: none;">
             </canvas>
             <div id="v3-sync-slider" style="position:absolute; bottom:8px; left:8px; right:8px; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.6); border-radius:8px; padding:4px 10px; font-size:11px; color:#ccc; pointer-events:auto;">
-              <label for="v3-offset-range" style="white-space:nowrap;">Sync</label>
-              <input type="range" id="v3-offset-range" min="-2000" max="500" step="50" value="-800"
+              <label for="v3-offset-range" style="white-space:nowrap;">Sync trim</label>
+              <input type="range" id="v3-offset-range" min="-1000" max="1000" step="50" value="0"
                      style="flex:1; height:4px; accent-color:#4ade80; cursor:pointer;">
-              <span id="v3-offset-val" style="min-width:48px; text-align:right; font-variant-numeric:tabular-nums;">-800ms</span>
+              <span id="v3-offset-val" style="min-width:60px; text-align:right; font-variant-numeric:tabular-nums;">auto</span>
             </div>
           </div>
         </div>
@@ -7524,14 +7524,14 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   var slider = document.getElementById('v3-offset-range');
   var valDisplay = document.getElementById('v3-offset-val');
   if (slider) {
-    var saved = parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
+    var saved = parseInt(localStorage.getItem('v3SyncTrimMs') || '0', 10);
     slider.value = saved;
-    valDisplay.textContent = saved + 'ms';
+    valDisplay.textContent = saved === 0 ? 'auto' : saved + 'ms';
     slider.addEventListener('input', function() {
       var v = parseInt(slider.value, 10);
-      valDisplay.textContent = v + 'ms';
+      valDisplay.textContent = v === 0 ? 'auto' : v + 'ms';
       window.__v3LiveSyncOffset = v;
-      localStorage.setItem('v3SyncOffsetMs', String(v));
+      localStorage.setItem('v3SyncTrimMs', String(v));
     });
     window.__v3LiveSyncOffset = saved;
   }
@@ -7688,16 +7688,45 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     // Negative = labels appear earlier. Use this to compensate for the
     // go2rtc substream transcode delay (~300-800ms) if labels lag.
     const video = document.getElementById('v3-live-video');
-    // Annotation offset — live-updated by the sync slider UI.
-    // Negative = labels earlier. Default -800ms.
-    const syncOffset = window.__v3LiveSyncOffset !== undefined
-      ? window.__v3LiveSyncOffset
-      : parseInt(localStorage.getItem('v3SyncOffsetMs') || '-800', 10);
+
+    // AUTO-CALIBRATED sync offset.
+    //
+    // Measures two things continuously:
+    // 1. label_age: how old each SSE label is when it arrives at the browser
+    //    (Date.now() - event.wall_time_ms, tracked in __v3LabelAgeEma)
+    // 2. video_age: how old the currently-displayed video frame is
+    //    (Date.now() - displayedWallTime, computed from streamEpochEma)
+    //
+    // The required sync offset = label_age - video_age. If labels are more
+    // delayed than video, the offset is positive → labels drain earlier.
+    // Browser clock cancels out — offset depends only on server-side
+    // timing difference between the two paths.
+    //
+    // The slider still works as a manual trim on top of auto-calibration.
+    const manualTrim = window.__v3LiveSyncOffset !== undefined
+      ? window.__v3LiveSyncOffset : 0;
+
     let displayedWallTime;
+    let autoOffset = 0;
     if (window.__v3StreamEpochEma && video && video.currentTime > 0) {
-      displayedWallTime = window.__v3StreamEpochEma + video.currentTime * 1000 + syncOffset;
+      const rawDisplayedWall = window.__v3StreamEpochEma + video.currentTime * 1000;
+      const videoAge = Date.now() - rawDisplayedWall;
+
+      // Auto-calibrate: compare label arrival age to video display age
+      const labelAge = window.__v3LabelAgeEma || 0;
+      if (labelAge > 0 && videoAge > 0) {
+        autoOffset = labelAge - videoAge;
+      }
+      displayedWallTime = rawDisplayedWall + autoOffset + manualTrim;
     } else {
-      displayedWallTime = Date.now() + syncOffset;
+      displayedWallTime = Date.now() + manualTrim;
+    }
+
+    // Update the slider display to show the auto-computed offset
+    var valDisplay = document.getElementById('v3-offset-val');
+    if (valDisplay && autoOffset !== 0) {
+      valDisplay.textContent = (autoOffset + manualTrim >= 0 ? '+' : '') +
+        Math.round(autoOffset + manualTrim) + 'ms';
     }
 
     // Drain labels whose wall_time_ms <= the displayed frame's wall time
@@ -7847,10 +7876,14 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     try { data = JSON.parse(ev.data); }
     catch (e) { console.warn('v3 SSE parse error', e); return; }
     if (!data.tracks || data.wall_time_ms == null) return;
-    // Push into the pending queue — the render loop will apply it when
-    // the video catches up to data.wall_time_ms. See video.currentTime sync in renderFrame.
-    // The render loop's applyEventToTrackStates does all the state mutation
-    // including marking tracks absent-from-this-event as fading out.
+    // Track how old labels are when they arrive — used by renderFrame
+    // for auto-calibrated sync (no manual slider needed).
+    var labelAge = Date.now() - data.wall_time_ms;
+    if (labelAge > 0 && labelAge < 30000) {  // sanity: ignore if clock skew > 30s
+      window.__v3LabelAgeEma = window.__v3LabelAgeEma
+        ? window.__v3LabelAgeEma * 0.95 + labelAge * 0.05
+        : labelAge;
+    }
     pendingEvents.push(data);
     // Defensive cap: if events pile up (network burst, video paused too long,
     // tab backgrounded, etc.) drop oldest so memory doesn't grow unbounded.
