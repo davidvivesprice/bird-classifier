@@ -1,0 +1,188 @@
+{
+  "timestamp": 1775949641.354319,
+  "health": {
+    "pipeline": {
+      "feeder": {
+        "capture": {
+          "last_frame_age_ms": 76,
+          "frames_processed": 2218,
+          "frames_captured": 2227,
+          "dropped_oldest": 9,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 84,
+          "yolo_ms_p99": 198,
+          "yolo_samples_count": 100,
+          "detections_total": 590
+        },
+        "tracker": {
+          "active_tracks": 1,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 27,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      },
+      "ground": {
+        "capture": {
+          "last_frame_age_ms": 3,
+          "frames_processed": 2204,
+          "frames_captured": 2206,
+          "dropped_oldest": 2,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 88,
+          "yolo_ms_p99": 155,
+          "yolo_samples_count": 44,
+          "detections_total": 3
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 0,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      }
+    },
+    "shared": {
+      "sse": {
+        "events_emitted": 760,
+        "clients_connected": 5
+      }
+    },
+    "uptime_s": 453,
+    "overall": "ok"
+  },
+  "sse_event_count": 35,
+  "sse_has_events": true,
+  "sse_sample_events": [
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949641513,
+      "tracks": [
+        {
+          "track_id": 27,
+          "bbox": [
+            437,
+            181,
+            558,
+            288
+          ],
+          "bbox_center_x": 497,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 23
+        }
+      ]
+    },
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949641845,
+      "tracks": [
+        {
+          "track_id": 27,
+          "bbox": [
+            433,
+            202,
+            556,
+            288
+          ],
+          "bbox_center_x": 494,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 23
+        }
+      ]
+    },
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949641931,
+      "tracks": [
+        {
+          "track_id": 27,
+          "bbox": [
+            433,
+            202,
+            556,
+            288
+          ],
+          "bbox_center_x": 494,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 23
+        }
+      ]
+    }
+  ],
+  "browser": {
+    "v3_video": {
+      "present": true,
+      "readyState": 0,
+      "currentTime": 0
+    },
+    "v3_canvas": {
+      "present": true,
+      "width": 574,
+      "height": 150
+    },
+    "track_state_count_after_wait": 1,
+    "canvas_after_injection": {
+      "empty": false,
+      "nonzero_pixels": 6559
+    },
+    "screenshots": [
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-initial-1775949660.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-after-20s-1775949681.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-fake-labels-1775949682.png"
+    ],
+    "console_messages": [
+      {
+        "type": "log",
+        "text": "[SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[SSE] Detection: undefined NaN%"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Connected"
+      },
+      {
+        "type": "warning",
+        "text": "v3 MSE addSourceBuffer failed NotSupportedError: Failed to execute 'addSourceBuffer' on 'MediaSource': The type provided ('video/mp4; codecs=\"video/mp4; codecs=\"avc1.4D0029\"\"') is unsupported.\n    at "
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Stream primed"
+      }
+    ]
+  }
+}

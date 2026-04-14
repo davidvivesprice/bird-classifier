@@ -1,0 +1,118 @@
+{
+  "timestamp": 1775949511.7637298,
+  "health": {
+    "pipeline": {
+      "feeder": {
+        "capture": {
+          "last_frame_age_ms": 3,
+          "frames_processed": 1573,
+          "frames_captured": 1582,
+          "dropped_oldest": 9,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 83,
+          "yolo_ms_p99": 173,
+          "yolo_samples_count": 100,
+          "detections_total": 452
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 21,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      },
+      "ground": {
+        "capture": {
+          "last_frame_age_ms": 3,
+          "frames_processed": 1557,
+          "frames_captured": 1559,
+          "dropped_oldest": 2,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 89,
+          "yolo_ms_p99": 156,
+          "yolo_samples_count": 31,
+          "detections_total": 1
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 0,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      }
+    },
+    "shared": {
+      "sse": {
+        "events_emitted": 594,
+        "clients_connected": 2
+      }
+    },
+    "uptime_s": 323,
+    "overall": "ok"
+  },
+  "sse_event_count": 0,
+  "sse_has_events": false,
+  "sse_sample_events": [],
+  "browser": {
+    "v3_video": {
+      "present": true,
+      "readyState": 0,
+      "currentTime": 0
+    },
+    "v3_canvas": {
+      "present": true,
+      "width": 574,
+      "height": 150
+    },
+    "track_state_count_after_wait": 0,
+    "canvas_after_injection": {
+      "empty": true,
+      "nonzero_pixels": 0
+    },
+    "screenshots": [
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-initial-1775949534.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-after-25s-1775949561.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-fake-labels-1775949562.png"
+    ],
+    "console_messages": [
+      {
+        "type": "log",
+        "text": "[SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[SSE] Detection: undefined NaN%"
+      },
+      {
+        "type": "warning",
+        "text": "v3 MSE addSourceBuffer failed NotSupportedError: Failed to execute 'addSourceBuffer' on 'MediaSource': The type provided ('video/mp4; codecs=\"video/mp4; codecs=\"avc1.4D0029\"\"') is unsupported.\n    at "
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Stream primed"
+      }
+    ]
+  }
+}

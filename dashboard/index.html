@@ -2826,8 +2826,7 @@
   let currentCamera = 'all';         // 'all' | 'feeder' | 'ground'
   let currentStream = 'both'; // go2rtc stream name for live video
   let showDetectionOverlay = true;   // detection bbox overlay enabled
-  let liveDetectionSource = null;    // SSE EventSource for /live-detections/events
-  let liveDetections = [];           // active bounding boxes on overlay
+  let liveDetectionSource = null;    // SSE EventSource for /live-detections/events (legacy, no-op with v3)
 
   // ── Helpers ──
   function parseTimestamp(ts) {
@@ -3099,8 +3098,8 @@
     }
   }
 
-  // ── MSE over WebSocket (desktop Chrome/Firefox/Edge) ──
-  function connectMSE(video, offline) {
+  // ── MSE over WebSocket (desktop Chrome/Firefox/Edge + Safari/iOS via ManagedMediaSource) ──
+  function connectMSE(video, offline, streamName) {
     var ws, mediaSource, sourceBuffer, queue = [];
 
     function cleanup() {
@@ -3140,7 +3139,8 @@
       if (offline) offline.style.display = '';
 
       var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(proto + '//' + location.host + '/api/ws?src=' + currentStream);
+      var stream = streamName || currentStream;
+      ws = new WebSocket(proto + '//' + location.host + '/api/ws?src=' + stream);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = function() {
@@ -5856,7 +5856,6 @@
     document.getElementById('stream-btn-both').classList.toggle('active', streamName === 'both');
 
     // Clear detection overlay
-    liveDetections = [];
     clearDetectionOverlay();
 
     var wrapper = document.getElementById('live-wrapper');
@@ -5893,7 +5892,6 @@
     var btn = document.getElementById('overlay-toggle');
     if (btn) btn.classList.toggle('active', showDetectionOverlay);
     if (!showDetectionOverlay) {
-      liveDetections = [];
       clearDetectionOverlay();
     }
   };
@@ -5930,15 +5928,6 @@
               window._splitDetections[detCamera] = window._splitDetections[detCamera].slice(-50);
             }
           }
-        } else {
-          var viewingCamera = currentStream.replace('-main', '');
-          if (!detCamera || detCamera === viewingCamera) {
-            det._expireAt = Date.now() + 2500;
-            liveDetections.push(det);
-            if (liveDetections.length > 100) {
-              liveDetections = liveDetections.slice(-50);
-            }
-          }
         }
       }
 
@@ -5971,45 +5960,6 @@
     } catch (e) {
       console.warn('[LiveDet SSE] Parse error:', e);
     }
-  }
-
-  function connectLiveDetectionSSE() {
-    if (document.getElementById('v3-live-container')) return;
-    if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
-
-    var es = new EventSource('/live-detections/events');
-    liveDetectionSource = es;
-    var _liveDetErrors = 0;
-
-    es.addEventListener('open', function() {
-      console.log('[LiveDet SSE] Connected');
-      _liveDetErrors = 0;
-      var dot = document.getElementById('live-detect-status');
-      if (dot) { dot.style.color = '#22c55e'; dot.title = 'Detection overlay: connected'; }
-    });
-    es.addEventListener('error', function() {
-      _liveDetErrors++;
-      var dot = document.getElementById('live-detect-status');
-      if (dot) { dot.style.color = '#f59e0b'; dot.title = 'Detection overlay: reconnecting...'; }
-      if (_liveDetErrors >= 3) {
-        console.log('[LiveDet SSE] Unavailable (live detector not reachable)');
-        es.close();
-        liveDetectionSource = null;
-        if (dot) { dot.style.color = '#ef4444'; dot.title = 'Detection overlay: disconnected'; }
-      }
-    });
-    es.addEventListener('message', function(event) {
-      _handleLiveDetection(event);
-      // Flash the status dot on each detection
-      try {
-        var det = JSON.parse(event.data);
-        if (det.species) {
-          var dot = document.getElementById('live-detect-status');
-          if (dot) { dot.style.color = '#4a9eff'; setTimeout(function() { dot.style.color = '#22c55e'; }, 500); }
-          console.log('[LiveDet] ' + det.species + ' (' + det.camera + ', ' + (det.confidence * 100).toFixed(0) + '%)');
-        }
-      } catch(e) {}
-    });
   }
 
   // Draw detection boxes on a canvas given a video element and detection list
@@ -6067,57 +6017,6 @@
       ctx.fillStyle = 'rgba(74, 222, 128, ' + alpha + ')';
       ctx.fillText(label, lx + 7, labelY + 15);
     }
-  }
-
-  // Detection overlay rendering loop
-  var _detOverlayRAF = null;
-  function renderDetectionOverlay() {
-    var now = Date.now();
-
-    if (currentStream === 'both') {
-      // Split mode: render on each camera's overlay canvas
-      if (window._splitDetections && showDetectionOverlay) {
-        ['feeder', 'ground'].forEach(function(cam) {
-          var cvs = document.getElementById('split-overlay-' + cam);
-          var vid = document.getElementById('split-video-' + cam);
-          if (!cvs || !vid) return;
-          var cell = cvs.parentElement;
-          cvs.width = cell.clientWidth;
-          cvs.height = cell.clientHeight;
-          var ctx = cvs.getContext('2d');
-          ctx.clearRect(0, 0, cvs.width, cvs.height);
-          window._splitDetections[cam] = window._splitDetections[cam].filter(function(d) { return d._expireAt > now; });
-          if (window._splitDetections[cam].length > 0) {
-            drawDetections(cvs, vid, window._splitDetections[cam], now);
-          }
-        });
-      }
-      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
-      return;
-    }
-
-    // Single cam mode
-    var canvas = document.getElementById('detection-overlay');
-    var video = document.getElementById('live-video');
-    if (!canvas || !video) { _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay); return; }
-
-    var wrapper = document.getElementById('live-wrapper');
-    var wrapRect = wrapper ? wrapper.getBoundingClientRect() : video.getBoundingClientRect();
-    canvas.width = wrapRect.width;
-    canvas.height = wrapRect.height;
-
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!showDetectionOverlay || liveDetections.length === 0) {
-      _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
-      return;
-    }
-
-    liveDetections = liveDetections.filter(function(d) { return d._expireAt > now; });
-    drawDetections(canvas, video, liveDetections, now);
-
-    _detOverlayRAF = requestAnimationFrame(renderDetectionOverlay);
   }
 
   // ── Real-time BirdNET SSE ──
@@ -7295,10 +7194,6 @@
     }
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
-    connectLiveDetectionSSE();
-    if (!document.getElementById('v3-live-container')) {
-      renderDetectionOverlay(); // start overlay rendering loop
-    }
     // Set initial overlay toggle state
     var overlayBtn = document.getElementById('overlay-toggle');
     if (overlayBtn) overlayBtn.classList.toggle('active', showDetectionOverlay);
@@ -7370,111 +7265,10 @@ function hideToast(id) {
   var video = document.getElementById('v3-live-video');
   if (!video) return;
 
-  // Route the WebSocket through the dashboard's /api/ws proxy instead of
-  // connecting directly to go2rtc on :1984. go2rtc rejects cross-origin
-  // WebSocket handshakes with 403, and the dashboard is on a different
-  // port (8099 in prod, 8199 in dev) than go2rtc (1984). The existing
-  // proxy_go2rtc_ws route in dashboard/api.py bridges them server-side.
-  var wsScheme = (location.protocol === 'https:') ? 'wss:' : 'ws:';
-  var streamName = 'feeder-main';
-  var wsUrl = wsScheme + '//' + location.host + '/api/ws?src=' + streamName;
-  var ws = null;
-  var mediaSource = null;
-  var sourceBuffer = null;
-  var queue = [];
-
-  // No artificial video delay. Let MSE play at its natural latency.
-  // Both video and labels race to the screen independently — their
-  // natural latencies are similar (~400-500ms each), so they arrive
-  // roughly in sync without any intervention.
-
-  function connect() {
-    ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-
-    ws.addEventListener('open', function() {
-      // Request MSE mode with a common H.264 codec profile.
-      // go2rtc will reply with a 'mse' message containing the actual codec string.
-      ws.send(JSON.stringify({ type: 'mse', value: 'avc1.640029,mp4a.40.2' }));
-    });
-
-    ws.addEventListener('message', function(ev) {
-      if (typeof ev.data === 'string') {
-        try {
-          var msg = JSON.parse(ev.data);
-          if (msg.type === 'mse') {
-            mediaSource = new MediaSource();
-            video.src = URL.createObjectURL(mediaSource);
-            mediaSource.addEventListener('sourceopen', function() {
-              try {
-                sourceBuffer = mediaSource.addSourceBuffer(msg.value);
-                sourceBuffer.mode = 'segments';
-                sourceBuffer.addEventListener('updateend', flushQueue);
-                flushQueue();
-              } catch (e) {
-                console.warn('v3 MSE addSourceBuffer failed', e);
-              }
-            });
-          }
-        } catch (e) {
-          console.warn('v3 MSE unexpected string message', ev.data);
-        }
-        return;
-      }
-      // Binary MP4 fragment — queue and flush to MSE SourceBuffer.
-      var chunk = new Uint8Array(ev.data);
-      queue.push(chunk);
-      flushQueue();
-    });
-
-    ws.addEventListener('error', function(e) { console.warn('v3 WS error', e); });
-    ws.addEventListener('close', function() {
-      console.log('v3 WS closed, reconnecting in 3s');
-      // Clean up old MediaSource before reconnecting
-      if (mediaSource && mediaSource.readyState === 'open') {
-        try { mediaSource.endOfStream(); } catch(e) {}
-      }
-      if (video.src) {
-        URL.revokeObjectURL(video.src);
-        video.src = '';
-      }
-      sourceBuffer = null;
-      mediaSource = null;
-      queue = [];
-      setTimeout(connect, 3000);
-    });
-  }
-
-  function flushQueue() {
-    // Proven MSE buffer management from the existing connectMSE player
-    // (which worked smoothly for months). One append per tick, trim at 8s,
-    // auto-catch-up if player falls behind.
-    if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
-    try {
-      if (video.buffered.length > 0) {
-        var end = video.buffered.end(video.buffered.length - 1);
-        var start = video.buffered.start(0);
-        // Trim when buffer exceeds 8s — keep last 4s
-        if (end - start > 8) {
-          sourceBuffer.remove(start, end - 4);
-          return; // remove is async; updateend will re-call flushQueue
-        }
-        // Auto-catch-up: if player fell >3s behind live edge, seek forward
-        if (video.currentTime < end - 3) {
-          video.currentTime = end - 0.5;
-        }
-      }
-    } catch (e) {}
-    // Append ONE chunk per tick (not a greedy loop — the old approach
-    // overwhelmed the SourceBuffer and caused freezes)
-    try {
-      sourceBuffer.appendBuffer(queue.shift());
-    } catch (e) {
-      queue = [];
-    }
-  }
-
-  connect();
+  // Use the proven connectMSE player (handles ManagedMediaSource for
+  // Safari/iOS, proper buffer management, auto-catch-up, cleanup on
+  // reconnect). No need to reimplement.
+  connectMSE(video, null, 'feeder-main');
 
   // Debug PiP: poll /api/pipeline/debug/latest.jpg at 2fps
   var debugPip = document.getElementById('v3-debug-pip');

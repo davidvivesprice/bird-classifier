@@ -1,0 +1,292 @@
+{
+  "timestamp": 1775949273.891607,
+  "health": {
+    "pipeline": {
+      "feeder": {
+        "capture": {
+          "last_frame_age_ms": 3,
+          "frames_processed": 391,
+          "frames_captured": 392,
+          "dropped_oldest": 1,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 84,
+          "yolo_ms_p99": 180,
+          "yolo_samples_count": 100,
+          "detections_total": 62
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 2,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      },
+      "ground": {
+        "capture": {
+          "last_frame_age_ms": 2,
+          "frames_processed": 369,
+          "frames_captured": 369,
+          "dropped_oldest": 0,
+          "ffmpeg_restarts": 0,
+          "ffmpeg_restarts_last_hour": 0
+        },
+        "detector": {
+          "yolo_ms_avg": 95,
+          "yolo_ms_p99": null,
+          "yolo_samples_count": 8,
+          "detections_total": 0
+        },
+        "tracker": {
+          "active_tracks": 0,
+          "stationary_tracks": 0
+        },
+        "classifier": {
+          "yard": 0,
+          "aiy": 0,
+          "both_agree": 0,
+          "unlabeled_call": 0,
+          "lock_timeouts": 0,
+          "retries": 0
+        }
+      }
+    },
+    "shared": {
+      "sse": {
+        "events_emitted": 73,
+        "clients_connected": 0
+      }
+    },
+    "uptime_s": 85,
+    "overall": "ok"
+  },
+  "sse_event_count": 24,
+  "sse_has_events": true,
+  "sse_sample_events": [
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949289326,
+      "tracks": [
+        {
+          "track_id": 3,
+          "bbox": [
+            267,
+            229,
+            481,
+            308
+          ],
+          "bbox_center_x": 374,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 1
+        }
+      ]
+    },
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949289598,
+      "tracks": [
+        {
+          "track_id": 3,
+          "bbox": [
+            252,
+            226,
+            454,
+            306
+          ],
+          "bbox_center_x": 353,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 2
+        }
+      ]
+    },
+    {
+      "camera": "feeder",
+      "wall_time_ms": 1775949289859,
+      "tracks": [
+        {
+          "track_id": 3,
+          "bbox": [
+            283,
+            225,
+            462,
+            310
+          ],
+          "bbox_center_x": 372,
+          "frame_width": 640,
+          "frame_height": 360,
+          "species": "Downy Woodpecker",
+          "species_confidence": null,
+          "model_source": "yard",
+          "is_locked": true,
+          "frame_count": 3
+        }
+      ]
+    }
+  ],
+  "browser": {
+    "v3_video": {
+      "present": true,
+      "readyState": 0,
+      "currentTime": 0
+    },
+    "v3_canvas": {
+      "present": true,
+      "width": 574,
+      "height": 150
+    },
+    "track_state_count_after_wait": 0,
+    "canvas_after_injection": {
+      "empty": false,
+      "nonzero_pixels": 6628
+    },
+    "screenshots": [
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-initial-1775949343.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-after-20s-1775949364.png",
+      "/Users/vives/bird-classifier/docs/superpowers/progress/2026-04-11-v3-verification/dashboard-fake-labels-1775949366.png"
+    ],
+    "console_messages": [
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "log",
+        "text": "[SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Connected"
+      },
+      {
+        "type": "log",
+        "text": "[SSE] Detection: undefined NaN%"
+      },
+      {
+        "type": "log",
+        "text": "[LiveDet SSE] Stream primed"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:1984/api/ws?src=feeder-main' failed: Error during WebSocket handshake: Unexpected response code: 403"
+      },
+      {
+        "type": "warning",
+        "text": "v3 WS error Event"
+      },
+      {
+        "type": "log",
+        "text": "v3 WS closed, reconnecting in 3s"
+      }
+    ]
+  }
+}

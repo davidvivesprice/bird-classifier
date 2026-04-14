@@ -3,7 +3,6 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-import numpy as np
 from PIL import Image
 
 from pipeline.frame import Frame
@@ -88,28 +87,6 @@ class BirdDetector:
             Detection(box=list(r["box"]), confidence=float(r["confidence"]))
             for r in raw
         ]
-
-    def _detect_region(self, bgr: np.ndarray, region: tuple) -> list:
-        """Run YOLO on a cropped region and offset boxes to full-frame coords."""
-        x1, y1, x2, y2 = region
-        crop_bgr = bgr[y1:y2, x1:x2]
-        if crop_bgr.size == 0:
-            return []
-        # Convert to PIL RGB for YOLODetector
-        pil = Image.fromarray(crop_bgr[:, :, ::-1])
-        try:
-            raw = self.yolo.detect(pil)
-        except Exception as e:
-            log.warning("YOLO region error: %s", e)
-            return []
-        out = []
-        for r in raw:
-            b = r["box"]
-            out.append(Detection(
-                box=[b[0] + x1, b[1] + y1, b[2] + x1, b[3] + y1],
-                confidence=float(r["confidence"]),
-            ))
-        return out
 
     def _is_stationary_only(self, region: tuple, stationary: list) -> bool:
         """True if the motion region is entirely explained by a stationary track."""

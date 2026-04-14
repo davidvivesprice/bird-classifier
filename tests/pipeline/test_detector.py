@@ -1,33 +1,7 @@
-"""Tests for BirdDetector — region detection + coordinate offset."""
+"""Tests for BirdDetector — motion gate, stationary suppression, full-frame detection."""
 import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
-
-
-def test_detection_coordinates_are_full_frame():
-    """YOLO runs on a crop, but returned boxes are in full-frame coordinates."""
-    from pipeline.detector import BirdDetector, Detection
-
-    # Construct without calling __init__ (we want to inject mocks)
-    d = BirdDetector.__new__(BirdDetector)
-
-    # Mock YOLODetector.detect to return a box in CROP-LOCAL coordinates
-    yolo_mock = MagicMock()
-    yolo_mock.detect = MagicMock(return_value=[
-        {"box": [10, 20, 60, 80], "confidence": 0.9}  # crop-local
-    ])
-    d.yolo = yolo_mock
-    d.get_stationary = lambda: []
-
-    frame_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    # Motion region offset by (400, 200)
-    region = (400, 200, 500, 300)
-    detections = d._detect_region(frame_bgr, region)
-
-    assert len(detections) == 1
-    # Box should be offset: crop(10,20,60,80) → full(410,220,460,280)
-    assert detections[0].box == [410, 220, 460, 280]
-    assert detections[0].confidence == pytest.approx(0.9)
 
 
 def test_no_motion_skips_yolo_entirely():
