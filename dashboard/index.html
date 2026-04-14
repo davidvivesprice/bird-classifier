@@ -3134,7 +3134,19 @@
 
       var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       var stream = streamName || currentStream;
-      ws = new WebSocket(proto + '//' + location.host + '/api/ws?src=' + stream);
+      // Connect directly to go2rtc (port 1984) when on local network.
+      // The Python WebSocket proxy (/api/ws on port 8099) adds jitter that
+      // causes choppy video. Direct connection is smooth.
+      // For remote access (Cloudflare tunnel), fall back to the proxy since
+      // port 1984 isn't tunneled.
+      var isLocal = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost|127\.)/.test(location.hostname);
+      var wsUrl;
+      if (isLocal) {
+        wsUrl = 'ws://' + location.hostname + ':1984/api/ws?src=' + stream;
+      } else {
+        wsUrl = proto + '//' + location.host + '/api/ws?src=' + stream;
+      }
+      ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = function() {
