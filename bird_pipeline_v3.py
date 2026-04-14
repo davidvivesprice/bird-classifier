@@ -122,18 +122,29 @@ def main():
         "ground": CameraClassifierConfig(use_yard=False),
     }
 
-    try:
-        classifier = SmartClassifier(
-            yard_model_path=YARD_MODEL,
-            yard_labels_path=YARD_LABELS,
-            aiy_model_path=AIY_MODEL,
-            aiy_labels_path=AIY_LABELS,
-            regional_species=regional_species,
-            camera_configs=camera_configs,
-        )
-    except Exception as e:
-        log.error("Failed to load classifiers: %s — pipeline will not start", e)
-        return 1
+    # Retry classifier loading with backoff — Coral USB is single-session and
+    # may be held by another process (classify.py --watch) after a machine
+    # restart. Wait for it to become available instead of crash-looping.
+    classifier = None
+    for attempt in range(1, 13):  # up to ~2 minutes of retries
+        try:
+            classifier = SmartClassifier(
+                yard_model_path=YARD_MODEL,
+                yard_labels_path=YARD_LABELS,
+                aiy_model_path=AIY_MODEL,
+                aiy_labels_path=AIY_LABELS,
+                regional_species=regional_species,
+                camera_configs=camera_configs,
+            )
+            break
+        except Exception as e:
+            if attempt < 12:
+                wait = min(10, attempt * 2)  # 2, 4, 6, 8, 10, 10, 10, ...
+                log.warning("Classifier load attempt %d failed: %s — retrying in %ds", attempt, e, wait)
+                time.sleep(wait)
+            else:
+                log.error("Failed to load classifiers after %d attempts: %s — pipeline will not start", attempt, e)
+                return 1
 
     # Per-camera stack
     camera_stacks = []
