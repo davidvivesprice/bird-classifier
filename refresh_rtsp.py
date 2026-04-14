@@ -14,7 +14,6 @@ import json
 import os
 import pathlib
 import ssl
-import subprocess
 import sys
 import time
 import urllib.parse
@@ -110,19 +109,19 @@ def write_go2rtc_config(tokens):
 
 
 def restart_go2rtc():
-    """Restart go2rtc Docker container."""
-    docker_cli = "/Applications/Docker.app/Contents/Resources/bin/docker"
+    """Restart go2rtc by sending API restart command.
+
+    go2rtc runs as a native binary (LaunchAgent com.vives.go2rtc),
+    not in Docker. Its HTTP API at :1984 accepts POST /api/restart
+    to reload the config file.
+    """
     try:
-        result = subprocess.run(
-            [docker_cli, "restart", "go2rtc"],
-            capture_output=True, timeout=30,
+        req = urllib.request.Request(
+            f"http://127.0.0.1:1984/api/restart",
+            method="POST",
         )
-        if result.returncode != 0:
-            log(f"Warning: docker restart returned {result.returncode}: {result.stderr.decode()}")
-        else:
-            log("Restarted go2rtc Docker container")
-    except FileNotFoundError:
-        log("Warning: Docker CLI not found at " + docker_cli)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            log(f"Restarted go2rtc via API (status {resp.status})")
     except Exception as e:
         log(f"Warning: could not restart go2rtc: {e}")
 
