@@ -7447,26 +7447,40 @@ function hideToast(id) {
 
   function flushQueue() {
     if (!sourceBuffer || sourceBuffer.updating) return;
-    // Evict old buffer data to prevent unbounded growth.
-    // Keep at most 10 seconds of buffered content.
-    try {
-      if (video.buffered && video.buffered.length > 0) {
-        var end = video.buffered.end(video.buffered.length - 1);
-        var start = video.buffered.start(0);
-        if (end - start > 10) {
-          sourceBuffer.remove(start, end - 5);
-          return; // remove is async; flushQueue will be called again on updateend
-        }
-      }
-    } catch (e) { /* buffered range may be empty */ }
+    // Append first, evict later. The previous approach (evict before append)
+    // starved the append queue: during the async remove, 30+ chunks would
+    // pile up and only process one-at-a-time via updateend, causing freezes.
+    //
+    // New approach: always append first. Only evict when buffer exceeds 60s
+    // (very conservative — prevents OOM on hours-long sessions without
+    // interfering with normal playback). Evict to 30s to avoid re-triggering.
     while (queue.length > 0 && !sourceBuffer.updating) {
       try {
         sourceBuffer.appendBuffer(queue.shift());
       } catch (e) {
-        console.warn('v3 MSE appendBuffer error', e);
+        if (e.name === 'QuotaExceededError') {
+          // Buffer full — force evict and retry
+          try {
+            var s = video.buffered.start(0);
+            var trimTo = video.currentTime - 2;
+            if (trimTo > s) sourceBuffer.remove(s, trimTo);
+          } catch (e2) {}
+        } else {
+          console.warn('v3 MSE appendBuffer error', e);
+        }
         return;
       }
     }
+    // Lazy eviction: only when buffer is huge (>60s), trim to 30s
+    try {
+      if (video.buffered && video.buffered.length > 0) {
+        var end = video.buffered.end(video.buffered.length - 1);
+        var start = video.buffered.start(0);
+        if (end - start > 60) {
+          sourceBuffer.remove(start, end - 30);
+        }
+      }
+    } catch (e) {}
   }
 
   connect();
