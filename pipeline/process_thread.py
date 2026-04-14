@@ -1,9 +1,11 @@
 """CameraProcessThread — orchestrates the per-camera pipeline stages."""
 from __future__ import annotations
 import logging
+import os
 import queue
 import threading
 import time
+from collections import Counter
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -23,7 +25,7 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 class CameraProcessThread:
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
-                 event_store, annotator=None, health=None, sse_server=None,
+                 event_store, health=None, sse_server=None,
                  frame_width: int = 640, frame_height: int = 360,
                  capture: "Optional[FrameCapture]" = None):
         self.name = name
@@ -33,12 +35,12 @@ class CameraProcessThread:
         self.tracker = tracker
         self.classifier = classifier
         self.event_store = event_store
-        self.annotator = annotator
         self.health = health
         self.sse_server = sse_server
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.capture = capture
+        self._dry_run = os.environ.get("PIPELINE_DRY_RUN") == "1"
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_forced_full = 0.0
@@ -111,8 +113,7 @@ class CameraProcessThread:
         self._classify_tracks(frame, tracker_out.active)
 
         # 6. Write events to DB (skipped in dry-run / testing mode)
-        import os
-        if os.environ.get("PIPELINE_DRY_RUN") != "1":
+        if not self._dry_run:
             new_ids = {t.track_id for t in tracker_out.new}
             for track in tracker_out.active:
                 self.event_store.write_event(
@@ -150,7 +151,7 @@ class CameraProcessThread:
             )
 
         # 7. Track expired → write summary (skipped in dry-run)
-        if os.environ.get("PIPELINE_DRY_RUN") != "1":
+        if not self._dry_run:
             for track in tracker_out.expired:
                 try:
                     self.event_store.write_track_summary(
@@ -167,7 +168,8 @@ class CameraProcessThread:
         if tracker_out.active and hasattr(self.health, 'latest_debug_jpeg'):
             try:
                 import cv2
-                debug = cv2.resize(frame.bgr, (640, 360), interpolation=cv2.INTER_LINEAR)
+                h, w = frame.bgr.shape[:2]
+                debug = frame.bgr.copy() if (w, h) == (640, 360) else cv2.resize(frame.bgr, (640, 360), interpolation=cv2.INTER_LINEAR)
                 for track in tracker_out.active:
                     x1, y1, x2, y2 = [int(v) for v in track.bbox]
                     color = (128, 222, 74) if getattr(track, 'is_locked', False) else (21, 204, 250)
@@ -180,7 +182,7 @@ class CameraProcessThread:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
                 ok, jpeg = cv2.imencode('.jpg', debug, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ok:
-                    self.health.latest_debug_jpeg = jpeg.tobytes()
+                    self.health.latest_debug_jpeg[self.name] = jpeg.tobytes()
             except Exception:
                 pass
 
@@ -194,7 +196,6 @@ class CameraProcessThread:
         Lock the species only when enough votes agree. This fixes the
         "first-blurry-crop permanently mislabels the bird" problem from Phase 1.
         """
-        from collections import Counter
         for track in tracks:
             if not track.needs_classification:
                 continue

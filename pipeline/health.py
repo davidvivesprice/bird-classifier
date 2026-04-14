@@ -18,9 +18,9 @@ class HealthState:
         self._lock = threading.Lock()
         self._data: dict = {"pipeline": {}, "shared": {}}
         self._start_time = time.time()
-        # Latest debug frame: JPEG bytes with YOLO boxes drawn.
+        # Latest debug frames: per-camera JPEG bytes with YOLO boxes drawn.
         # Written by CameraProcessThread, served by HealthServer GET /debug/latest.jpg.
-        self.latest_debug_jpeg: Optional[bytes] = None
+        self.latest_debug_jpeg: dict = {}  # camera_name → JPEG bytes
 
     def update(self, camera: str, component: str, stats: dict):
         with self._lock:
@@ -121,7 +121,10 @@ class HealthServer:
                     inner_self.end_headers()
                     inner_self.wfile.write(body)
                 elif inner_self.path.startswith("/debug/latest.jpg"):
-                    jpeg = health.latest_debug_jpeg
+                    from urllib.parse import urlparse, parse_qs
+                    qs = parse_qs(urlparse(inner_self.path).query)
+                    cam = qs.get("camera", ["feeder"])[0]
+                    jpeg = health.latest_debug_jpeg.get(cam)
                     if jpeg:
                         inner_self.send_response(200)
                         inner_self.send_header("Content-Type", "image/jpeg")

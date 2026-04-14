@@ -173,7 +173,6 @@ def main():
                 tracker=tracker,
                 classifier=classifier,
                 event_store=event_store,
-                annotator=None,
                 health=health,
                 sse_server=sse_server,
                 frame_width=640,

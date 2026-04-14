@@ -3368,7 +3368,7 @@ async def proxy_pipeline_sse(camera: str = "feeder"):
 
 
 @app.get("/api/pipeline/debug/latest.jpg")
-async def proxy_debug_latest_jpg():
+async def proxy_debug_latest_jpg(camera: str = "feeder"):
     """Proxy the pipeline's debug frame (latest YOLO-annotated frame)."""
     import httpx
     from starlette.responses import Response
@@ -3377,7 +3377,7 @@ async def proxy_debug_latest_jpg():
     _health_port = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
     try:
         async with httpx.AsyncClient(timeout=3) as client:
-            resp = await client.get(f"{_health_port}/debug/latest.jpg")
+            resp = await client.get(f"{_health_port}/debug/latest.jpg?camera={camera}")
             if resp.status_code == 200:
                 return Response(content=resp.content, media_type="image/jpeg",
                                 headers={"Cache-Control": "no-cache"})

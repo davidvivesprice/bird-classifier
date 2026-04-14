@@ -65,6 +65,14 @@ class BirdDetector:
         # Skip detection entirely if no motion (unless forced)
         if not motion_regions and not forced_full:
             return []
+        # Stationary suppression: if all motion regions are explained by
+        # tracks that haven't moved, skip YOLO. A perched bird that triggers
+        # motion (slight wind sway) but is already tracked doesn't need
+        # re-detection. This saves ~150 YOLO calls per 30-second perch.
+        if motion_regions and not forced_full:
+            stationary = self.get_stationary()
+            if stationary and all(self._is_stationary_only(r, stationary) for r in motion_regions):
+                return []
         return self._detect_full(frame)
 
     def _detect_full(self, frame: Frame) -> list:

@@ -63,7 +63,6 @@ def test_empty_video_produces_no_events(tmp_path):
         tracker=tracker,
         classifier=DummyClassifier(),
         event_store=event_store,
-        annotator=None,
         health=health,
     )
 

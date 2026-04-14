@@ -38,7 +38,6 @@ def test_process_thread_reads_frame_and_calls_pipeline():
     classifier.stats = {"yard": 0}
 
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     thread = CameraProcessThread(
@@ -49,7 +48,6 @@ def test_process_thread_reads_frame_and_calls_pipeline():
         tracker=tracker,
         classifier=classifier,
         event_store=event_store,
-        annotator=annotator,
         health=health,
     )
     thread.start()
@@ -72,7 +70,6 @@ def test_process_thread_reads_frame_and_calls_pipeline():
     tracker.update.assert_called()
     classifier.classify.assert_called()
     event_store.write_event.assert_called()
-    annotator.submit.assert_called()
 
     thread.stop()
 
@@ -95,13 +92,12 @@ def test_process_thread_survives_detector_exception():
     classifier = MagicMock()
     classifier.stats = {}
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     thread = CameraProcessThread(
         name="feeder", frame_queue=frame_q, motion_gate=motion_gate,
         detector=detector, tracker=tracker, classifier=classifier,
-        event_store=event_store, annotator=annotator, health=health,
+        event_store=event_store, health=health,
     )
     thread.start()
 
@@ -147,13 +143,12 @@ def test_process_thread_retries_track_when_coral_busy():
     classifier.stats = {}
 
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     thread = CameraProcessThread(
         name="feeder", frame_queue=frame_q, motion_gate=motion_gate,
         detector=detector, tracker=tracker, classifier=classifier,
-        event_store=event_store, annotator=annotator, health=health,
+        event_store=event_store, health=health,
     )
     thread.start()
 
@@ -230,6 +225,7 @@ def test_yolo_samples_excludes_skip_frames():
     t = CameraProcessThread.__new__(CameraProcessThread)
     t.name = "test"
     t._stop = threading.Event()
+    t._dry_run = False
     t._stats = {
         "frames_processed": 0,
         "detections": 0,
@@ -256,7 +252,6 @@ def test_yolo_samples_excludes_skip_frames():
 
     classifier = MagicMock(); classifier.stats = {}
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     t.motion_gate = motion_gate
@@ -264,7 +259,6 @@ def test_yolo_samples_excludes_skip_frames():
     t.tracker = tracker
     t.classifier = classifier
     t.event_store = event_store
-    t.annotator = annotator
     t.health = health
 
     frame = Frame(
@@ -293,6 +287,7 @@ def test_write_track_summary_uses_per_track_frame_count():
     t = CameraProcessThread.__new__(CameraProcessThread)
     t.name = "test"
     t._stop = threading.Event()
+    t._dry_run = False
     t._stats = {
         "frames_processed": 9999,  # deliberately big, not per-track
         "detections": 0,
@@ -316,7 +311,6 @@ def test_write_track_summary_uses_per_track_frame_count():
     tracker.tracks = []; tracker.stationary_regions.return_value = []
     classifier = MagicMock(); classifier.stats = {}
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     t.motion_gate = motion_gate
@@ -324,7 +318,6 @@ def test_write_track_summary_uses_per_track_frame_count():
     t.tracker = tracker
     t.classifier = classifier
     t.event_store = event_store
-    t.annotator = annotator
     t.health = health
 
     frame = Frame(
@@ -405,6 +398,7 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     t = CameraProcessThread.__new__(CameraProcessThread)
     t.name = "feeder"
     t._stop = threading.Event()
+    t._dry_run = False
     t._stats = {
         "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
         "yolo_runs_total": 0, "yolo_skipped_motion": 0,
@@ -439,7 +433,6 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     classifier = MagicMock()
     classifier.stats = {"feeder": {"yard": 0, "aiy": 0}}
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     sse_server = MagicMock()
@@ -449,7 +442,6 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     t.tracker = tracker
     t.classifier = classifier
     t.event_store = event_store
-    t.annotator = annotator
     t.health = health
     t.sse_server = sse_server
     t.frame_width = 640
@@ -492,6 +484,7 @@ def test_process_thread_does_not_emit_when_no_active_tracks():
     t = CameraProcessThread.__new__(CameraProcessThread)
     t.name = "feeder"
     t._stop = threading.Event()
+    t._dry_run = False
     t._stats = {
         "frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
         "yolo_runs_total": 0, "yolo_skipped_motion": 0,
@@ -509,7 +502,6 @@ def test_process_thread_does_not_emit_when_no_active_tracks():
     tracker.tracks = []; tracker.stationary_regions.return_value = []
     classifier = MagicMock(); classifier.stats = {"feeder": {}}
     event_store = MagicMock()
-    annotator = MagicMock()
     health = MagicMock()
 
     sse_server = MagicMock()
@@ -519,7 +511,6 @@ def test_process_thread_does_not_emit_when_no_active_tracks():
     t.tracker = tracker
     t.classifier = classifier
     t.event_store = event_store
-    t.annotator = annotator
     t.health = health
     t.sse_server = sse_server
     t.frame_width = 640

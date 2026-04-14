@@ -20,14 +20,14 @@ class MotionGate:
         )
         self.min_region_area = min_region_area
         self.pad = pad
+        self._kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
 
     def regions(self, bgr_frame: np.ndarray) -> list:
         """Return list of motion bounding boxes (x1,y1,x2,y2) in frame coordinates."""
         mask = self.bg.apply(bgr_frame)
         # Clean up noise
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self._kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self._kernel)
 
         # Find contours
         contours, _ = cv2.findContours(
