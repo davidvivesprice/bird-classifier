@@ -16,17 +16,18 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / "models"
 HLS_DIR = Path.home() / "bird-snapshots" / "hls"
-PIPELINE_DB = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
+# Use a separate dev DB during testing so production data stays clean.
+# Set PIPELINE_DB_PATH to override (e.g. for dev: pipeline_v3_dev.db).
+_default_db = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
+PIPELINE_DB = Path(os.environ.get("PIPELINE_DB_PATH", str(_default_db)))
 REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 
-# Detection reads from the MAIN stream (same as the video the browser plays)
-# and scales to 640x360 internally via ffmpeg's -vf scale filter. This
-# eliminates the go2rtc substream transcode delay (~500-1000ms) that was
-# causing labels to lag behind the video. The ffmpeg decode+scale is ~30ms
-# per frame vs the transcode re-encode which was 500-1000ms.
+# Detection reads from the camera's NATIVE low-res substream (feeder-sub).
+# This is produced by the camera itself (not a go2rtc transcode), so it has
+# minimal timing offset from the main stream. Lower CPU than decoding 1080p.
 CAMERAS_DETECT = {
-    "feeder": "rtsp://127.0.0.1:8554/feeder-main",
-    "ground": "rtsp://127.0.0.1:8554/ground-main",
+    "feeder": "rtsp://127.0.0.1:8554/feeder-sub",
+    "ground": "rtsp://127.0.0.1:8554/ground-sub",
 }
 CAMERAS_MAIN = {
     "feeder": "rtsp://127.0.0.1:8554/feeder-main",

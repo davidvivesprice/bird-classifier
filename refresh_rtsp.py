@@ -36,7 +36,9 @@ CAMERAS = {
 
 GO2RTC_STREAMS = {
     "feeder-main": ("birds", "high"),
+    "feeder-sub": ("birds", "low"),
     "ground-main": ("ground", "high"),
+    "ground-sub": ("ground", "low"),
 }
 
 ssl_ctx = ssl.create_default_context()
