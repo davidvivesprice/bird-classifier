@@ -3061,6 +3061,9 @@
 
   // ── Live Feed: go2rtc with MSE → HLS → MP4 fallback ──
   function initLiveFeed() {
+    // v3 pipeline handles its own video via setupV3LiveVideo.
+    // Don't start the old MSE connection — it would double decode work.
+    if (document.getElementById('v3-live-container')) return;
     var video = document.getElementById('live-video');
     var offline = document.getElementById('live-offline');
     if (!video) return;
@@ -5971,6 +5974,7 @@
   }
 
   function connectLiveDetectionSSE() {
+    if (document.getElementById('v3-live-container')) return;
     if (liveDetectionSource) { try { liveDetectionSource.close(); } catch(e) {} }
 
     var es = new EventSource('/live-detections/events');
@@ -7292,7 +7296,9 @@
     pollSystemHealth();  // initial health check
     connectBirdnetSSE();
     connectLiveDetectionSSE();
-    renderDetectionOverlay(); // start overlay rendering loop
+    if (!document.getElementById('v3-live-container')) {
+      renderDetectionOverlay(); // start overlay rendering loop
+    }
     // Set initial overlay toggle state
     var overlayBtn = document.getElementById('overlay-toggle');
     if (overlayBtn) overlayBtn.classList.toggle('active', showDetectionOverlay);
@@ -7355,22 +7361,8 @@ function hideToast(id) {
 // plays through go2rtc → MSE with some variable buffer delay (typically
 // 0.5–2s, varies by browser, network, and device).
 //
-// The old approach (pause the video for a fixed SYNC_DELAY_MS) was wrong:
-// the video played through the buffer and caught up to live within seconds,
-// after which labels lagged by the difference between the guessed delay
-// and the real buffer.
-//
-// The permanent fix: record the wall clock when the MSE session opens
-// (window.__v3MseEpochWall). The displayed video's wall time at any moment
-// is approximately (mse_epoch_wall + video.currentTime * 1000). Labels are
-// drained when their wall_time_ms <= that value. This automatically adapts
-// to whatever buffer the browser uses — no guessing, no drifting.
-//
-// Fine-tune with localStorage.setItem('v3SyncOffsetMs', '-200') to shift
-// labels 200ms earlier (negative = labels lead, positive = labels lag).
-// Default 0.
-window.__v3MseEpochWall = null;
-window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0', 10);
+// Labels drain when wall_time_ms <= (Date.now() + __v3LiveSyncOffset).
+// The sync offset slider fine-tunes alignment without a page reload.
 </script>
 
 <script>
@@ -7396,30 +7388,6 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   // natural latencies are similar (~400-500ms each), so they arrive
   // roughly in sync without any intervention.
 
-  // Parse baseMediaDecodeTime from an fMP4 chunk's tfdt box.
-  // go2rtc writes version-1 (64-bit) tfdt in every moof fragment.
-  // Returns BigInt ticks at 90000 Hz, or null for init segments.
-  function parseTfdt(bytes) {
-    // Scan for "tfdt" magic (0x74666474)
-    for (var i = 0; i < bytes.length - 16; i++) {
-      if (bytes[i] === 0x74 && bytes[i+1] === 0x66 &&
-          bytes[i+2] === 0x64 && bytes[i+3] === 0x74) {
-        var version = bytes[i + 4];
-        if (version === 1) {
-          // 64-bit: read as two 32-bit big-endian values
-          var dv = new DataView(bytes.buffer, bytes.byteOffset + i + 8, 8);
-          var hi = dv.getUint32(0, false);
-          var lo = dv.getUint32(4, false);
-          return BigInt(hi) * BigInt(0x100000000) + BigInt(lo);
-        } else {
-          var dv0 = new DataView(bytes.buffer, bytes.byteOffset + i + 8, 4);
-          return BigInt(dv0.getUint32(0, false));
-        }
-      }
-    }
-    return null;
-  }
-
   function connect() {
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -7438,11 +7406,6 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
             mediaSource = new MediaSource();
             video.src = URL.createObjectURL(mediaSource);
             mediaSource.addEventListener('sourceopen', function() {
-              // Record when the MSE session opened. Combined with
-              // video.currentTime, this lets the label renderer know the
-              // wall time of the frame currently on screen — the permanent
-              // label-to-video sync solution.
-              window.__v3MseEpochWall = Date.now();
               try {
                 sourceBuffer = mediaSource.addSourceBuffer(msg.value);
                 sourceBuffer.mode = 'segments';
@@ -7458,22 +7421,8 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
         }
         return;
       }
-      // Binary MP4 fragment — parse baseMediaDecodeTime from the tfdt box
-      // before appending. Combined with Date.now(), this gives us the exact
-      // wall-clock-to-media-time mapping for frame-precise label sync.
+      // Binary MP4 fragment — queue and flush to MSE SourceBuffer.
       var chunk = new Uint8Array(ev.data);
-      var bdt = parseTfdt(chunk);
-      if (bdt !== null) {
-        var mediaTimeSec = Number(bdt) / 90000;  // H.264 clock rate
-        var arrivalMs = Date.now();
-        var rawEpoch = arrivalMs - mediaTimeSec * 1000;
-        if (window.__v3StreamEpochEma === undefined) {
-          window.__v3StreamEpochEma = rawEpoch;
-        } else {
-          // Exponential moving average to smooth network jitter
-          window.__v3StreamEpochEma = window.__v3StreamEpochEma * 0.9 + rawEpoch * 0.1;
-        }
-      }
       queue.push(chunk);
       flushQueue();
     });
@@ -7481,12 +7430,35 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
     ws.addEventListener('error', function(e) { console.warn('v3 WS error', e); });
     ws.addEventListener('close', function() {
       console.log('v3 WS closed, reconnecting in 3s');
+      // Clean up old MediaSource before reconnecting
+      if (mediaSource && mediaSource.readyState === 'open') {
+        try { mediaSource.endOfStream(); } catch(e) {}
+      }
+      if (video.src) {
+        URL.revokeObjectURL(video.src);
+        video.src = '';
+      }
+      sourceBuffer = null;
+      mediaSource = null;
+      queue = [];
       setTimeout(connect, 3000);
     });
   }
 
   function flushQueue() {
     if (!sourceBuffer || sourceBuffer.updating) return;
+    // Evict old buffer data to prevent unbounded growth.
+    // Keep at most 10 seconds of buffered content.
+    try {
+      if (video.buffered && video.buffered.length > 0) {
+        var end = video.buffered.end(video.buffered.length - 1);
+        var start = video.buffered.start(0);
+        if (end - start > 10) {
+          sourceBuffer.remove(start, end - 5);
+          return; // remove is async; flushQueue will be called again on updateend
+        }
+      }
+    } catch (e) { /* buffered range may be empty */ }
     while (queue.length > 0 && !sourceBuffer.updating) {
       try {
         sourceBuffer.appendBuffer(queue.shift());
@@ -7503,7 +7475,7 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   var debugPip = document.getElementById('v3-debug-pip');
   if (debugPip) {
     setInterval(function() {
-      debugPip.src = '/api/pipeline/debug/latest.jpg?t=' + Date.now();
+      debugPip.src = '/api/pipeline/debug/latest.jpg?camera=feeder&t=' + Date.now();
     }, 500);
   }
 
@@ -7556,10 +7528,8 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
   // }>
   const trackStates = new Map();
 
-  // Expose for Task 14b SSE wiring
+  // Expose for SSE wiring
   window.__v3TrackStates = trackStates;
-  window.__v3Canvas = canvas;
-  window.__v3Ctx = ctx;
 
   const LABEL_FONT = '14px system-ui, -apple-system, sans-serif';
   const LABEL_HEIGHT = 24;
@@ -7662,7 +7632,6 @@ window.__v3SyncOffsetMs = parseInt(localStorage.getItem('v3SyncOffsetMs') || '0'
       }
     }
   }
-  window.__v3ApplyEvent = applyEventToTrackStates;
 
   function renderFrame() {
     // Frame-precise label sync via fMP4 baseMediaDecodeTime.
