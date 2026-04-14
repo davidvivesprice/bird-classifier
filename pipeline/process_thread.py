@@ -110,19 +110,21 @@ class CameraProcessThread:
         # 5. Classify tracks needing classification
         self._classify_tracks(frame, tracker_out.active)
 
-        # 6. Write events (one per active track per frame)
-        new_ids = {t.track_id for t in tracker_out.new}
-        for track in tracker_out.active:
-            self.event_store.write_event(
-                camera=self.name,
-                frame_time_ms=frame.wall_time_ms,
-                track_id=track.track_id,
-                species=track.species,
-                confidence=track.confidence,
-                model_source=track.model_source,
-                bbox=track.bbox,
-                is_new=(track.track_id in new_ids),
-            )
+        # 6. Write events to DB (skipped in dry-run / testing mode)
+        import os
+        if os.environ.get("PIPELINE_DRY_RUN") != "1":
+            new_ids = {t.track_id for t in tracker_out.new}
+            for track in tracker_out.active:
+                self.event_store.write_event(
+                    camera=self.name,
+                    frame_time_ms=frame.wall_time_ms,
+                    track_id=track.track_id,
+                    species=track.species,
+                    confidence=track.confidence,
+                    model_source=track.model_source,
+                    bbox=track.bbox,
+                    is_new=(track.track_id in new_ids),
+                )
 
         # 6b. Emit SSE event for live dashboard consumption
         if tracker_out.active and self.sse_server is not None:
@@ -147,15 +149,16 @@ class CameraProcessThread:
                 tracks=tracks_payload,
             )
 
-        # 7. Track expired → write summary
-        for track in tracker_out.expired:
-            try:
-                self.event_store.write_track_summary(
-                    camera=self.name, track=track,
-                    num_frames=track.frame_count,
-                )
-            except Exception as e:
-                log.warning("[%s] write_track_summary error: %s", self.name, e)
+        # 7. Track expired → write summary (skipped in dry-run)
+        if os.environ.get("PIPELINE_DRY_RUN") != "1":
+            for track in tracker_out.expired:
+                try:
+                    self.event_store.write_track_summary(
+                        camera=self.name, track=track,
+                        num_frames=track.frame_count,
+                    )
+                except Exception as e:
+                    log.warning("[%s] write_track_summary error: %s", self.name, e)
 
         # 8. Debug frame: draw YOLO boxes on a small copy for /debug/latest.jpg
         #    Only runs if health_server has the debug slot (low cost: one
