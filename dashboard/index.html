@@ -7265,10 +7265,86 @@ function hideToast(id) {
   var video = document.getElementById('v3-live-video');
   if (!video) return;
 
-  // Use the proven connectMSE player (handles ManagedMediaSource for
-  // Safari/iOS, proper buffer management, auto-catch-up, cleanup on
-  // reconnect). No need to reimplement.
-  connectMSE(video, null, 'feeder-main');
+  // Self-contained MSE player for the v3 video element.
+  // Based on the proven connectMSE pattern but standalone — no dependency
+  // on initLiveFeed globals or old player state.
+  var ws = null, mediaSource = null, sourceBuffer = null, queue = [];
+
+  function v3Cleanup() {
+    if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+    if (mediaSource && mediaSource.readyState === 'open') {
+      try { mediaSource.endOfStream(); } catch(e) {}
+    }
+    if (video.src) { try { URL.revokeObjectURL(video.src); } catch(e) {} }
+    video.src = '';
+    mediaSource = null; sourceBuffer = null; queue = [];
+  }
+
+  function v3FlushQueue() {
+    if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
+    try {
+      if (video.buffered.length > 0) {
+        var end = video.buffered.end(video.buffered.length - 1);
+        var start = video.buffered.start(0);
+        if (end - start > 8) { sourceBuffer.remove(start, end - 4); return; }
+        if (video.currentTime < end - 3) { video.currentTime = end - 0.5; }
+      }
+    } catch(e) {}
+    try { sourceBuffer.appendBuffer(queue.shift()); }
+    catch(e) { queue = []; }
+  }
+
+  function v3Connect() {
+    v3Cleanup();
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/api/ws?src=feeder-main');
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function() {
+      var MSC = window.ManagedMediaSource || window.MediaSource;
+      mediaSource = new MSC();
+      if (window.ManagedMediaSource) {
+        video.disableRemotePlayback = true;
+        video.srcObject = mediaSource;
+      } else {
+        video.src = URL.createObjectURL(mediaSource);
+      }
+      mediaSource.addEventListener('sourceopen', function() {
+        ws.send(JSON.stringify({type: 'mse'}));
+      });
+    };
+
+    ws.onmessage = function(ev) {
+      if (typeof ev.data === 'string') {
+        try {
+          var msg = JSON.parse(ev.data);
+          if (msg.type === 'mse' && mediaSource && mediaSource.readyState === 'open') {
+            sourceBuffer = mediaSource.addSourceBuffer(msg.value);
+            sourceBuffer.mode = 'segments';
+            sourceBuffer.addEventListener('updateend', v3FlushQueue);
+            video.play().catch(function(e) { console.warn('[v3] play:', e); });
+          }
+        } catch(e) { console.warn('[v3] mse msg error:', e); }
+      } else if (sourceBuffer) {
+        if (sourceBuffer.updating || queue.length > 0) {
+          queue.push(ev.data);
+          if (queue.length > 30) queue.splice(0, queue.length - 10);
+        } else {
+          try { sourceBuffer.appendBuffer(ev.data); }
+          catch(e) { queue = []; }
+        }
+      }
+    };
+
+    ws.onerror = function(e) { console.warn('[v3] ws error:', e); };
+    ws.onclose = function() {
+      console.log('[v3] ws closed, reconnecting in 3s');
+      v3Cleanup();
+      setTimeout(v3Connect, 3000);
+    };
+  }
+
+  v3Connect();
 
   // Debug PiP: poll /api/pipeline/debug/latest.jpg at 2fps
   var debugPip = document.getElementById('v3-debug-pip');
