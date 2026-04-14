@@ -5,7 +5,7 @@ import os
 import queue
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -13,6 +13,7 @@ from PIL import Image
 
 from pipeline.frame import Frame
 from pipeline.classifier import MAX_CLASSIFICATION_ATTEMPTS
+from pipeline.constants import ModelSource
 
 if TYPE_CHECKING:
     from pipeline.frame_capture import FrameCapture
@@ -44,10 +45,12 @@ class CameraProcessThread:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_forced_full = 0.0
+        self._last_debug_encode_ms = 0
+        self._last_health_update_ms = 0
         self._stats = {
             "frames_processed": 0,
             "detections": 0,
-            "yolo_ms_samples": [],
+            "yolo_ms_samples": deque(maxlen=100),
             "yolo_runs_total": 0,
             "yolo_skipped_motion": 0,
         }
@@ -99,8 +102,6 @@ class CameraProcessThread:
         yolo_actually_ran = bool(regions) or forced_full
         if yolo_actually_ran:
             self._stats["yolo_ms_samples"].append(det_ms)
-            if len(self._stats["yolo_ms_samples"]) > 100:
-                self._stats["yolo_ms_samples"] = self._stats["yolo_ms_samples"][-100:]
             self._stats["yolo_runs_total"] += 1
         else:
             self._stats["yolo_skipped_motion"] += 1
@@ -162,10 +163,12 @@ class CameraProcessThread:
                     log.warning("[%s] write_track_summary error: %s", self.name, e)
 
         # 8. Debug frame: draw YOLO boxes on a small copy for /debug/latest.jpg
-        #    Only runs if health_server has the debug slot (low cost: one
-        #    cv2.resize + a few cv2.rectangle per frame, no JPEG encode
-        #    on frames with no tracks).
-        if tracker_out.active and hasattr(self.health, 'latest_debug_jpeg'):
+        #    Throttled to 2fps max (500ms) — the debug PiP polls at 500ms,
+        #    so encoding more often wastes ~60% of encodes.
+        now_ms = time.time() * 1000
+        if (tracker_out.active and hasattr(self.health, 'latest_debug_jpeg')
+                and (now_ms - getattr(self, '_last_debug_encode_ms', 0)) >= 500):
+            self._last_debug_encode_ms = now_ms
             try:
                 import cv2
                 h, w = frame.bgr.shape[:2]
@@ -186,7 +189,8 @@ class CameraProcessThread:
             except Exception:
                 pass
 
-        # 9. Update health
+        # 9. Update health — capture stats every frame (cheap: just age + frame
+        #    count), numpy stats (mean/p99) throttled to every 2 seconds.
         self._update_health(frame, det_ms)
 
     def _classify_tracks(self, frame: Frame, tracks: list):
@@ -208,7 +212,7 @@ class CameraProcessThread:
                     top_conf = max(c for s, c in track.vote_history if s == top_species)
                     track.species = top_species
                     track.species_confidence = top_conf
-                    track.model_source = "vote_plurality"
+                    track.model_source = ModelSource.VOTE_PLURALITY
                 track.needs_classification = False
                 continue
 
@@ -269,16 +273,8 @@ class CameraProcessThread:
                 pass
 
     def _update_health(self, frame: Frame, det_ms: float):
-        samples = self._stats["yolo_ms_samples"]
-        if len(samples) >= 10:
-            yolo_avg = float(np.mean(samples))
-            yolo_p99 = float(np.percentile(samples, 99))
-        elif samples:
-            yolo_avg = float(np.mean(samples))
-            yolo_p99 = None  # insufficient_samples — honesty contract
-        else:
-            yolo_avg = 0.0
-            yolo_p99 = None
+        # Capture stats: cheap, update every frame so last_frame_age_ms stays
+        # fresh and stall detection (based on age) is never falsely triggered.
         age_ms = (time.time() * 1000) - frame.wall_time_ms
         capture_payload = {
             "last_frame_age_ms": int(age_ms),
@@ -293,21 +289,37 @@ class CameraProcessThread:
             capture_payload["ffmpeg_restarts"] = self.capture.stats.get("ffmpeg_restarts", 0)
             capture_payload["ffmpeg_restarts_last_hour"] = self.capture.restarts_last_hour()
         self.health.update(self.name, "capture", capture_payload)
-        self.health.update(self.name, "detector", {
-            "yolo_ms_avg": round(yolo_avg),
-            "yolo_ms_p99": round(yolo_p99) if yolo_p99 is not None else None,
-            "yolo_samples_count": len(samples),
-            "detections_total": self._stats["detections"],
-        })
-        try:
-            self.health.update(self.name, "tracker", {
-                "active_tracks": len(self.tracker.tracks),
-                "stationary_tracks": len(self.tracker.stationary_regions()),
+
+        # Expensive stats: throttle numpy mean/p99 to every 2 seconds.
+        # These are only consumed by the health endpoint (~1/10s polling).
+        now = time.time()
+        if not hasattr(self, '_last_stats_compute') or (now - self._last_stats_compute) >= 2.0:
+            self._last_stats_compute = now
+            samples = self._stats["yolo_ms_samples"]
+            if len(samples) >= 10:
+                yolo_avg = float(np.mean(samples))
+                yolo_p99 = float(np.percentile(samples, 99))
+            elif samples:
+                yolo_avg = float(np.mean(samples))
+                yolo_p99 = None  # insufficient_samples — honesty contract
+            else:
+                yolo_avg = 0.0
+                yolo_p99 = None
+            self.health.update(self.name, "detector", {
+                "yolo_ms_avg": round(yolo_avg),
+                "yolo_ms_p99": round(yolo_p99) if yolo_p99 is not None else None,
+                "yolo_samples_count": len(samples),
+                "detections_total": self._stats["detections"],
             })
-        except Exception:
-            pass
-        try:
-            cam_classifier_stats = self.classifier.stats.get(self.name, {})
-            self.health.update(self.name, "classifier", dict(cam_classifier_stats))
-        except Exception:
-            pass
+            try:
+                self.health.update(self.name, "tracker", {
+                    "active_tracks": len(self.tracker.tracks),
+                    "stationary_tracks": len(self.tracker.stationary_regions()),
+                })
+            except Exception:
+                pass
+            try:
+                cam_classifier_stats = self.classifier.stats.get(self.name, {})
+                self.health.update(self.name, "classifier", dict(cam_classifier_stats))
+            except Exception:
+                pass

@@ -8,6 +8,7 @@ from typing import Optional
 from PIL import Image
 
 from pipeline.camera_config import CameraClassifierConfig
+from pipeline.constants import ModelSource
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class SmartClassifier:
             if aiy_res and aiy_res.confidence >= config.confident_threshold:
                 cam_stats["aiy"] += 1
                 return ClassificationResult(
-                    aiy_res.species, aiy_res.confidence, "aiy", False
+                    aiy_res.species, aiy_res.confidence, ModelSource.AIY, False
                 )
             cam_stats["unlabeled_call"] += 1
             return ClassificationResult(None, 0.0, None, False)
@@ -92,7 +93,7 @@ class SmartClassifier:
         if yard_res and yard_res.confidence >= config.confident_threshold:
             cam_stats["yard"] += 1
             return ClassificationResult(
-                yard_res.species, yard_res.confidence, "yard", False
+                yard_res.species, yard_res.confidence, ModelSource.YARD, False
             )
 
         if not yard_res or yard_res.confidence < config.uncertain_low:
@@ -100,7 +101,7 @@ class SmartClassifier:
             if aiy_res and aiy_res.confidence >= config.confident_threshold:
                 cam_stats["aiy"] += 1
                 return ClassificationResult(
-                    aiy_res.species, aiy_res.confidence, "aiy", False
+                    aiy_res.species, aiy_res.confidence, ModelSource.AIY, False
                 )
             cam_stats["unlabeled_call"] += 1
             return ClassificationResult(None, 0.0, None, False)
@@ -116,7 +117,7 @@ class SmartClassifier:
             return ClassificationResult(
                 yard_res.species,
                 max(yard_res.confidence, aiy_res.confidence),
-                "both_agree", False
+                ModelSource.BOTH_AGREE, False
             )
 
         # Disagreement: Path 4 (audio cross-check) removed in v3 — see

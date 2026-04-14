@@ -206,6 +206,7 @@ def test_yolo_p99_uses_np_percentile_and_returns_none_for_few_samples():
     samples = [10.0] * 50 + [20.0] * 40 + [1000.0] * 10  # top 10% = 1000
     t._stats["yolo_ms_samples"] = list(samples)
     captured.clear()
+    t._last_stats_compute = 0  # reset throttle so this call runs immediately
     t._update_health(frame, det_ms=10.0)
     expected = round(float(np.percentile(samples, 99)))
     assert captured["detector"]["yolo_ms_p99"] == expected, (

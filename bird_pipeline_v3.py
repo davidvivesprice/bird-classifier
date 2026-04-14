@@ -16,6 +16,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / "models"
 HLS_DIR = Path.home() / "bird-snapshots" / "hls"
+
+from pipeline.constants import CAMERA_FEEDER, CAMERA_GROUND
 # Use a separate dev DB during testing so production data stays clean.
 # Set PIPELINE_DB_PATH to override (e.g. for dev: pipeline_v3_dev.db).
 _default_db = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
@@ -26,12 +28,12 @@ REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 # This is produced by the camera itself (not a go2rtc transcode), so it has
 # minimal timing offset from the main stream. Lower CPU than decoding 1080p.
 CAMERAS_DETECT = {
-    "feeder": "rtsp://127.0.0.1:8554/feeder-sub",
-    "ground": "rtsp://127.0.0.1:8554/ground-sub",
+    CAMERA_FEEDER: "rtsp://127.0.0.1:8554/feeder-sub",
+    CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-sub",
 }
 CAMERAS_MAIN = {
-    "feeder": "rtsp://127.0.0.1:8554/feeder-main",
-    "ground": "rtsp://127.0.0.1:8554/ground-main",
+    CAMERA_FEEDER: "rtsp://127.0.0.1:8554/feeder-main",
+    CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-main",
 }
 
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
@@ -119,8 +121,8 @@ def main():
     from pipeline.camera_config import CameraClassifierConfig
 
     camera_configs = {
-        "feeder": CameraClassifierConfig(use_yard=True),
-        "ground": CameraClassifierConfig(use_yard=False),
+        CAMERA_FEEDER: CameraClassifierConfig(use_yard=True),
+        CAMERA_GROUND: CameraClassifierConfig(use_yard=False),
     }
 
     # Retry classifier loading with backoff — Coral USB is single-session and
