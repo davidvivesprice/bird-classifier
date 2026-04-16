@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HLS Delayed Playback Test</title>
 <!--
-  TEST PAGE — verifies the delayed playback pipeline end-to-end:
-  1. ffmpeg -c copy HLS with PROGRAM-DATE-TIME tags
+  TEST PAGE — verifies the delayed playback pipeline end-to-end (v2):
+  1. ffmpeg -c copy HLS (PDT is written but we IGNORE it — see spec)
   2. hls.js playing 8 seconds behind the live edge
-  3. hls.playingDate returning valid wall-clock timestamps
-  4. SSE events matching playingDate for overlay sync
+  3. segments.json sidecar from pipeline/hls_recorder.py giving per-segment
+     iMac wall-clock completion timestamps
+  4. SSE events matching sidecar-derived frame-wallclock for overlay sync
 
   hls.js docs: https://github.com/video-dev/hls.js/blob/master/docs/API.md
-  liveSyncDuration: target latency behind live edge (seconds)
-  playingDate: wall-clock Date from PROGRAM-DATE-TIME tags
+  spec: docs/superpowers/specs/2026-04-16-overlay-sync-ground-truth-verification.md
 -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 <style>
@@ -132,7 +132,59 @@
     check('Target duration', true, details.targetduration + 's');
   });
 
-  // ── Step 4: Monitor playback and playingDate ──
+  // ── Step 4a: Sidecar manifest loader ──
+  // Replaces hls.playingDate as the source of truth for "when was this frame
+  // captured" — see docstring above for full explanation.
+  var segmentWallclock = Object.create(null);
+  var manifestLastUpdateMs = 0;
+
+  function refreshManifest() {
+    fetch('/api/hls-live/feeder/segments.json', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (!data || !Array.isArray(data.segments)) return;
+        var next = Object.create(null);
+        for (var i = 0; i < data.segments.length; i++) {
+          var s = data.segments[i];
+          if (s && s.file && typeof s.completed_ms === 'number') {
+            next[s.file] = s.completed_ms;
+          }
+        }
+        segmentWallclock = next;
+        manifestLastUpdateMs = data.updated_ms || Date.now();
+      })
+      .catch(function() {});
+  }
+  refreshManifest();
+  setInterval(refreshManifest, 2000);
+
+  function currentFragment() {
+    if (!hls || !hls.levels || !hls.levels[0] || !hls.levels[0].details) return null;
+    var frags = hls.levels[0].details.fragments;
+    if (!frags || frags.length === 0) return null;
+    var ct = video.currentTime;
+    for (var i = 0; i < frags.length; i++) {
+      var f = frags[i];
+      if (ct >= f.start && ct < f.start + f.duration) {
+        var url = f.relurl || f.url || '';
+        var fname = url.split('?')[0].split('/').pop();
+        return { filename: fname, fragStart: f.start, fragDuration: f.duration };
+      }
+    }
+    return null;
+  }
+
+  function displayedFrameWallMs() {
+    var frag = currentFragment();
+    if (!frag) return null;
+    var completedMs = segmentWallclock[frag.filename];
+    if (typeof completedMs !== 'number') return null;
+    var firstFrameMs = completedMs - (frag.fragDuration * 1000);
+    var offsetMs = (video.currentTime - frag.fragStart) * 1000;
+    return firstFrameMs + offsetMs;
+  }
+
+  // ── Step 4b: Monitor playback ──
   var sseEvents = [];
   var sseConnected = false;
 
@@ -146,20 +198,31 @@
       ' @ ' + video.playbackRate.toFixed(2) + 'x' +
       ' | currentTime=' + video.currentTime.toFixed(1) + 's');
 
-    // Check hls.playingDate — this is the critical sync mechanism
-    var pd = hls.playingDate;
-    if (pd) {
-      var age = (Date.now() - pd.getTime()) / 1000;
-      check('playingDate', true,
-        pd.toISOString() + ' (' + age.toFixed(1) + 's behind now)');
+    // Sidecar-derived displayed-frame wall-clock
+    var displayedMs = displayedFrameWallMs();
+    if (displayedMs != null) {
+      var age = (Date.now() - displayedMs) / 1000;
+      check('Frame wall-clock', true,
+        new Date(displayedMs).toISOString() + ' (' + age.toFixed(1) + 's behind now)');
       check('Delay achieved', age >= DELAY_SECONDS - 2,
         age.toFixed(1) + 's behind live' +
         (age >= DELAY_SECONDS - 2 ? ' (target: ' + DELAY_SECONDS + 's)' : ' — TOO CLOSE to live'));
     } else {
-      check('playingDate', false, 'null — PROGRAM-DATE-TIME tags not reaching hls.js');
+      check('Frame wall-clock', null,
+        'Sidecar not ready (segments loaded: ' + Object.keys(segmentWallclock).length + ')');
     }
 
-    // Check latency stats from hls.js
+    // Sidecar freshness
+    if (manifestLastUpdateMs > 0) {
+      var manifestAge = Date.now() - manifestLastUpdateMs;
+      check('Sidecar manifest', manifestAge < 5000,
+        manifestAge + 'ms since last update, ' +
+        Object.keys(segmentWallclock).length + ' segments tracked');
+    } else {
+      check('Sidecar manifest', false, 'Not loaded yet');
+    }
+
+    // Check latency stats from hls.js (informational; we no longer rely on it)
     if (hls.latency !== undefined) {
       check('hls.latency', true, hls.latency.toFixed(1) + 's');
     }
@@ -172,21 +235,20 @@
         (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1) + 's ahead)');
     }
 
-    // SSE event correlation test
-    if (pd && sseEvents.length > 0) {
-      var pdMs = pd.getTime();
+    // SSE event correlation (using sidecar-derived time)
+    if (displayedMs != null && sseEvents.length > 0) {
       var closest = null, closestDist = Infinity;
       for (var i = sseEvents.length - 1; i >= 0; i--) {
-        var dist = Math.abs(sseEvents[i].wall_time_ms - pdMs);
+        var dist = Math.abs(sseEvents[i].wall_time_ms - displayedMs);
         if (dist < closestDist) { closest = sseEvents[i]; closestDist = dist; }
-        if (sseEvents[i].wall_time_ms < pdMs - 5000) break;
+        if (sseEvents[i].wall_time_ms < displayedMs - 5000) break;
       }
       if (closest && closestDist < 500) {
         var trackCount = closest.tracks ? closest.tracks.length : 0;
         check('Event sync', true, 'Matched event ' + closestDist + 'ms away — ' +
           trackCount + ' track(s)');
       } else {
-        check('Event sync', null, 'No event within 500ms of playingDate' +
+        check('Event sync', null, 'No event within 500ms of frame wall-clock' +
           (sseEvents.length > 0 ? ' (have ' + sseEvents.length + ' events)' : ''));
       }
     }
@@ -241,15 +303,14 @@
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw any matched detections
-      var pd = hls.playingDate;
-      if (pd && sseEvents.length > 0) {
-        var pdMs = pd.getTime();
+      // Draw any matched detections (using sidecar-derived frame wall-clock)
+      var displayedMs = displayedFrameWallMs();
+      if (displayedMs != null && sseEvents.length > 0) {
         var event = null, bestDist = Infinity;
         for (var i = sseEvents.length - 1; i >= 0; i--) {
-          var dist = Math.abs(sseEvents[i].wall_time_ms - pdMs);
+          var dist = Math.abs(sseEvents[i].wall_time_ms - displayedMs);
           if (dist < bestDist) { event = sseEvents[i]; bestDist = dist; }
-          if (sseEvents[i].wall_time_ms < pdMs - 2000) break;
+          if (sseEvents[i].wall_time_ms < displayedMs - 2000) break;
         }
 
         if (event && bestDist < 500 && event.tracks) {

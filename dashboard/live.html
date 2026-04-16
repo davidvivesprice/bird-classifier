@@ -8,17 +8,19 @@
 <!--
   Delayed-playback live viewer with pre-computed detection overlays.
 
-  Architecture (verified April 15, 2026):
+  Architecture (v2, April 16, 2026 — drift-proof via sidecar manifest):
   - Video: hls.js plays pipeline-generated HLS segments ~10s behind live edge
     (liveSyncDuration=8, actual delay ~10-12s due to 5s segment boundaries)
-  - Timestamps: ffmpeg embeds #EXT-X-PROGRAM-DATE-TIME in playlist (system wall clock)
-    hls.playingDate gives us the wall-clock time of the displayed frame [VERIFIED-TEST]
-  - Detections: Pipeline SSE events carry wall_time_ms (same system clock) [VERIFIED-CODE]
-    Events arrive in real-time, buffered client-side, matched to playingDate
-  - Overlay: requestVideoFrameCallback fires per displayed frame [VERIFIED-TEST: 25fps]
-    Canvas draws bboxes + species labels for the matched event
-
-  See: docs/superpowers/specs/2026-04-15-delayed-playback-overlay-design.md
+  - Timestamps: pipeline/hls_recorder.py writes segments.json with iMac
+    wall-clock at segment-completion time. Browser fetches the manifest and
+    computes the displayed frame's ingest time from that + fragment duration.
+    This REPLACES hls.playingDate, which is anchored to ffmpeg start time
+    (not to frame arrival) and cannot be drift-proof — see Gate 2 in
+    docs/superpowers/specs/2026-04-16-overlay-sync-ground-truth-verification.md
+  - Detections: Pipeline SSE events carry wall_time_ms, stamped via the same
+    clock (Python time.time() on iMac) at the same pipeline stage as the
+    sidecar — so overlay and video reference the same moment. No compensation.
+  - Overlay: requestVideoFrameCallback fires per displayed frame.
 -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 <style>
@@ -145,7 +147,9 @@
   var LABEL_PAD_X = 8;
   var LABEL_W_ESTIMATE = 140;
   var EVENT_BUFFER_AGE_MS = 120000;  // keep 2 minutes of SSE event history
-  var EVENT_MATCH_TOLERANCE_MS = 3000; // match events within 3s of playingDate (wide for 5s segments)
+  var EVENT_MATCH_TOLERANCE_MS = 3000; // match events within 3s of frame-wallclock
+  var MANIFEST_URL = '/api/hls-live/feeder/segments.json';
+  var MANIFEST_REFRESH_MS = 2000; // refetch manifest this often
 
   // ── Elements ──
 
@@ -164,6 +168,9 @@
   var trackStates = new Map();
   var eventBuffer = [];  // SSE events sorted by wall_time_ms
   var sseConnected = false;
+  // Sidecar manifest: { "seg_...ts": completed_ms, ... }
+  var segmentWallclock = Object.create(null);
+  var manifestLastUpdateMs = 0;
 
   // ── hls.js Setup ──
   // Per hls.js API.md (https://github.com/video-dev/hls.js/blob/master/docs/API.md):
@@ -210,6 +217,67 @@
   video.addEventListener('playing', function() {
     offlineEl.style.display = 'none';
   });
+
+  // ── Sidecar manifest loader ──
+  // Replaces hls.playingDate (which is anchored to ffmpeg start time, not
+  // frame arrival) as the source of truth for "when was this frame captured."
+  // Python's HLS recorder writes segments.json with iMac wall-clock time for
+  // each .ts segment's completion. Combined with fragment duration from
+  // hls.js, we derive the wall-clock of any displayed frame.
+  function refreshManifest() {
+    fetch(MANIFEST_URL, { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (!data || !Array.isArray(data.segments)) return;
+        var next = Object.create(null);
+        for (var i = 0; i < data.segments.length; i++) {
+          var s = data.segments[i];
+          if (s && s.file && typeof s.completed_ms === 'number') {
+            next[s.file] = s.completed_ms;
+          }
+        }
+        segmentWallclock = next;
+        manifestLastUpdateMs = data.updated_ms || Date.now();
+      })
+      .catch(function() { /* transient */ });
+  }
+  refreshManifest();
+  setInterval(refreshManifest, MANIFEST_REFRESH_MS);
+
+  // Given the video's currentTime, find the hls.js fragment that contains
+  // it and return { filename, fragStart, fragDuration } — or null.
+  function currentFragment() {
+    if (!hls || !hls.levels || !hls.levels[0] || !hls.levels[0].details) return null;
+    var frags = hls.levels[0].details.fragments;
+    if (!frags || frags.length === 0) return null;
+    var ct = video.currentTime;
+    for (var i = 0; i < frags.length; i++) {
+      var f = frags[i];
+      if (ct >= f.start && ct < f.start + f.duration) {
+        // f.relurl may include query string or path; extract bare filename
+        var url = f.relurl || f.url || '';
+        var fname = url.split('?')[0].split('/').pop();
+        return { filename: fname, fragStart: f.start, fragDuration: f.duration };
+      }
+    }
+    return null;
+  }
+
+  // Core: map the currently displayed frame to its iMac wall-clock at ingest.
+  // Returns null until the sidecar has a record for the segment in question
+  // (e.g., for a few seconds after page load, or during a manifest refresh gap).
+  function displayedFrameWallMs() {
+    var frag = currentFragment();
+    if (!frag) return null;
+    var completedMs = segmentWallclock[frag.filename];
+    if (typeof completedMs !== 'number') return null;
+    // completed_ms = when the last frame of the segment landed on disk.
+    // first_frame_ms ≈ completed_ms − (segment duration in seconds × 1000)
+    // displayed_ms = first_frame_ms + (video.currentTime − frag.start) × 1000
+    var firstFrameMs = completedMs - (frag.fragDuration * 1000);
+    var offsetMs = (video.currentTime - frag.fragStart) * 1000;
+    return firstFrameMs + offsetMs;
+  }
 
   // ── SSE Event Buffer ──
   // Pipeline SSE events arrive in real-time with wall_time_ms.
@@ -356,12 +424,14 @@
       return;
     }
 
-    // Get the wall-clock time of the currently displayed frame
-    // hls.playingDate: Date from #EXT-X-PROGRAM-DATE-TIME [VERIFIED-DOCS + VERIFIED-TEST]
-    var playingDate = hls.playingDate;
-    var displayedWallMs = playingDate ? playingDate.getTime() : null;
+    // Get the wall-clock time of the currently displayed frame via the
+    // sidecar manifest. Same clock (Python time.time() on iMac) used by the
+    // pipeline to stamp SSE event wall_time_ms → no drift, no compensation.
+    var displayedWallMs = displayedFrameWallMs();
 
-    if (!displayedWallMs) {
+    if (displayedWallMs == null) {
+      // Sidecar not ready yet (just loaded, or fragment not yet in manifest).
+      // Skip this frame rather than draw with a guess.
       video.requestVideoFrameCallback(renderFrame);
       return;
     }
@@ -508,14 +578,18 @@
   setInterval(function() {
     if (!debugVisible) return;
     var lines = [];
-    var pd = hls.playingDate;
-    var delay = pd ? ((Date.now() - pd.getTime()) / 1000).toFixed(1) : '?';
-    lines.push('Delay: <b>' + delay + 's</b> behind live');
+    var wall = displayedFrameWallMs();
+    var delay = wall != null ? ((Date.now() - wall) / 1000).toFixed(1) : '?';
+    lines.push('Delay (sidecar): <b>' + delay + 's</b> behind live');
     lines.push('Resolution: ' + (video.videoWidth || '?') + 'x' + (video.videoHeight || '?'));
-    lines.push('Latency: ' + (hls.latency ? hls.latency.toFixed(1) + 's' : '?'));
+    lines.push('hls.latency: ' + (hls.latency ? hls.latency.toFixed(1) + 's' : '?'));
     lines.push('Events buffered: ' + eventBuffer.length);
     lines.push('Active tracks: ' + trackStates.size);
     lines.push('SSE: ' + (sseConnected ? '<span style="color:#4ade80">connected</span>' : '<span style="color:#f87171">disconnected</span>'));
+    lines.push('Manifest age: ' + (manifestLastUpdateMs ? ((Date.now() - manifestLastUpdateMs) + 'ms') : 'not loaded'));
+    lines.push('Segments known: ' + Object.keys(segmentWallclock).length);
+    var frag = currentFragment();
+    lines.push('Current frag: ' + (frag ? (frag.filename + ' +' + (video.currentTime - frag.fragStart).toFixed(2) + 's') : '?'));
     if (video.buffered.length > 0) {
       var ahead = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
       lines.push('Buffer ahead: ' + ahead + 's');

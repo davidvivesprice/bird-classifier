@@ -157,9 +157,9 @@ def main():
         main_url = CAMERAS_MAIN[name]
         try:
             frame_q = queue.Queue(maxsize=2)
-            # Reads from feeder-main (same stream as browser video), scales
-            # to 640x360 internally via ffmpeg -vf scale. No go2rtc transcode
-            # delay → labels sync with video naturally.
+            # Reads from feeder-sub (camera's native 640x360 substream, see
+            # CAMERAS_DETECT above). The HLS recorder below reads feeder-main
+            # at full resolution; they're independent RTSP consumers via go2rtc.
             capture = FrameCapture(name, detect_url, out_queue=frame_q,
                                    width=640, height=360, fps=5)
             motion_gate = MotionGate()

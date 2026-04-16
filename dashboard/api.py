@@ -163,6 +163,8 @@ def serve_hls_segments(camera: str, path: str):
         media_type = "video/iso.segment"
     elif path.endswith(".mp4"):
         media_type = "video/mp4"
+    elif path.endswith(".json"):
+        media_type = "application/json"
     else:
         media_type = "application/octet-stream"
     return FileResponse(
