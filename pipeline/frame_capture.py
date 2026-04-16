@@ -82,11 +82,29 @@ class FrameCapture:
         return ["-re", "-stream_loop", "-1", "-i", url]
 
     def _spawn_ffmpeg(self):
+        # IMPORTANT: we deliberately do NOT use a `-vf fps=N` filter here.
+        # The fps filter paces output to N frames/sec — ffmpeg holds a decoded
+        # frame until its scheduled emission slot arrives (up to 1/N seconds).
+        # That wait shows up as wall-clock latency between camera capture and
+        # pipe-read, which in turn makes SSE event wall_time_ms lag behind the
+        # main-stream HLS frames for the same physical moment → overlay appears
+        # behind the bird.
+        #
+        # Instead, ffmpeg outputs the native ~30fps here, and Python reads as
+        # fast as YOLO/classification allows. The bounded output queue drops
+        # oldest frames when full, so processing rate is determined by the
+        # downstream consumer, not by artificial pacing. Every frame that
+        # reaches Python gets wall_time_ms stamped at pipe-read = close to the
+        # moment the camera's frame actually landed on the iMac.
         cmd = [
             FFMPEG,
             "-loglevel", "warning",
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
+            "-rtsp_flags", "prefer_tcp",
+            "-max_delay", "100000",  # μs; cap rtsp reorder buffer at 100ms
             *self._input_args(self.rtsp_url),
-            "-vf", f"fps={self.fps},scale={self.width}:{self.height}",
+            "-vf", f"scale={self.width}:{self.height}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-",

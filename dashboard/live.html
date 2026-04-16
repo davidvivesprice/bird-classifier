@@ -442,6 +442,25 @@
 
     // Find the SSE event closest to the displayed frame's wall-clock time
     var event = findEvent(displayedWallMs);
+
+    // TEMP DEBUG: expose per-frame match state for external inspection
+    window.__lastSyncState = {
+      now: Date.now(),
+      displayedWallMs: displayedWallMs,
+      delayFromNowMs: Date.now() - displayedWallMs,
+      matched: event ? {
+        wall_time_ms: event.wall_time_ms,
+        delta_event_vs_frame_ms: event.wall_time_ms - displayedWallMs,
+        tracks: event.tracks ? event.tracks.length : 0,
+        species: event.tracks && event.tracks[0] ? event.tracks[0].species : null,
+      } : null,
+      eventBufferLen: eventBuffer.length,
+      newestEvent: eventBuffer.length > 0 ? {
+        wall_time_ms: eventBuffer[eventBuffer.length-1].wall_time_ms,
+        age_behind_now_ms: Date.now() - eventBuffer[eventBuffer.length-1].wall_time_ms,
+        age_behind_frame_ms: eventBuffer[eventBuffer.length-1].wall_time_ms - displayedWallMs,
+      } : null,
+    };
     if (event) {
       applyEvent(event);
       lastMatchedWall = displayedWallMs;
@@ -590,6 +609,26 @@
     lines.push('Segments known: ' + Object.keys(segmentWallclock).length);
     var frag = currentFragment();
     lines.push('Current frag: ' + (frag ? (frag.filename + ' +' + (video.currentTime - frag.fragStart).toFixed(2) + 's') : '?'));
+
+    // KEY DIAGNOSTICS: where's the 1-second lag actually coming from?
+    // If newest_event_age_behind_frame is large positive: events arrive ahead of frames shown → box would lead (we'd fix by matching later events)
+    // If negative: events arrive stale compared to what's on screen → box lags behind bird
+    if (wall != null && eventBuffer.length > 0) {
+      var newest = eventBuffer[eventBuffer.length - 1];
+      var matched = findEvent(wall);
+      lines.push('<b style="color:#fbbf24">Event vs Frame deltas:</b>');
+      lines.push('  newest event wall_time: ' + new Date(newest.wall_time_ms).toISOString().slice(11,23));
+      lines.push('  frame wall_time:        ' + new Date(wall).toISOString().slice(11,23));
+      lines.push('  newest - frame: <b>' + (newest.wall_time_ms - wall).toFixed(0) + 'ms</b>  (+ = event is ahead of frame)');
+      if (matched) {
+        lines.push('  matched event delta: <b>' + (matched.wall_time_ms - wall).toFixed(0) + 'ms</b>');
+        lines.push('  matched tracks: ' + (matched.tracks ? matched.tracks.length : 0) + (matched.tracks && matched.tracks[0] && matched.tracks[0].species ? ' [' + matched.tracks[0].species + ']' : ''));
+      } else {
+        lines.push('  matched event: <i>none within tolerance</i>');
+      }
+      lines.push('  newest event age (vs now): ' + (Date.now() - newest.wall_time_ms) + 'ms');
+    }
+
     if (video.buffered.length > 0) {
       var ahead = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
       lines.push('Buffer ahead: ' + ahead + 's');
