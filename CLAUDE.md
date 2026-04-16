@@ -29,13 +29,32 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 
 ## Architecture
 
-Single machine: iMac runs everything. CloudKey Gen 2+ manages cameras.
-SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio).
-11 LaunchAgent services with KeepAlive. Cloudflare tunnel for external access.
+Single 2017 iMac (i5-7400, 8GB RAM). CloudKey Gen 2+ manages two UniFi cameras.
+SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio, pipeline.db for v3 events).
 
-Two detection systems run in parallel:
-- **Old system**: `capture_snapshots.py` (polls CloudKey) -> `classify.py --watch` (batch) -> `live_detector.py` (SSE on port 8097)
-- **New pipeline**: `bird_pipeline.py` — unified real-time detection. Decodes RTSP via go2rtc/PyAV at ~3 FPS. Motion gate -> YOLO -> species classification with yard prior -> IoU multi-bird tracking (`bird_tracker.py`) -> SSE broadcast on port 8100. Saves keeper frames to incoming/. Dashboard toggle ("New Det" / "Old Det") switches between the two SSE sources.
+### Services (6 active + 1 cron)
+
+| Service | Port | What it does |
+|---------|------|-------------|
+| go2rtc | 1984 | RTSP-in from CloudKey, WebRTC/MSE/HLS-out to browser |
+| bird_pipeline_v3 | 8100 (health), 8105 (SSE) | Motion gate → YOLO → track → vote-classify → SSE events |
+| dashboard (uvicorn) | 8099 | Serves HTML, proxies SSE/health, REST API for classifications |
+| audio_analyzer | 8098 | BirdNET audio analysis |
+| enhanced_audio | 8096 | Enhanced audio MP3 stream |
+| cloudflared | — | Tunnel: birds.vivessato.com → :8099, go2rtc.vivessato.com → :1984 |
+| rtsp-sync (cron) | — | Refreshes RTSP tokens daily at 3:10 AM |
+
+### Detection Pipeline (v3)
+
+Camera → go2rtc (RTSP) → FrameCapture (native substream, 640x360 at 5fps) → MotionGate → BirdDetector (YOLO) → BirdTracker → SmartClassifier (yard model on Coral TPU → AIY fallback) → vote lock (≥3 votes, ≥60% agreement) → SSE broadcast → dashboard canvas overlay.
+
+Per-camera classifier config: feeder uses yard model (Coral) + AIY fallback, ground uses AIY only.
+
+### Video Path
+
+- **Local**: Browser → WebRTC direct to go2rtc:1984 (UDP, real-time, smooth)
+- **Remote**: Browser → MSE via wss://go2rtc.vivessato.com (TCP, buffered, auto-fallback)
+- Labels rendered client-side on canvas overlay, synced via wall-clock time + SSE events
 
 ## Key Rules
 

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HLS Delayed Playback Test</title>
+<!--
+  TEST PAGE — verifies the delayed playback pipeline end-to-end:
+  1. ffmpeg -c copy HLS with PROGRAM-DATE-TIME tags
+  2. hls.js playing 8 seconds behind the live edge
+  3. hls.playingDate returning valid wall-clock timestamps
+  4. SSE events matching playingDate for overlay sync
+
+  hls.js docs: https://github.com/video-dev/hls.js/blob/master/docs/API.md
+  liveSyncDuration: target latency behind live edge (seconds)
+  playingDate: wall-clock Date from PROGRAM-DATE-TIME tags
+-->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<style>
+  body { margin: 0; background: #111; color: #e8eaed; font-family: system-ui; }
+  .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 1.2rem; margin-bottom: 12px; }
+  video { width: 100%; background: #000; border-radius: 8px; }
+  .status { margin-top: 12px; font-family: monospace; font-size: 13px; line-height: 1.8; }
+  .status div { padding: 2px 0; }
+  .ok { color: #4ade80; }
+  .warn { color: #fbbf24; }
+  .err { color: #f87171; }
+  .label { color: #9ca3af; display: inline-block; width: 180px; }
+  #overlay-test { position: relative; }
+  #overlay-test canvas {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>HLS Delayed Playback — Verification Test</h1>
+  <div id="overlay-test">
+    <video id="video" muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="status" id="status">Loading...</div>
+</div>
+
+<script>
+(function() {
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('overlay');
+  var ctx = canvas.getContext('2d');
+  var statusEl = document.getElementById('status');
+  var checks = {};
+
+  function updateStatus() {
+    var html = '';
+    for (var key in checks) {
+      var c = checks[key];
+      var cls = c.ok === true ? 'ok' : c.ok === false ? 'err' : 'warn';
+      html += '<div><span class="label">' + key + ':</span> <span class="' + cls + '">' + c.msg + '</span></div>';
+    }
+    statusEl.innerHTML = html;
+  }
+
+  function check(key, ok, msg) {
+    checks[key] = { ok: ok, msg: msg };
+    updateStatus();
+  }
+
+  // ── Step 1: Check if hls.js is supported ──
+  if (!Hls.isSupported()) {
+    check('hls.js support', false, 'NOT SUPPORTED in this browser');
+    return;
+  }
+  check('hls.js support', true, 'Supported (v' + Hls.version + ')');
+
+  // ── Step 2: Create hls.js instance with delayed playback config ──
+  // Per hls.js API.md:
+  // - liveSyncDuration: seconds behind live edge (our delay target)
+  // - liveMaxLatencyDuration: seek forward if drift exceeds this
+  // - maxLiveSyncPlaybackRate: gentle speed-up for drift correction (1.0 = disabled)
+  var DELAY_SECONDS = 8;
+
+  var hls = new Hls({
+    liveSyncDuration: DELAY_SECONDS,
+    liveMaxLatencyDuration: DELAY_SECONDS + 7,
+    maxBufferLength: DELAY_SECONDS + 12,
+    backBufferLength: 5,
+    maxLiveSyncPlaybackRate: 1.1,
+    enableWorker: true,
+    lowLatencyMode: false,
+    debug: false,
+  });
+
+  check('hls.js config', true, 'liveSyncDuration=' + DELAY_SECONDS + 's');
+
+  // ── Step 3: Load HLS source ──
+  // The pipeline HLS recorder writes to ~/bird-snapshots/hls/feeder/live.m3u8
+  // Dashboard api.py serves it at /api/hls-live/feeder/live.m3u8
+  var hlsSource = '/api/hls-live/feeder/live.m3u8';
+  check('HLS source', null, 'Loading ' + hlsSource + '...');
+
+  hls.loadSource(hlsSource);
+  hls.attachMedia(video);
+
+  hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+    check('HLS manifest', true, 'Parsed — ' + data.levels.length + ' level(s)');
+    video.play().catch(function(e) {
+      check('Autoplay', false, 'Blocked: ' + e.message);
+      // Try muted autoplay
+      video.muted = true;
+      video.play().catch(function(e2) {
+        check('Autoplay (muted)', false, e2.message);
+      });
+    });
+  });
+
+  hls.on(Hls.Events.ERROR, function(event, data) {
+    if (data.fatal) {
+      check('HLS error', false, data.type + ': ' + data.details);
+    } else {
+      check('HLS warning', null, data.type + ': ' + data.details);
+    }
+  });
+
+  hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
+    var details = data.details;
+    var hasPDT = details.hasProgramDateTime;
+    check('PROGRAM-DATE-TIME', hasPDT ? true : false,
+      hasPDT ? 'Present in playlist' : 'MISSING — timestamp sync will not work');
+    check('Segment count', true, details.fragments.length + ' segments in playlist');
+    check('Target duration', true, details.targetduration + 's');
+  });
+
+  // ── Step 4: Monitor playback and playingDate ──
+  var sseEvents = [];
+  var sseConnected = false;
+
+  setInterval(function() {
+    if (video.readyState < 2) {
+      check('Video', null, 'Waiting for data (readyState=' + video.readyState + ')');
+      return;
+    }
+
+    check('Video', true, video.videoWidth + 'x' + video.videoHeight +
+      ' @ ' + video.playbackRate.toFixed(2) + 'x' +
+      ' | currentTime=' + video.currentTime.toFixed(1) + 's');
+
+    // Check hls.playingDate — this is the critical sync mechanism
+    var pd = hls.playingDate;
+    if (pd) {
+      var age = (Date.now() - pd.getTime()) / 1000;
+      check('playingDate', true,
+        pd.toISOString() + ' (' + age.toFixed(1) + 's behind now)');
+      check('Delay achieved', age >= DELAY_SECONDS - 2,
+        age.toFixed(1) + 's behind live' +
+        (age >= DELAY_SECONDS - 2 ? ' (target: ' + DELAY_SECONDS + 's)' : ' — TOO CLOSE to live'));
+    } else {
+      check('playingDate', false, 'null — PROGRAM-DATE-TIME tags not reaching hls.js');
+    }
+
+    // Check latency stats from hls.js
+    if (hls.latency !== undefined) {
+      check('hls.latency', true, hls.latency.toFixed(1) + 's');
+    }
+
+    // Check buffered range
+    if (video.buffered.length > 0) {
+      var bufStart = video.buffered.start(0).toFixed(1);
+      var bufEnd = video.buffered.end(video.buffered.length - 1).toFixed(1);
+      check('Buffer', true, bufStart + 's — ' + bufEnd + 's (' +
+        (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1) + 's ahead)');
+    }
+
+    // SSE event correlation test
+    if (pd && sseEvents.length > 0) {
+      var pdMs = pd.getTime();
+      var closest = null, closestDist = Infinity;
+      for (var i = sseEvents.length - 1; i >= 0; i--) {
+        var dist = Math.abs(sseEvents[i].wall_time_ms - pdMs);
+        if (dist < closestDist) { closest = sseEvents[i]; closestDist = dist; }
+        if (sseEvents[i].wall_time_ms < pdMs - 5000) break;
+      }
+      if (closest && closestDist < 500) {
+        var trackCount = closest.tracks ? closest.tracks.length : 0;
+        check('Event sync', true, 'Matched event ' + closestDist + 'ms away — ' +
+          trackCount + ' track(s)');
+      } else {
+        check('Event sync', null, 'No event within 500ms of playingDate' +
+          (sseEvents.length > 0 ? ' (have ' + sseEvents.length + ' events)' : ''));
+      }
+    }
+  }, 500);
+
+  // ── Step 5: Connect to pipeline SSE ──
+  var es = new EventSource('/api/pipeline/events/sse?camera=feeder');
+  es.addEventListener('message', function(ev) {
+    try {
+      var data = JSON.parse(ev.data);
+      if (!data.tracks || data.wall_time_ms == null) return;
+      sseEvents.push(data);
+      // Keep 60s of history
+      var cutoff = Date.now() - 60000;
+      while (sseEvents.length > 0 && sseEvents[0].wall_time_ms < cutoff) {
+        sseEvents.shift();
+      }
+      if (!sseConnected) {
+        sseConnected = true;
+        check('Pipeline SSE', true, 'Connected — receiving events');
+      }
+    } catch(e) {}
+  });
+  es.addEventListener('error', function() {
+    check('Pipeline SSE', null, 'Reconnecting...');
+  });
+  check('Pipeline SSE', null, 'Connecting...');
+
+  // ── Step 6: Overlay rendering test (rVFC) ──
+  if (video.requestVideoFrameCallback) {
+    check('rVFC support', true, 'Supported');
+    var frameCount = 0;
+    var lastFpsTime = performance.now();
+    var overlayFps = 0;
+
+    function onFrame(now, metadata) {
+      frameCount++;
+      if (now - lastFpsTime >= 1000) {
+        overlayFps = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+      }
+
+      // Resize canvas to match video display
+      var rect = video.getBoundingClientRect();
+      var w = Math.floor(rect.width);
+      var h = Math.floor(rect.height);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw any matched detections
+      var pd = hls.playingDate;
+      if (pd && sseEvents.length > 0) {
+        var pdMs = pd.getTime();
+        var event = null, bestDist = Infinity;
+        for (var i = sseEvents.length - 1; i >= 0; i--) {
+          var dist = Math.abs(sseEvents[i].wall_time_ms - pdMs);
+          if (dist < bestDist) { event = sseEvents[i]; bestDist = dist; }
+          if (sseEvents[i].wall_time_ms < pdMs - 2000) break;
+        }
+
+        if (event && bestDist < 500 && event.tracks) {
+          var fw = event.tracks[0] ? event.tracks[0].frame_width || 640 : 640;
+          var fh = event.tracks[0] ? event.tracks[0].frame_height || 360 : 360;
+          var sx = canvas.width / fw;
+          var sy = canvas.height / fh;
+
+          for (var t = 0; t < event.tracks.length; t++) {
+            var track = event.tracks[t];
+            if (!track.bbox) continue;
+
+            // Bounding box
+            ctx.strokeStyle = track.is_locked ? '#4ade80' : '#facc15';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(
+              track.bbox[0] * sx, track.bbox[1] * sy,
+              (track.bbox[2] - track.bbox[0]) * sx,
+              (track.bbox[3] - track.bbox[1]) * sy
+            );
+
+            // Label
+            if (track.species) {
+              var label = track.species;
+              if (track.species_confidence != null) {
+                label += ' ' + Math.round(track.species_confidence * 100) + '%';
+              }
+              if (track.is_locked) label += ' \u2713';
+
+              ctx.font = '14px system-ui';
+              var tw = ctx.measureText(label).width;
+              var lx = (track.bbox[0] + track.bbox[2]) / 2 * sx;
+              var ly = track.bbox[1] * sy - 8;
+
+              ctx.fillStyle = 'rgba(0,0,0,0.65)';
+              ctx.beginPath();
+              var rx = lx - tw / 2 - 8;
+              var ry = ly - 12;
+              ctx.roundRect(rx, ry, tw + 16, 24, 8);
+              ctx.fill();
+
+              ctx.fillStyle = '#fff';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(label, lx, ly);
+            }
+          }
+        }
+      }
+
+      check('Overlay FPS', true, overlayFps + ' fps (rVFC)');
+      video.requestVideoFrameCallback(onFrame);
+    }
+    video.requestVideoFrameCallback(onFrame);
+  } else {
+    check('rVFC support', false, 'NOT SUPPORTED — will fall back to rAF polling');
+  }
+})();
+</script>
+</body>
+</html>

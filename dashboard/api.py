@@ -111,6 +111,73 @@ def serve_apple_touch_icon():
     return FileResponse(str(DASHBOARD_DIR / "apple-touch-icon.png"), media_type="image/png")
 
 
+@app.get("/live")
+def serve_live_html():
+    """Serve the lightweight live video page (used as iframe in dashboard)."""
+    return FileResponse(str(DASHBOARD_DIR / "live.html"), media_type="text/html")
+
+
+@app.get("/audio")
+def serve_audio_prototype():
+    """Serve the audio browser prototype page."""
+    return FileResponse(str(DASHBOARD_DIR / "audio-prototype.html"), media_type="text/html")
+
+
+@app.get("/hls-test")
+def serve_hls_test():
+    """Serve the HLS delayed playback test page."""
+    return FileResponse(str(DASHBOARD_DIR / "hls-test.html"), media_type="text/html")
+
+
+@app.get("/api/hls-live/{camera}/{path:path}")
+def serve_hls_segments(camera: str, path: str):
+    """Serve HLS playlist and segments from the pipeline's HLS recorder output.
+
+    The pipeline writes to ~/bird-snapshots/hls/{camera}/live.m3u8 + *.ts segments.
+    This route serves them as static files for hls.js consumption.
+
+    Per ffmpeg docs: segments are -c copy remuxed (no transcode), with
+    #EXT-X-PROGRAM-DATE-TIME tags for wall-clock timestamp correlation.
+    """
+    from pathlib import Path
+    HLS_ROOT = Path.home() / "bird-snapshots" / "hls"
+    # Validate camera name — prevent traversal
+    if camera not in ("feeder", "ground"):
+        raise HTTPException(status_code=400, detail="Invalid camera")
+    # Validate path — no traversal
+    safe_path = Path(path)
+    if ".." in safe_path.parts:
+        raise HTTPException(status_code=403, detail="Access denied")
+    full_path = HLS_ROOT / camera / safe_path
+    resolved = full_path.resolve()
+    if not str(resolved).startswith(str((HLS_ROOT / camera).resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    # Content type based on extension
+    if path.endswith(".m3u8"):
+        media_type = "application/vnd.apple.mpegurl"
+    elif path.endswith(".ts"):
+        media_type = "video/mp2t"
+    elif path.endswith(".m4s"):
+        media_type = "video/iso.segment"
+    elif path.endswith(".mp4"):
+        media_type = "video/mp4"
+    else:
+        media_type = "application/octet-stream"
+    return FileResponse(
+        str(resolved),
+        media_type=media_type,
+        headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"},
+    )
+
+
+@app.get("/video-rtc.js")
+def serve_video_rtc_js():
+    """Serve go2rtc's video-rtc.js player component."""
+    return FileResponse(str(DASHBOARD_DIR / "video-rtc.js"), media_type="application/javascript")
+
+
 @app.get("/docs.html")
 def serve_docs_html():
     """Serve the docs viewer HTML."""
@@ -349,6 +416,74 @@ def _validate_date(date_str: str | None) -> str | None:
 
 
 
+# ── Camera Auto-Focus (UniFi Protect) ──
+
+_PROTECT_HOST = "192.168.4.9"
+_PROTECT_CAMERA_IDS = {
+    "feeder": "690e999401027503e400043b",
+    "ground": "690e999400887503e4000439",
+}
+
+@app.post("/api/camera/autofocus")
+async def camera_autofocus(camera: str = "feeder"):
+    """Trigger one-shot auto-focus on a UniFi Protect camera."""
+    import asyncio
+    camera_id = _PROTECT_CAMERA_IDS.get(camera)
+    if not camera_id:
+        raise HTTPException(status_code=400, detail=f"Unknown camera: {camera}")
+
+    username = os.environ.get("PROTECT_USERNAME", "")
+    password = os.environ.get("PROTECT_PASSWORD", "")
+    if not username or not password:
+        raise HTTPException(status_code=500, detail="Protect credentials not configured")
+
+    import base64
+
+    def _do_autofocus():
+        import subprocess, base64
+        # Login via curl (reliable — avoids Python networking issues)
+        login = subprocess.run([
+            'curl', '-sk', '-c', '/tmp/protect-cookies.txt',
+            '-X', 'POST', f'https://{_PROTECT_HOST}/api/auth/login',
+            '-H', 'Content-Type: application/json',
+            '-d', json.dumps({"username": username, "password": password}),
+            '-o', '/dev/null', '-w', '%{http_code}',
+        ], capture_output=True, text=True, timeout=10)
+        if login.stdout.strip() != '200':
+            return {"error": f"login failed: {login.stdout.strip()}"}
+
+        # Extract CSRF from cookie file
+        cookie_data = open('/tmp/protect-cookies.txt').read()
+        token = ''
+        for line in cookie_data.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 7 and parts[5] == 'TOKEN':
+                token = parts[6]
+        if not token:
+            return {"error": "no TOKEN cookie"}
+        payload = json.loads(base64.b64decode(token.split('.')[1] + '=='))
+        csrf = payload['csrfToken']
+
+        # Trigger auto-focus via curl
+        focus = subprocess.run([
+            'curl', '-sk', '-b', '/tmp/protect-cookies.txt',
+            '-X', 'PATCH', f'https://{_PROTECT_HOST}/proxy/protect/api/cameras/{camera_id}',
+            '-H', 'Content-Type: application/json',
+            '-H', f'X-CSRF-Token: {csrf}',
+            '-d', json.dumps({"ispSettings": {"focusMode": "ztrig"}}),
+            '-o', '/dev/null', '-w', '%{http_code}',
+        ], capture_output=True, text=True, timeout=10)
+        if focus.stdout.strip() != '200':
+            return {"error": f"focus failed: {focus.stdout.strip()}"}
+        return {"ok": True}
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _do_autofocus)
+    if "error" in result:
+        raise HTTPException(status_code=502, detail=result["error"])
+
+    return {"ok": True, "camera": camera}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
@@ -456,7 +591,7 @@ def system_health():
                 "species_count": species_count,
                 "backend": "sqlite",
             },
-            "live_detector": _fetch_service("http://localhost:8097/metrics", "Live Detector"),
+            "pipeline_v3": _fetch_service(f"{_PIPELINE_HEALTH_URL}/api/pipeline/health", "Pipeline v3"),
             "enhanced_audio": _fetch_service("http://localhost:8096/metrics", "Enhanced Audio"),
             "audio_analyzer": _check_audio_analyzer_health(),
             "go2rtc": _check_go2rtc(),
@@ -2133,6 +2268,73 @@ async def birdnet_events():
     )
 
 
+@app.get("/api/audio-best-clips")
+def audio_best_clips(date: str = None, since: str = None, source: str = None):
+    """Return the single best (highest confidence) clip per species.
+
+    Used by the Audio tab to show a play button on each species card
+    without fetching all detections. One SQL query, one row per species.
+
+    Params:
+      date: specific date (YYYY-MM-DD) or "all"
+      since: clips from this date onwards (YYYY-MM-DD) — used for all-time
+             view where old clips may have been deleted from disk
+      source: filter by mic source (ground, magnolia)
+    """
+    conn = _birdnet_db()
+    if not conn:
+        return {"clips": []}
+
+    where = []
+    params = []
+    if since:
+        where.append("date >= ?")
+        params.append(since)
+    elif date and date != "all":
+        where.append("date = ?")
+        params.append(date)
+    if source:
+        where.append("source = ?")
+        params.append(source)
+    # Only rows that have a clip
+    where.append("clip_name IS NOT NULL AND clip_name != '' AND has_clip = 1")
+    where_clause = "WHERE " + " AND ".join(where)
+
+    try:
+        cur = conn.cursor()
+        # Get the row with highest confidence per species using SQLite window function.
+        # ROW_NUMBER() picks exactly one row per species — the one with the highest
+        # confidence and a valid clip_name.
+        cur.execute(f"""
+            SELECT common_name, confidence as best_conf,
+                   clip_name, date, time, source
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY common_name
+                    ORDER BY confidence DESC
+                ) as rn
+                FROM notes
+                {where_clause}
+            )
+            WHERE rn = 1
+            ORDER BY best_conf DESC
+        """, params)
+        clips = []
+        for row in cur.fetchall():
+            clips.append({
+                "species": normalize_species(row["common_name"]),
+                "confidence": round(row["best_conf"], 3),
+                "clip_name": row["clip_name"],
+                "date": row["date"],
+                "time": row["time"],
+                "source": row["source"] or "ground",
+            })
+        return {"clips": clips}
+    except Exception as exc:
+        logging.warning("[audio-best-clips] Query error: %s", exc)
+        return {"clips": []}
+
+
 @app.get("/api/audio-detections")
 def audio_detections(date: str = None, species: str = None, source: str = None,
                      limit: int = 50, offset: int = 0):
@@ -2147,7 +2349,7 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
 
     where = []
     params = []
-    if date:
+    if date and date != "all":
         where.append("date = ?")
         params.append(date)
     if species:
@@ -2175,7 +2377,7 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
         try:
             cur.execute(f"""
                 SELECT id, common_name, scientific_name, confidence,
-                       date, time, clip_name, source, confirmations
+                       date, time, clip_name, source, confirmations, has_clip
                 FROM notes {where_clause}
                 ORDER BY id DESC LIMIT ? OFFSET ?
             """, params + [limit, offset])
@@ -2191,6 +2393,10 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
 
         detections = []
         for row in cur.fetchall():
+            clip = row["clip_name"] or ""
+            # has_clip column in DB tracks whether the WAV file exists on disk.
+            # Set by migration + updated by audio_analyzer on save.
+            has_clip = bool(row["has_clip"]) if (has_new_columns and clip) else bool(clip)
             det = {
                 "id": row["id"],
                 "species": normalize_species(row["common_name"]),
@@ -2198,7 +2404,8 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
                 "confidence": round(row["confidence"], 3),
                 "date": row["date"],
                 "time": row["time"],
-                "clip_name": row["clip_name"] or "",
+                "clip_name": clip if has_clip else "",
+                "has_clip": has_clip,
             }
             if has_new_columns:
                 det["source"] = row["source"] or "ground"
@@ -2215,13 +2422,11 @@ def audio_detections(date: str = None, species: str = None, source: str = None,
 @app.get("/api/birdnet-clip/{clip_path:path}")
 def birdnet_clip(clip_path: str):
     """Serve a BirdNET audio clip (WAV file)."""
-    # Sanitize path to prevent directory traversal
     safe_path = Path(clip_path)
     if ".." in safe_path.parts:
         raise HTTPException(status_code=400, detail="Invalid path")
 
     full_path = (BIRDNET_CLIPS_DIR / safe_path).resolve()
-    # Verify resolved path stays within allowed directory
     if not full_path.is_relative_to(BIRDNET_CLIPS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -2233,6 +2438,709 @@ def birdnet_clip(clip_path: str):
         media_type="audio/wav",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+# ── Enhanced clip cache directory ──
+_ENHANCED_CLIPS_DIR = Path.home() / "bird-snapshots" / "birdnet-audio" / "enhanced-cache"
+_ENHANCED_CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/api/birdnet-clip-enhanced/{clip_path:path}")
+def birdnet_clip_enhanced(clip_path: str):
+    """Serve an enhanced BirdNET audio clip — bandpass filtered + loudness normalized.
+
+    Matches the enhanced_audio_stream.py processing: 300Hz-15kHz bandpass to
+    remove wind/traffic rumble and high-frequency noise, plus dynamic loudness
+    normalization so all clips play at consistent volume.
+
+    Processed clips are cached on disk after first request. Subsequent requests
+    serve the cached version (Cache-Control: 1 year).
+
+    Processing: ffmpeg -af 'highpass=f=300,lowpass=f=15000,loudnorm=I=-16:LRA=11:TP=-1.5'
+    Cost: <100ms per 3-second clip (no re-encode, just filter + WAV output).
+    """
+    import subprocess
+
+    safe_path = Path(clip_path)
+    if ".." in safe_path.parts:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    raw_path = (BIRDNET_CLIPS_DIR / safe_path).resolve()
+    if not raw_path.is_relative_to(BIRDNET_CLIPS_DIR.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not raw_path.exists():
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Check cache
+    cache_path = (_ENHANCED_CLIPS_DIR / safe_path).resolve()
+    if not cache_path.is_relative_to(_ENHANCED_CLIPS_DIR.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if cache_path.exists() and cache_path.stat().st_size > 100:
+        return FileResponse(
+            str(cache_path),
+            media_type="audio/wav",
+            headers={"Cache-Control": "public, max-age=31536000"},  # 1 year (immutable content)
+        )
+
+    # Process: bandpass 300-15kHz + dynamic loudness normalization
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [
+                "/usr/local/bin/ffmpeg",
+                "-loglevel", "error",
+                "-i", str(raw_path),
+                "-af", "highpass=f=300,lowpass=f=15000,loudnorm=I=-16:LRA=11:TP=-1.5",
+                "-y", str(cache_path),
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            logging.warning("[enhanced-clip] ffmpeg error: %s", result.stderr)
+            # Fall back to raw clip
+            return FileResponse(str(raw_path), media_type="audio/wav")
+    except Exception as e:
+        logging.warning("[enhanced-clip] Processing failed: %s", e)
+        return FileResponse(str(raw_path), media_type="audio/wav")
+
+    return FileResponse(
+        str(cache_path),
+        media_type="audio/wav",
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
+# ── Name That Call Game ──
+
+import sqlite3 as _sqlite3
+import random as _random
+
+_GAME_DB_PATH = Path.home() / "bird-snapshots" / "logs" / "game.db"
+
+def _game_db():
+    """Get or create the game database."""
+    db = _sqlite3.connect(str(_GAME_DB_PATH))
+    db.row_factory = _sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("""CREATE TABLE IF NOT EXISTS game_players (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        total_rounds INTEGER DEFAULT 0,
+        total_correct INTEGER DEFAULT 0,
+        total_answered INTEGER DEFAULT 0,
+        best_streak INTEGER DEFAULT 0
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS game_answers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id INTEGER,
+        round_id INTEGER,
+        clip_id INTEGER,
+        correct_species TEXT,
+        chosen_species TEXT,
+        is_correct INTEGER,
+        played_at TEXT DEFAULT (datetime('now'))
+    )""")
+    db.commit()
+    return db
+
+
+# Species that sound similar — wrong answers drawn from these groups for harder questions
+_CONFUSABLE_GROUPS = [
+    ["Song Sparrow", "White-throated Sparrow", "Chipping Sparrow", "House Finch"],
+    ["Downy Woodpecker", "Hairy Woodpecker", "Red-bellied Woodpecker", "Northern Flicker"],
+    ["American Crow", "Fish Crow", "Blue Jay", "Common Grackle"],
+    ["Carolina Wren", "House Wren"],
+    ["Red-tailed Hawk", "Cooper's Hawk", "Osprey"],
+    ["Red-winged Blackbird", "Brown-headed Cowbird"],
+    ["American Robin", "Hermit Thrush", "Eastern Bluebird"],
+    ["Tufted Titmouse", "Black-capped Chickadee", "White-breasted Nuthatch"],
+    ["Mourning Dove", "Rock Pigeon"],
+    ["Canada Goose", "Common Merganser"],
+]
+
+def _confusables_for(species, all_species):
+    """Get species that sound similar to the given one."""
+    for group in _CONFUSABLE_GROUPS:
+        if species in group:
+            return [s for s in group if s != species and s in all_species]
+    return []
+
+
+@app.get("/game")
+def serve_game():
+    return FileResponse(str(DASHBOARD_DIR / "game.html"), media_type="text/html")
+
+
+@app.post("/api/game/start")
+def game_start(body: dict):
+    """Start a new round. Returns 10 questions with clip URLs and choices."""
+    player_name = body.get("player_name", "").strip()
+    if not player_name:
+        raise HTTPException(400, "Player name required")
+
+    # Ensure player exists
+    gdb = _game_db()
+    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+    gdb.commit()
+    player = gdb.execute("SELECT id FROM game_players WHERE name = ?", (player_name,)).fetchone()
+    player_id = player["id"]
+
+    # Get eligible clips: high confidence, file exists, 3+ per species
+    bdb = _birdnet_db()
+    if not bdb:
+        raise HTTPException(500, "Audio database unavailable")
+
+    cur = bdb.cursor()
+    cur.execute("""
+        SELECT id, common_name, clip_name, confidence
+        FROM notes
+        WHERE has_clip = 1 AND confidence >= 0.9
+          AND clip_name IS NOT NULL AND clip_name != ''
+    """)
+    all_clips = cur.fetchall()
+
+    # Group by species, filter to 3+ clips
+    by_species = {}
+    for row in all_clips:
+        sp = row["common_name"]
+        if sp not in by_species:
+            by_species[sp] = []
+        by_species[sp].append(row)
+
+    eligible = {sp: clips for sp, clips in by_species.items() if len(clips) >= 3}
+    all_species = set(eligible.keys())
+
+    if len(all_species) < 4:
+        raise HTTPException(500, "Not enough species for the game")
+
+    # Pick 10 questions — avoid repeating species back-to-back
+    questions = []
+    species_list = list(all_species)
+    last_species = None
+    for _ in range(10):
+        # Pick a species (avoid repeat)
+        candidates = [s for s in species_list if s != last_species]
+        species = _random.choice(candidates)
+        last_species = species
+
+        # Pick 5 clips for this species — played as a sequence
+        sp_clips = list(eligible[species])
+        _random.shuffle(sp_clips)
+        clip = sp_clips[0]
+        clip_sequence = ["/bird-api/birdnet-clip-enhanced/" + c["clip_name"] for c in sp_clips[:5]]
+
+        # Generate wrong answers
+        confusable = _confusables_for(species, all_species)
+        others = [s for s in species_list if s != species]
+
+        # Mix: sometimes confusable, sometimes random
+        wrong = []
+        if confusable and _random.random() < 0.6:
+            # Use 1-2 confusable + fill with random
+            n_conf = min(len(confusable), _random.choice([1, 2]))
+            wrong = _random.sample(confusable, n_conf)
+            remaining = [s for s in others if s not in wrong]
+            wrong += _random.sample(remaining, 3 - len(wrong))
+        else:
+            wrong = _random.sample(others, 3)
+
+        # Build choices in random order
+        choices = wrong + [species]
+        _random.shuffle(choices)
+        correct_index = choices.index(species)
+
+        questions.append({
+            "clip_url": clip_sequence[0],
+            "clip_sequence": clip_sequence,  # 5 clips played as a sequence
+            "clip_id": clip["id"],
+            "choices": choices,
+            "correct_index": correct_index,
+            "correct_species": species,
+        })
+
+    # Create round ID
+    round_id = int(_time.time() * 1000)
+
+    gdb.close()
+    return {
+        "round_id": round_id,
+        "player_id": player_id,
+        "questions": questions,
+    }
+
+
+@app.post("/api/game/answer")
+def game_answer(body: dict):
+    """Record a single answer."""
+    gdb = _game_db()
+    gdb.execute("""
+        INSERT INTO game_answers (player_id, round_id, correct_species, chosen_species, is_correct)
+        SELECT id, ?, ?, ?, ? FROM game_players WHERE name = (
+            SELECT name FROM game_players ORDER BY id DESC LIMIT 1
+        )
+    """, (body.get("round_id"), body.get("correct_species", ""),
+          body.get("chosen_species", ""), 1 if body.get("is_correct") else 0))
+    gdb.commit()
+    gdb.close()
+    return {"ok": True}
+
+
+@app.post("/api/game/finish-round")
+def game_finish_round(body: dict):
+    """Update player stats after a round."""
+    gdb = _game_db()
+    player_name = ""
+    saved = None
+
+    # Find the player from the round's answers
+    round_id = body.get("round_id")
+    score = body.get("score", 0)
+    best_streak = body.get("best_streak", 0)
+
+    # Get player name from cookie or most recent player
+    # (The client sends player_name implicitly via the round answers)
+    # Update all players' stats from their answer history
+    for player in gdb.execute("SELECT id, name FROM game_players").fetchall():
+        pid = player["id"]
+        stats = gdb.execute("""
+            SELECT COUNT(*) as total, SUM(is_correct) as correct
+            FROM game_answers WHERE player_id = ?
+        """, (pid,)).fetchone()
+        total = stats["total"] or 0
+        correct = stats["correct"] or 0
+
+        # Count rounds (distinct round_ids)
+        rounds = gdb.execute(
+            "SELECT COUNT(DISTINCT round_id) as cnt FROM game_answers WHERE player_id = ?",
+            (pid,)
+        ).fetchone()["cnt"]
+
+        # Update best streak if this round's is higher
+        cur_best = gdb.execute(
+            "SELECT best_streak FROM game_players WHERE id = ?", (pid,)
+        ).fetchone()["best_streak"]
+        new_best = max(cur_best, best_streak)
+
+        gdb.execute("""
+            UPDATE game_players SET total_rounds = ?, total_correct = ?,
+                   total_answered = ?, best_streak = ? WHERE id = ?
+        """, (rounds, correct, total, new_best, pid))
+
+    gdb.commit()
+    gdb.close()
+    return {"ok": True}
+
+
+@app.post("/api/game/trash-clip")
+def game_trash_clip(body: dict):
+    """Mark a BirdNET clip as bad (wrong identification, noise, etc).
+
+    Sets has_clip=0 in the notes table so the clip is excluded from
+    the game and the audio browser. Logs the trash event for tracking.
+    """
+    clip_id = body.get("clip_id")
+    player_name = body.get("player_name", "")
+    reason = body.get("reason", "bad_clip")
+    if not clip_id:
+        raise HTTPException(400, "clip_id required")
+
+    bdb = _birdnet_db()
+    if not bdb:
+        raise HTTPException(500, "Audio database unavailable")
+
+    # Get clip info before trashing
+    cur = bdb.cursor()
+    cur.execute("SELECT common_name, clip_name, confidence FROM notes WHERE id = ?", (clip_id,))
+    row = cur.fetchone()
+    species = row["common_name"] if row else "unknown"
+    clip_name = row["clip_name"] if row else ""
+
+    # Mark as bad
+    cur.execute("UPDATE notes SET has_clip = 0 WHERE id = ?", (clip_id,))
+    bdb.commit()
+
+    # Log to game trash tracking table
+    gdb = _game_db()
+    gdb.execute("""CREATE TABLE IF NOT EXISTS game_trashed_clips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clip_id INTEGER,
+        species TEXT,
+        clip_name TEXT,
+        trashed_by TEXT,
+        reason TEXT,
+        trashed_at TEXT DEFAULT (datetime('now'))
+    )""")
+    gdb.execute("INSERT INTO game_trashed_clips (clip_id, species, clip_name, trashed_by, reason) VALUES (?,?,?,?,?)",
+                (clip_id, species, clip_name, player_name, reason))
+    gdb.commit()
+    gdb.close()
+
+    logging.info("[game] Trashed clip id=%s species=%s by=%s", clip_id, species, player_name)
+    return {"ok": True, "clip_id": clip_id, "species": species}
+
+
+@app.post("/api/game/start-learn")
+def game_start_learn(body: dict):
+    """Start a Learn mode session: 5 mini-rounds of 3 species each.
+
+    Each mini-round: learn 3 species (hear examples), then answer 3 questions
+    where the choices are those same 3 species.
+    Returns 5 mini-rounds, each with 3 species + example clips + 3 questions.
+    """
+    player_name = body.get("player_name", "").strip()
+
+    bdb = _birdnet_db()
+    if not bdb:
+        raise HTTPException(500, "Audio database unavailable")
+
+    cur = bdb.cursor()
+    cur.execute("""
+        SELECT id, common_name, clip_name, confidence
+        FROM notes
+        WHERE has_clip = 1 AND confidence >= 0.9
+          AND clip_name IS NOT NULL AND clip_name != ''
+    """)
+    all_clips = cur.fetchall()
+
+    by_species = {}
+    for row in all_clips:
+        sp = row["common_name"]
+        if sp not in by_species:
+            by_species[sp] = []
+        by_species[sp].append(row)
+
+    # Need species with 5+ clips (for the sequence) and at least 15 species total (5 rounds x 3)
+    eligible = {sp: clips for sp, clips in by_species.items() if len(clips) >= 5}
+    species_pool = list(eligible.keys())
+    _random.shuffle(species_pool)
+
+    if len(species_pool) < 15:
+        # Not enough — reuse some species across rounds
+        while len(species_pool) < 15:
+            species_pool += list(eligible.keys())
+        _random.shuffle(species_pool)
+
+    mini_rounds = []
+    for r in range(5):
+        # Pick 3 species for this mini-round
+        round_species = species_pool[r*3 : r*3+3]
+        if len(round_species) < 3:
+            break
+
+        # Build example clips for each species (5 clips each)
+        species_data = []
+        for sp in round_species:
+            sp_clips = list(eligible[sp])
+            _random.shuffle(sp_clips)
+            examples = ["/bird-api/birdnet-clip-enhanced/" + c["clip_name"] for c in sp_clips[:5]]
+            species_data.append({
+                "species": sp,
+                "examples": examples,
+            })
+
+        # Build 3 questions — one per species, choices are the 3 round species
+        questions = []
+        for sp in round_species:
+            sp_clips = list(eligible[sp])
+            _random.shuffle(sp_clips)
+            clip = sp_clips[0]
+            clip_sequence = ["/bird-api/birdnet-clip-enhanced/" + c["clip_name"] for c in sp_clips[:5]]
+
+            choices = list(round_species)
+            _random.shuffle(choices)
+
+            questions.append({
+                "clip_url": clip_sequence[0],
+                "clip_sequence": clip_sequence,
+                "clip_id": clip["id"],
+                "choices": choices,
+                "correct_index": choices.index(sp),
+                "correct_species": sp,
+            })
+
+        _random.shuffle(questions)
+        mini_rounds.append({
+            "species": species_data,
+            "questions": questions,
+        })
+
+    return {
+        "round_id": int(_time.time() * 1000),
+        "mini_rounds": mini_rounds,
+    }
+
+
+@app.post("/api/game/species-examples")
+def game_species_examples(body: dict):
+    """Return 5 high-confidence example clips per species for Match mode.
+
+    Input: {species: ["Blue Jay", "Song Sparrow", ...]}
+    Output: {species_clips: {"Blue Jay": [{clip_url, confidence, time}, ...], ...}}
+    """
+    species_list = body.get("species", [])
+    if not species_list:
+        return {"species_clips": {}}
+
+    bdb = _birdnet_db()
+    if not bdb:
+        return {"species_clips": {}}
+
+    result = {}
+    cur = bdb.cursor()
+    for sp in species_list:
+        cur.execute("""
+            SELECT clip_name, confidence, time FROM notes
+            WHERE has_clip = 1 AND confidence >= 0.9
+              AND common_name = ? AND clip_name IS NOT NULL AND clip_name != ''
+            ORDER BY confidence DESC LIMIT 5
+        """, (sp,))
+        clips = []
+        for row in cur.fetchall():
+            clips.append({
+                "clip_url": "/bird-api/birdnet-clip-enhanced/" + row["clip_name"],
+                "confidence": round(row["confidence"], 2),
+                "time": row["time"],
+            })
+        if clips:
+            result[sp] = clips
+
+    return {"species_clips": result}
+
+
+@app.post("/api/game/replacement-question")
+def game_replacement_question(body: dict):
+    """Generate a single replacement question after a clip is trashed.
+
+    Excludes the trashed clip and any clips already used in this round.
+    """
+    exclude_ids = body.get("exclude_clip_ids", [])
+
+    bdb = _birdnet_db()
+    if not bdb:
+        raise HTTPException(500, "Audio database unavailable")
+
+    cur = bdb.cursor()
+    placeholders = ",".join("?" for _ in exclude_ids) if exclude_ids else "0"
+    cur.execute(f"""
+        SELECT id, common_name, clip_name, confidence
+        FROM notes
+        WHERE has_clip = 1 AND confidence >= 0.9
+          AND clip_name IS NOT NULL AND clip_name != ''
+          AND id NOT IN ({placeholders})
+    """, exclude_ids)
+    all_clips = cur.fetchall()
+
+    by_species = {}
+    for row in all_clips:
+        sp = row["common_name"]
+        if sp not in by_species:
+            by_species[sp] = []
+        by_species[sp].append(row)
+
+    eligible = {sp: clips for sp, clips in by_species.items() if len(clips) >= 3}
+    all_species = set(eligible.keys())
+
+    if len(all_species) < 4:
+        return {"question": None}
+
+    species = _random.choice(list(all_species))
+    clip = _random.choice(eligible[species])
+
+    confusable = _confusables_for(species, all_species)
+    others = [s for s in all_species if s != species]
+    wrong = []
+    if confusable and _random.random() < 0.6:
+        n_conf = min(len(confusable), _random.choice([1, 2]))
+        wrong = _random.sample(confusable, n_conf)
+        remaining = [s for s in others if s not in wrong]
+        wrong += _random.sample(remaining, 3 - len(wrong))
+    else:
+        wrong = _random.sample(list(others), 3)
+
+    choices = wrong + [species]
+    _random.shuffle(choices)
+
+    return {"question": {
+        "clip_url": "/bird-api/birdnet-clip-enhanced/" + clip["clip_name"],
+        "clip_id": clip["id"],
+        "choices": choices,
+        "correct_index": choices.index(species),
+        "correct_species": species,
+    }}
+
+
+@app.post("/api/game/start-visual")
+def game_start_visual(body: dict):
+    """Start a visual identification round — 10 questions with feeder photos."""
+    import sqlite3 as sql3
+    player_name = body.get("player_name", "").strip()
+    if not player_name:
+        raise HTTPException(400, "Player name required")
+
+    gdb = _game_db()
+    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+    gdb.commit()
+
+    # Get classified images — prefer reviewed/confirmed, fall back to high-confidence
+    cdb_path = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
+    cdb = sql3.connect(str(cdb_path))
+    cdb.row_factory = sql3.Row
+
+    # Get confirmed images first
+    confirmed = cdb.execute("""
+        SELECT c.file, c.common_name
+        FROM classifications c
+        JOIN reviews r ON c.file = r.file
+        WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
+    """).fetchall()
+
+    by_species = {}
+    for row in confirmed:
+        sp = row["common_name"]
+        if sp not in by_species: by_species[sp] = []
+        by_species[sp].append(row["file"])
+
+    # Fill with unreviewed high-score images for species that need more
+    if len(by_species) < 10:
+        extra = cdb.execute("""
+            SELECT file, common_name FROM classifications
+            WHERE action = 'classified' AND common_name IS NOT NULL AND raw_score > 150
+        """).fetchall()
+        for row in extra:
+            sp = row["common_name"]
+            if sp not in by_species: by_species[sp] = []
+            if row["file"] not in by_species[sp]:
+                by_species[sp].append(row["file"])
+
+    eligible = {sp: files for sp, files in by_species.items() if len(files) >= 3}
+    species_list = list(eligible.keys())
+    cdb.close()
+
+    if len(species_list) < 4:
+        raise HTTPException(500, "Not enough species")
+
+    questions = []
+    last_species = None
+    for _ in range(10):
+        candidates = [s for s in species_list if s != last_species]
+        species = _random.choice(candidates)
+        last_species = species
+        file = _random.choice(eligible[species])
+
+        confusable = _confusables_for(species, set(species_list))
+        others = [s for s in species_list if s != species]
+        wrong = []
+        if confusable and _random.random() < 0.6:
+            n = min(len(confusable), _random.choice([1, 2]))
+            wrong = _random.sample(confusable, n)
+            remaining = [s for s in others if s not in wrong]
+            wrong += _random.sample(remaining, 3 - len(wrong))
+        else:
+            wrong = _random.sample(others, 3)
+
+        choices = wrong + [species]
+        _random.shuffle(choices)
+
+        questions.append({
+            "file": file,
+            "choices": choices,
+            "correct_index": choices.index(species),
+            "correct_species": species,
+        })
+
+    return {"round_id": int(_time.time() * 1000), "questions": questions}
+
+
+@app.post("/api/game/start-visual-learn")
+def game_start_visual_learn(body: dict):
+    """Start visual Learn mode — 5 mini-rounds of 3 species, with example photos."""
+    import sqlite3 as sql3
+    cdb_path = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
+    cdb = sql3.connect(str(cdb_path))
+    cdb.row_factory = sql3.Row
+
+    confirmed = cdb.execute("""
+        SELECT c.file, c.common_name
+        FROM classifications c
+        JOIN reviews r ON c.file = r.file
+        WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
+    """).fetchall()
+
+    by_species = {}
+    for row in confirmed:
+        sp = row["common_name"]
+        if sp not in by_species: by_species[sp] = []
+        by_species[sp].append(row["file"])
+
+    eligible = {sp: files for sp, files in by_species.items() if len(files) >= 5}
+    species_pool = list(eligible.keys())
+    _random.shuffle(species_pool)
+    cdb.close()
+
+    while len(species_pool) < 15:
+        species_pool += list(eligible.keys())
+    _random.shuffle(species_pool)
+
+    mini_rounds = []
+    for r in range(5):
+        round_species = species_pool[r*3:r*3+3]
+        if len(round_species) < 3: break
+
+        species_data = []
+        questions = []
+        for sp in round_species:
+            files = list(eligible[sp])
+            _random.shuffle(files)
+            species_data.append({
+                "species": sp,
+                "example_files": files[:3],
+            })
+            q_file = files[3] if len(files) > 3 else files[0]
+            choices = list(round_species)
+            _random.shuffle(choices)
+            questions.append({
+                "file": q_file,
+                "choices": choices,
+                "correct_index": choices.index(sp),
+                "correct_species": sp,
+            })
+
+        _random.shuffle(questions)
+        mini_rounds.append({"species": species_data, "questions": questions})
+
+    return {"round_id": int(_time.time() * 1000), "mini_rounds": mini_rounds}
+
+
+@app.get("/game-visual")
+def serve_game_visual():
+    return FileResponse(str(DASHBOARD_DIR / "game-visual.html"), media_type="text/html")
+
+
+@app.get("/api/game/leaderboard")
+def game_leaderboard():
+    """Return player rankings."""
+    gdb = _game_db()
+    players = gdb.execute("""
+        SELECT name, best_streak, total_correct, total_answered, total_rounds
+        FROM game_players
+        ORDER BY best_streak DESC, total_correct DESC
+    """).fetchall()
+
+    result = []
+    for p in players:
+        total = p["total_answered"] or 0
+        correct = p["total_correct"] or 0
+        result.append({
+            "name": p["name"],
+            "best_streak": p["best_streak"],
+            "accuracy_pct": round(correct / total * 100) if total > 0 else 0,
+            "total_rounds": p["total_rounds"],
+        })
+
+    gdb.close()
+    return {"players": result}
 
 
 # ── Documentation Viewer ──
@@ -2280,6 +3188,10 @@ def get_doc(doc_path: str):
 
 GO2RTC_HOST = os.environ.get("GO2RTC_HOST", "127.0.0.1")  # go2rtc runs locally
 GO2RTC_PORT = int(os.environ.get("GO2RTC_PORT", "1984"))
+
+# Pipeline v3 service URLs — two ports, two env vars, no hardcoding.
+_PIPELINE_HEALTH_URL = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
+_PIPELINE_SSE_URL = os.environ.get("PIPELINE_SSE_URL", "http://127.0.0.1:8105")
 
 from fastapi import WebSocket as FastAPIWebSocket
 
@@ -2335,99 +3247,6 @@ def enhanced_audio_health():
         return resp.json()
     except Exception as e:
         return {"status": "error", "detail": str(e)}
-
-
-@app.get("/live-detections/events")
-async def proxy_live_detections_sse():
-    """Proxy SSE stream from live_detector (port 8097) for real-time bird detection overlays.
-
-    Previously served via nginx on the NAS at /live-detections/.
-    Now proxied through FastAPI for Cloudflare tunnel access.
-    """
-    import httpx
-    from starlette.responses import StreamingResponse
-
-    async def stream():
-        async with httpx.AsyncClient() as client:
-            async with client.stream("GET", "http://127.0.0.1:8097/events", timeout=None) as resp:
-                async for line in resp.aiter_lines():
-                    yield line + "\n"
-
-    return StreamingResponse(stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
-                                      "X-Accel-Buffering": "no"})
-
-
-@app.get("/live-detections/{path:path}")
-async def proxy_live_detections(path: str):
-    """Proxy other live_detector endpoints (metrics, health)."""
-    import httpx
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(f"http://127.0.0.1:8097/{path}", timeout=5)
-            return resp.json()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
-@app.get("/api/live-detection-status")
-def live_detection_status():
-    """Full pipeline health check for live detection overlay.
-
-    Checks: live_detector → SSE → proxy → dashboard.
-    Use this to diagnose why labels aren't rendering.
-    """
-    import httpx
-    result = {"pipeline": [], "ok": True}
-
-    # Step 1: Is live_detector running?
-    try:
-        resp = httpx.get("http://127.0.0.1:8097/health", timeout=3)
-        health = resp.json()
-        streams = health.get("streams", {})
-        sse_clients = health.get("sse_clients", 0)
-        cameras_ok = all(s.get("connected") for s in streams.values())
-        total_detections = sum(s.get("detections", 0) for s in streams.values())
-
-        result["pipeline"].append({
-            "step": "live_detector",
-            "status": "ok" if cameras_ok else "degraded",
-            "detail": f"{len(streams)} cameras, {total_detections} detections, {sse_clients} SSE clients",
-            "streams": streams,
-        })
-        if not cameras_ok:
-            result["ok"] = False
-    except Exception as e:
-        result["pipeline"].append({"step": "live_detector", "status": "down", "detail": str(e)})
-        result["ok"] = False
-
-    # Step 2: Is go2rtc serving frames?
-    try:
-        resp = httpx.get(f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/api/streams", timeout=3)
-        go2rtc_streams = resp.json()
-        active = {k: len(v.get("producers", [])) for k, v in go2rtc_streams.items()}
-        result["pipeline"].append({
-            "step": "go2rtc",
-            "status": "ok" if all(p > 0 for p in active.values()) else "degraded",
-            "detail": f"Streams: {active}",
-        })
-    except Exception as e:
-        result["pipeline"].append({"step": "go2rtc", "status": "down", "detail": str(e)})
-        result["ok"] = False
-
-    # Step 3: SSE proxy working?
-    try:
-        resp = httpx.get("http://127.0.0.1:8097/events", timeout=2, headers={"Accept": "text/event-stream"})
-        result["pipeline"].append({
-            "step": "sse_proxy",
-            "status": "ok",
-            "detail": "SSE endpoint responsive",
-        })
-    except Exception as e:
-        result["pipeline"].append({"step": "sse_proxy", "status": "error", "detail": str(e)})
-
-    result["summary"] = "Labels render when: cameras connected + bird in frame + voter approves + SSE client listening"
-    return result
 
 
 @app.get("/api/hls/{path:path}")
@@ -3301,7 +4120,7 @@ async def pipeline_health_proxy():
     import httpx
     async with httpx.AsyncClient(timeout=2) as c:
         try:
-            r = await c.get("http://127.0.0.1:8100/api/pipeline/health")
+            r = await c.get(f"{_PIPELINE_HEALTH_URL}/api/pipeline/health")
             return r.json()
         except Exception as e:
             return {"overall": "broken", "error": str(e)}
@@ -3317,13 +4136,12 @@ async def proxy_pipeline_sse(camera: str = "feeder"):
     """
     import httpx
     from starlette.responses import StreamingResponse
-    _pipeline_sse_url = os.environ.get("PIPELINE_BACKEND_URL", "http://127.0.0.1:8104")
 
     async def gen():
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "GET",
-                f"{_pipeline_sse_url}/events/sse",
+                f"{_PIPELINE_SSE_URL}/events/sse",
                 params={"camera": camera},
             ) as resp:
                 async for chunk in resp.aiter_bytes():
@@ -3344,12 +4162,9 @@ async def proxy_debug_latest_jpg(camera: str = "feeder"):
     """Proxy the pipeline's debug frame (latest YOLO-annotated frame)."""
     import httpx
     from starlette.responses import Response
-    _pipeline_health_url = os.environ.get("PIPELINE_BACKEND_URL", "http://127.0.0.1:8105")
-    # The debug endpoint is on the HEALTH server (same port as /api/pipeline/health)
-    _health_port = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
     try:
         async with httpx.AsyncClient(timeout=3) as client:
-            resp = await client.get(f"{_health_port}/debug/latest.jpg?camera={camera}")
+            resp = await client.get(f"{_PIPELINE_HEALTH_URL}/debug/latest.jpg?camera={camera}")
             if resp.status_code == 200:
                 return Response(content=resp.content, media_type="image/jpeg",
                                 headers={"Cache-Control": "no-cache"})

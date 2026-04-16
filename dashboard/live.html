@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Bird Cam Live</title>
+<meta name="theme-color" content="#000">
+<!--
+  Delayed-playback live viewer with pre-computed detection overlays.
+
+  Architecture (verified April 15, 2026):
+  - Video: hls.js plays pipeline-generated HLS segments ~10s behind live edge
+    (liveSyncDuration=8, actual delay ~10-12s due to 5s segment boundaries)
+  - Timestamps: ffmpeg embeds #EXT-X-PROGRAM-DATE-TIME in playlist (system wall clock)
+    hls.playingDate gives us the wall-clock time of the displayed frame [VERIFIED-TEST]
+  - Detections: Pipeline SSE events carry wall_time_ms (same system clock) [VERIFIED-CODE]
+    Events arrive in real-time, buffered client-side, matched to playingDate
+  - Overlay: requestVideoFrameCallback fires per displayed frame [VERIFIED-TEST: 25fps]
+    Canvas draws bboxes + species labels for the matched event
+
+  See: docs/superpowers/specs/2026-04-15-delayed-playback-overlay-design.md
+-->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+
+  .live-wrap {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* Controls bar — bottom of the video */
+  .controls {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.7));
+    z-index: 10;
+    pointer-events: auto;
+  }
+  .controls button {
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.8);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .controls button:hover { background: rgba(255,255,255,0.15); }
+  .controls button.active { background: rgba(74,222,128,0.4); border-color: #4ade80; color: #fff; }
+  .controls .spacer { flex: 1; }
+  .controls .status {
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.4);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Offline indicator */
+  .offline {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.85rem;
+    z-index: 5;
+  }
+  .offline .icon { font-size: 2rem; display: block; margin-bottom: 8px; }
+
+  /* Debug overlay (toggle with D key) */
+  .debug {
+    position: absolute;
+    top: 8px; left: 8px;
+    z-index: 20;
+    background: rgba(0,0,0,0.8);
+    color: #e8eaed;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    line-height: 1.7;
+    pointer-events: none;
+    display: none;
+    min-width: 260px;
+  }
+</style>
+</head>
+<body>
+<div class="live-wrap" id="live-wrap">
+  <video id="video" muted playsinline></video>
+  <canvas id="overlay"></canvas>
+
+  <div class="controls">
+    <button class="active" id="btn-labels" onclick="toggleLabels()">Labels</button>
+    <button id="btn-fullscreen" onclick="toggleFullscreen()">&#x26F6;</button>
+    <span class="spacer"></span>
+    <span class="status" id="delay-status"></span>
+  </div>
+
+  <div class="offline" id="offline">
+    <span class="icon">&#x1F4F7;</span>
+    <div>Connecting to camera...</div>
+  </div>
+
+  <div class="debug" id="debug"></div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── Configuration ──
+
+  var DELAY_SECONDS = 8;  // target seconds behind live edge
+  var STALE_MS = 1200;    // time without events before fade-out starts (wider than live because 5s segments)
+  var FADE_IN_MS = 200;
+  var FADE_OUT_MS = 400;
+  var LABEL_FONT = '14px system-ui, -apple-system, sans-serif';
+  var LABEL_HEIGHT = 24;
+  var LABEL_PAD_X = 8;
+  var LABEL_W_ESTIMATE = 140;
+  var EVENT_BUFFER_AGE_MS = 120000;  // keep 2 minutes of SSE event history
+  var EVENT_MATCH_TOLERANCE_MS = 3000; // match events within 3s of playingDate (wide for 5s segments)
+
+  // ── Elements ──
+
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('overlay');
+  var ctx = canvas.getContext('2d');
+  var offlineEl = document.getElementById('offline');
+  var debugEl = document.getElementById('debug');
+  var delayStatusEl = document.getElementById('delay-status');
+
+  // ── State ──
+
+  var showLabels = true;
+  var debugVisible = false;
+  var hls = null;
+  var trackStates = new Map();
+  var eventBuffer = [];  // SSE events sorted by wall_time_ms
+  var sseConnected = false;
+
+  // ── hls.js Setup ──
+  // Per hls.js API.md (https://github.com/video-dev/hls.js/blob/master/docs/API.md):
+  // liveSyncDuration: target playback position behind live edge
+  // liveMaxLatencyDuration: max drift before seeking forward
+  // maxLiveSyncPlaybackRate: gentle speed-up for drift correction
+
+  if (!Hls.isSupported()) {
+    offlineEl.innerHTML = '<span class="icon">&#x26A0;</span><div>HLS not supported in this browser</div>';
+    return;
+  }
+
+  hls = new Hls({
+    liveSyncDuration: DELAY_SECONDS,
+    liveMaxLatencyDuration: DELAY_SECONDS + 10,
+    maxBufferLength: DELAY_SECONDS + 15,
+    backBufferLength: 10,
+    maxLiveSyncPlaybackRate: 1.1,
+    enableWorker: true,
+    lowLatencyMode: false,
+    debug: false,
+  });
+
+  hls.loadSource('/api/hls-live/feeder/live.m3u8');
+  hls.attachMedia(video);
+
+  hls.on(Hls.Events.MANIFEST_PARSED, function() {
+    video.play().catch(function() {
+      video.muted = true;
+      video.play().catch(function() {});
+    });
+  });
+
+  hls.on(Hls.Events.ERROR, function(event, data) {
+    if (data.fatal) {
+      console.error('[HLS] Fatal error:', data.type, data.details);
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hls.recoverMediaError();
+      }
+    }
+  });
+
+  // Hide offline once video plays
+  video.addEventListener('playing', function() {
+    offlineEl.style.display = 'none';
+  });
+
+  // ── SSE Event Buffer ──
+  // Pipeline SSE events arrive in real-time with wall_time_ms.
+  // We buffer them and match to hls.playingDate for overlay sync.
+
+  var es = new EventSource('/api/pipeline/events/sse?camera=feeder');
+
+  es.addEventListener('message', function(ev) {
+    var data;
+    try { data = JSON.parse(ev.data); } catch(e) { return; }
+    if (!data.tracks || data.wall_time_ms == null) return;
+    if (!sseConnected) { sseConnected = true; }
+    eventBuffer.push(data);
+    // Prune events older than buffer window
+    var cutoff = Date.now() - EVENT_BUFFER_AGE_MS;
+    while (eventBuffer.length > 0 && eventBuffer[0].wall_time_ms < cutoff) {
+      eventBuffer.shift();
+    }
+  });
+
+  // Find the best-matching event for a given wall-clock timestamp.
+  // Returns the event with the closest wall_time_ms, or null if none within tolerance.
+  function findEvent(targetMs) {
+    if (eventBuffer.length === 0) return null;
+    var best = null, bestDist = Infinity;
+    // Search backwards from newest (most likely to match recent playback)
+    for (var i = eventBuffer.length - 1; i >= 0; i--) {
+      var dist = Math.abs(eventBuffer[i].wall_time_ms - targetMs);
+      if (dist < bestDist) { best = eventBuffer[i]; bestDist = dist; }
+      // Stop searching once we're past the target by more than tolerance
+      if (eventBuffer[i].wall_time_ms < targetMs - EVENT_MATCH_TOLERANCE_MS) break;
+    }
+    return bestDist <= EVENT_MATCH_TOLERANCE_MS ? best : null;
+  }
+
+  // Apply a matched event to track states for rendering.
+  // This updates the trackStates Map with current bbox positions, species, etc.
+  function applyEvent(data) {
+    if (!data.tracks) return;
+    var wall = data.wall_time_ms;
+    var seen = {};
+    for (var i = 0; i < data.tracks.length; i++) {
+      var t = data.tracks[i];
+      seen[t.track_id] = true;
+      var state = trackStates.get(t.track_id);
+      if (!state) {
+        state = { first_seen_t: wall, prev_t: wall, prev_x: t.bbox_center_x };
+        trackStates.set(t.track_id, state);
+      }
+      state.prev_t = state.last_t != null ? state.last_t : wall;
+      state.prev_x = state.last_x != null ? state.last_x : t.bbox_center_x;
+      state.last_t = wall;
+      state.last_x = t.bbox_center_x;
+      state.species = t.species;
+      state.bbox = t.bbox;
+      state.bbox_area = (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]);
+      state.bbox_top = t.bbox[1];
+      state.frame_width = t.frame_width;
+      state.frame_height = t.frame_height;
+      state.track_id = t.track_id;
+      state.species_confidence = t.species_confidence;
+      state.model_source = t.model_source;
+      state.is_locked = t.is_locked;
+      state.frame_count = t.frame_count;
+      state.fadeOutAt = null;
+    }
+    // Mark unseen tracks for fade-out
+    trackStates.forEach(function(state, id) {
+      if (!seen[id] && !state.fadeOutAt) state.fadeOutAt = wall;
+    });
+  }
+
+  // ── Drawing Functions ──
+  // Ported from the working v3 overlay renderer in dashboard/index.html
+
+  function drawDot(x, y, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawLabel(x, y, text, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.font = LABEL_FONT;
+    var w = ctx.measureText(text).width + 2 * LABEL_PAD_X;
+    var h = LABEL_HEIGHT;
+    var rx = x - w / 2;
+    var ry = y - h / 2;
+    var radius = 12;
+
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.beginPath();
+    ctx.moveTo(rx + radius, ry);
+    ctx.lineTo(rx + w - radius, ry);
+    ctx.quadraticCurveTo(rx + w, ry, rx + w, ry + radius);
+    ctx.lineTo(rx + w, ry + h - radius);
+    ctx.quadraticCurveTo(rx + w, ry + h, rx + w - radius, ry + h);
+    ctx.lineTo(rx + radius, ry + h);
+    ctx.quadraticCurveTo(rx, ry + h, rx, ry + h - radius);
+    ctx.lineTo(rx, ry + radius);
+    ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  // ── Frame Renderer ──
+  // Uses requestVideoFrameCallback for frame-accurate sync [VERIFIED-TEST: 25fps on Brave].
+  // Gets displayed wall-clock time from hls.playingDate [VERIFIED-TEST: returns valid Date].
+  // Matches to SSE events by wall_time_ms.
+
+  var lastMatchedWall = 0;
+
+  function renderFrame(now, metadata) {
+    // Resize canvas to match video display size
+    var rect = video.getBoundingClientRect();
+    var w = Math.floor(rect.width);
+    var h = Math.floor(rect.height);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!showLabels || !hls) {
+      video.requestVideoFrameCallback(renderFrame);
+      return;
+    }
+
+    // Get the wall-clock time of the currently displayed frame
+    // hls.playingDate: Date from #EXT-X-PROGRAM-DATE-TIME [VERIFIED-DOCS + VERIFIED-TEST]
+    var playingDate = hls.playingDate;
+    var displayedWallMs = playingDate ? playingDate.getTime() : null;
+
+    if (!displayedWallMs) {
+      video.requestVideoFrameCallback(renderFrame);
+      return;
+    }
+
+    // Update delay status display
+    var delayS = ((Date.now() - displayedWallMs) / 1000).toFixed(0);
+    delayStatusEl.textContent = delayS + 's delay';
+
+    // Find the SSE event closest to the displayed frame's wall-clock time
+    var event = findEvent(displayedWallMs);
+    if (event) {
+      applyEvent(event);
+      lastMatchedWall = displayedWallMs;
+    }
+
+    // Build placements with interpolation and fade
+    var placements = [];
+    trackStates.forEach(function(state, trackId) {
+      var elapsed = displayedWallMs - state.last_t;
+
+      // Fade out stale tracks
+      if (elapsed > STALE_MS && !state.fadeOutAt) state.fadeOutAt = displayedWallMs;
+      if (state.fadeOutAt && (displayedWallMs - state.fadeOutAt) > FADE_OUT_MS) {
+        trackStates.delete(trackId);
+        return;
+      }
+
+      // Velocity-clamped X extrapolation with exponential smoothing
+      var dt = state.last_t - state.prev_t;
+      var targetX = state.last_x;
+      if (dt > 0 && elapsed >= 0 && elapsed < 1000) {
+        var vel = Math.max(-0.5, Math.min(0.5, (state.last_x - state.prev_x) / dt));
+        targetX = state.last_x + Math.max(-40, Math.min(40, vel * elapsed));
+      }
+      if (state.rendered_x == null) state.rendered_x = targetX;
+      else state.rendered_x += (targetX - state.rendered_x) * 0.2;
+
+      // Scale substream coords to canvas
+      var fw = state.frame_width || 640;
+      var fh = state.frame_height || 360;
+      var sx = canvas.width / fw;
+      var sy = canvas.height / fh;
+      var canvasX = state.rendered_x * sx;
+      var labelY = Math.max(22, (state.bbox_top || 0) * sy - 8);
+
+      // Opacity: fade in/out
+      var opacity = 1;
+      if (state.fadeOutAt) opacity = Math.max(0, 1 - (displayedWallMs - state.fadeOutAt) / FADE_OUT_MS);
+      else if (state.first_seen_t) opacity = Math.max(0, Math.min(1, (displayedWallMs - state.first_seen_t) / FADE_IN_MS));
+
+      placements.push({ x: canvasX, y: labelY, state: state, opacity: opacity });
+    });
+
+    // Collision avoidance: larger bbox area gets priority position
+    placements.sort(function(a, b) { return (b.state.bbox_area || 0) - (a.state.bbox_area || 0); });
+    var placed = [];
+    for (var i = 0; i < placements.length; i++) {
+      var p = placements[i];
+      var y = p.y;
+      for (var j = 0; j < placed.length; j++) {
+        if (Math.abs(placed[j].x - p.x) < LABEL_W_ESTIMATE && Math.abs(placed[j].y - y) < LABEL_HEIGHT + 8) {
+          y += LABEL_HEIGHT + 8;
+          j = -1;
+        }
+      }
+      p.y = y;
+      placed.push(p);
+    }
+
+    // Draw all tracks
+    for (var i = 0; i < placed.length; i++) {
+      var p = placed[i];
+      var s = p.state;
+      var fw = s.frame_width || 640;
+      var fh = s.frame_height || 360;
+      var sx = canvas.width / fw;
+      var sy = canvas.height / fh;
+
+      // Bounding box
+      if (s.bbox) {
+        ctx.save();
+        ctx.globalAlpha = p.opacity * 0.7;
+        ctx.strokeStyle = s.is_locked ? '#4ade80' : '#facc15';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(s.bbox[0] * sx, s.bbox[1] * sy, (s.bbox[2] - s.bbox[0]) * sx, (s.bbox[3] - s.bbox[1]) * sy);
+        ctx.restore();
+      }
+
+      // Species label or detection dot
+      var cx = Math.max(LABEL_W_ESTIMATE / 2 + 8, Math.min(canvas.width - LABEL_W_ESTIMATE / 2 - 8, p.x));
+      if (s.species) {
+        var conf = s.species_confidence != null ? ' ' + Math.round(s.species_confidence * 100) + '%' : '';
+        var lock = s.is_locked ? ' \u2713' : ' \u2026';
+        drawLabel(cx, p.y, s.species + conf + lock, p.opacity);
+      } else {
+        drawDot(cx, p.y, p.opacity);
+      }
+    }
+
+    // Stats overlay (top-right, subtle)
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#4ade80';
+    ctx.textAlign = 'right';
+    if (trackStates.size > 0) {
+      ctx.fillText('tracks: ' + trackStates.size, canvas.width - 8, 14);
+    }
+    ctx.restore();
+
+    video.requestVideoFrameCallback(renderFrame);
+  }
+
+  // Start the render loop once the video has data
+  video.addEventListener('loadeddata', function() {
+    if (video.requestVideoFrameCallback) {
+      video.requestVideoFrameCallback(renderFrame);
+    }
+  });
+
+  // ── Controls ──
+
+  window.toggleLabels = function() {
+    showLabels = !showLabels;
+    document.getElementById('btn-labels').classList.toggle('active', showLabels);
+    if (!showLabels) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  window.toggleFullscreen = function() {
+    var wrap = document.getElementById('live-wrap');
+    if (document.fullscreenElement) document.exitFullscreen();
+    else wrap.requestFullscreen().catch(function() {});
+  };
+
+  // Debug overlay (D key)
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'd' || e.key === 'D') {
+      debugVisible = !debugVisible;
+      debugEl.style.display = debugVisible ? 'block' : 'none';
+    }
+  });
+
+  setInterval(function() {
+    if (!debugVisible) return;
+    var lines = [];
+    var pd = hls.playingDate;
+    var delay = pd ? ((Date.now() - pd.getTime()) / 1000).toFixed(1) : '?';
+    lines.push('Delay: <b>' + delay + 's</b> behind live');
+    lines.push('Resolution: ' + (video.videoWidth || '?') + 'x' + (video.videoHeight || '?'));
+    lines.push('Latency: ' + (hls.latency ? hls.latency.toFixed(1) + 's' : '?'));
+    lines.push('Events buffered: ' + eventBuffer.length);
+    lines.push('Active tracks: ' + trackStates.size);
+    lines.push('SSE: ' + (sseConnected ? '<span style="color:#4ade80">connected</span>' : '<span style="color:#f87171">disconnected</span>'));
+    if (video.buffered.length > 0) {
+      var ahead = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
+      lines.push('Buffer ahead: ' + ahead + 's');
+    }
+    debugEl.innerHTML = lines.join('<br>');
+  }, 500);
+
+})();
+</script>
+</body>
+</html>

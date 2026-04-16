@@ -96,6 +96,7 @@ def write_go2rtc_config(tokens):
         "",
         "api:",
         '  listen: ":1984"',
+        '  origin: "*"',
         "",
         "log:",
         "  level: info",

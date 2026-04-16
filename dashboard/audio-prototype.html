@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Today's Chorus — Bird Audio</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0c0f14;
+    --bg-card: #141821;
+    --bg-card-hover: #1a2030;
+    --border: rgba(255,255,255,0.06);
+    --text: #e8eaed;
+    --text-dim: #7a8194;
+    --gold: #d4a853;
+    --gold-dim: rgba(212,168,83,0.15);
+    --green: #4ade80;
+    --green-dim: rgba(74,222,128,0.12);
+    --amber: #fbbf24;
+    --red: #f87171;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-deep); color: var(--text);
+    font-family: 'DM Sans', sans-serif; min-height: 100vh; padding: 24px;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; opacity: 0.03; pointer-events: none; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .container { max-width: 720px; margin: 0 auto; position: relative; z-index: 1; }
+
+  .header { text-align: center; margin-bottom: 28px; }
+  .header h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2rem; letter-spacing: -0.02em; color: var(--gold); margin-bottom: 4px; }
+  .header .subtitle { font-size: 0.85rem; color: var(--text-dim); }
+  .header .stats { margin-top: 12px; display: flex; justify-content: center; gap: 24px; }
+  .header .stat-value { font-family: 'Fraunces', serif; font-size: 1.6rem; font-weight: 600; }
+  .header .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 14px; justify-content: center; flex-wrap: wrap; }
+  .filters select {
+    background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 30px 7px 12px; border-radius: 8px; font-size: 0.8rem;
+    font-family: 'DM Sans', sans-serif; cursor: pointer; min-width: 120px;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a8194' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  .filters select:hover { border-color: rgba(255,255,255,0.15); }
+  .filters select:focus { outline: none; border-color: var(--gold); }
+
+  .sort-bar { display: flex; gap: 6px; margin-bottom: 20px; justify-content: center; }
+  .sort-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+    padding: 6px 14px; border-radius: 20px; font-size: 0.75rem;
+    font-family: 'DM Sans', sans-serif; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  }
+  .sort-btn:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+  .sort-btn.active { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+
+  .species-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .species-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; transition: background 0.2s, border-color 0.2s;
+    animation: fadeUp 0.4s ease-out both;
+  }
+  .species-card:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.1); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card-main { display: flex; align-items: center; gap: 14px; padding: 14px 16px; cursor: pointer; }
+  .card-photo { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--bg-deep); border: 2px solid var(--border); flex-shrink: 0; }
+  .card-play {
+    width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+    transition: all 0.2s; background: var(--green-dim); color: var(--green);
+  }
+  .card-play:hover { background: var(--green); color: #000; transform: scale(1.08); }
+  .card-play.playing { background: #b91c1c; color: #fff; animation: pulse-play 1.5s ease-in-out infinite; }
+
+  /* Audio visualizer bars — inline next to species name */
+  .card-viz {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .card-viz .vbar {
+    width: 3px;
+    min-height: 2px;
+    border-radius: 1px;
+    background: var(--green);
+    opacity: 0.7;
+    transition: height 0.05s ease-out;
+  }
+  .card-play.queued { background: var(--gold-dim); color: var(--gold); }
+  @keyframes pulse-play { 0%, 100% { box-shadow: 0 0 0 0 rgba(185,28,28,0.4); } 50% { box-shadow: 0 0 0 8px rgba(185,28,28,0); } }
+
+  /* Now playing timestamp — fades in from below */
+  .now-playing-time {
+    font-size: 0.7rem;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    display: inline-block;
+  }
+  .now-playing-time.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .now-playing-count {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
+
+  .card-info { flex: 1; min-width: 0; position: relative; }
+  .card-species { font-weight: 600; font-size: 0.95rem; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; }
+  .card-meta { font-size: 0.75rem; color: var(--text-dim); display: flex; gap: 8px; align-items: center; }
+
+  .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+  .conf-bar { width: 64px; height: 18px; background: var(--bg-deep); border-radius: 4px; overflow: hidden; }
+  .conf-fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease-out;
+    display: flex; align-items: center; justify-content: flex-end; padding-right: 4px;
+    font-size: 0.6rem; font-weight: 600; color: #000;
+  }
+  .conf-fill.high { background: linear-gradient(90deg, var(--green), #22d3ee); }
+  .conf-fill.med { background: linear-gradient(90deg, var(--amber), #fb923c); }
+  .conf-fill.low { background: linear-gradient(90deg, var(--red), #f97316); }
+  .count-badge { font-size: 0.68rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  .card-clips { display: none; padding: 0 16px 12px 82px; flex-direction: column; gap: 4px; }
+  .card-clips.open { display: flex; }
+  .card-clips .loading-clips { font-size: 0.75rem; color: var(--text-dim); padding: 8px 0; font-style: italic; }
+
+  .clip-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; transition: background 0.15s; }
+  .clip-row:hover { background: rgba(255,255,255,0.03); }
+  .clip-play {
+    width: 28px; height: 28px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 11px;
+    background: rgba(255,255,255,0.06); color: var(--text-dim); transition: all 0.15s; flex-shrink: 0;
+  }
+  .clip-play:hover { background: var(--green-dim); color: var(--green); }
+  .clip-play.playing { background: #b91c1c; color: #fff; }
+  .clip-time { font-size: 0.75rem; color: var(--text-dim); width: 70px; }
+  .clip-conf { font-size: 0.72rem; color: var(--text-dim); font-variant-numeric: tabular-nums; width: 36px; }
+  .clip-source { font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.05); color: var(--text-dim); }
+  .clip-trash {
+    width: 24px; height: 24px; border-radius: 4px; border: none; cursor: pointer;
+    background: transparent; color: var(--text-dim); font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; flex-shrink: 0; margin-left: auto; opacity: 0.3;
+  }
+  .clip-row:hover .clip-trash { opacity: 1; }
+  .clip-trash:hover { background: var(--red); color: #000; opacity: 1; }
+  .clip-trash.trashed { color: var(--red); opacity: 0.5; pointer-events: none; }
+
+  .loading, .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+  .empty .icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.3; display: block; }
+
+  @media (max-width: 600px) {
+    body { padding: 16px; }
+    .header h1 { font-size: 1.5rem; }
+    .card-photo { width: 42px; height: 42px; }
+    .card-clips { padding-left: 68px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div style="text-align:right;margin-bottom:-8px;">
+    <span style="display:flex;gap:16px;justify-content:flex-end;">
+      <a href="/game" target="_top" style="color:var(--text-dim);text-decoration:none;font-size:0.72rem;opacity:0.4;transition:opacity 0.3s;font-family:'DM Sans',sans-serif;" onmouseover="this.style.opacity='1';this.style.color='#d4a853'" onmouseout="this.style.opacity='0.4';this.style.color=''">&#x1F3B5; Name That Call</a>
+      <a href="/game-visual" target="_top" style="color:var(--text-dim);text-decoration:none;font-size:0.72rem;opacity:0.4;transition:opacity 0.3s;font-family:'DM Sans',sans-serif;" onmouseover="this.style.opacity='1';this.style.color='#2dd4bf'" onmouseout="this.style.opacity='0.4';this.style.color=''">&#x1F426; Spot That Bird</a>
+    </span>
+  </div>
+  <div class="header">
+    <h1>Today's Chorus</h1>
+    <div class="subtitle" id="date-label"></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value" id="stat-species">-</div><div class="stat-label">Species</div></div>
+      <div class="stat"><div class="stat-value" id="stat-detections">-</div><div class="stat-label">Detections</div></div>
+    </div>
+  </div>
+  <div class="filters">
+    <select id="filter-date" onchange="reload()"><option value="all">All Time</option></select>
+    <select id="filter-species" onchange="reload()"><option value="">All species</option></select>
+    <select id="filter-source" onchange="reload()"><option value="">All mics</option><option value="ground">Ground</option><option value="magnolia">Magnolia</option></select>
+  </div>
+  <div class="sort-bar">
+    <button class="sort-btn active" data-sort="confidence" onclick="setSort('confidence')">Best Clips</button>
+    <button class="sort-btn" data-sort="count" onclick="setSort('count')">Most Heard</button>
+    <button class="sort-btn" data-sort="recent" onclick="setSort('recent')">Most Recent</button>
+  </div>
+  <div class="species-list" id="species-list"><div class="loading">Listening for birds...</div></div>
+</div>
+<audio id="player-a" preload="none"></audio>
+<audio id="player-b" preload="none"></audio>
+
+<script>
+(function() {
+  'use strict';
+
+  var sortMode = 'confidence';
+  var speciesCards = [];  // [{species, count, avgConf, bestConf, bestClip, lastSeen, clipsLoaded, clips}]
+  var playingClip = null;
+  // audio var removed — crossfade engine uses playerA/playerB directly
+  var summary = null;  // cached birdnet-summary
+
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  function formatDateLabel(dateStr) {
+    if (dateStr === 'all') return 'All Time';
+    var d = new Date(dateStr + 'T12:00:00');
+    var todayStr = new Date().toISOString().slice(0, 10);
+    var y = new Date(); y.setDate(y.getDate() - 1);
+    if (dateStr === todayStr) return 'Today, ' + months[d.getMonth()] + ' ' + d.getDate();
+    if (dateStr === y.toISOString().slice(0, 10)) return 'Yesterday, ' + months[d.getMonth()] + ' ' + d.getDate();
+    return dayNames[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate();
+  }
+  function formatDateOption(dateStr) {
+    var d = new Date(dateStr + 'T12:00:00');
+    var todayStr = new Date().toISOString().slice(0, 10);
+    var y = new Date(); y.setDate(y.getDate() - 1);
+    if (dateStr === todayStr) return 'Today';
+    if (dateStr === y.toISOString().slice(0, 10)) return 'Yesterday';
+    return shortMonths[d.getMonth()] + ' ' + d.getDate();
+  }
+  function formatTime(timeStr) {
+    if (!timeStr || timeStr.length < 5) return timeStr || '';
+    var parts = timeStr.split(':');
+    var h = parseInt(parts[0]), m = parts[1];
+    return (h % 12 || 12) + ':' + m + ' ' + (h >= 12 ? 'PM' : 'AM');
+  }
+
+  // Populate dropdowns from summary, then load data
+  fetch('/bird-api/birdnet-summary')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      summary = data;
+      var dateSel = document.getElementById('filter-date');
+      (data.dates || []).forEach(function(ds) {
+        var o = document.createElement('option'); o.value = ds; o.textContent = formatDateOption(ds);
+        dateSel.appendChild(o);
+      });
+      var specSel = document.getElementById('filter-species');
+      (data.species || []).sort(function(a, b) { return a.common_name.localeCompare(b.common_name); })
+        .forEach(function(sp) {
+          var o = document.createElement('option'); o.value = sp.common_name; o.textContent = sp.common_name;
+          specSel.appendChild(o);
+        });
+      reload();
+    })
+    .catch(function() { reload(); });
+
+  window.reload = function() {
+    var dateVal = document.getElementById('filter-date').value || 'all';
+    var speciesVal = document.getElementById('filter-species').value;
+    var sourceVal = document.getElementById('filter-source').value;
+    document.getElementById('date-label').textContent = formatDateLabel(dateVal);
+    document.getElementById('species-list').innerHTML = '<div class="loading">Listening for birds...</div>';
+
+    // Step 1: Get species list + counts from summary
+    var speciesList = [];
+    if (dateVal === 'all') {
+      speciesList = (summary && summary.species) ? summary.species.map(function(s) {
+        return { species: s.common_name, count: s.count, avgConf: s.avg_confidence, lastSeen: s.last_seen || '' };
+      }) : [];
+    } else {
+      var dayData = (summary && summary.by_date) ? summary.by_date[dateVal] : null;
+      speciesList = dayData ? dayData.species.map(function(s) {
+        return { species: s.common_name, count: s.count, avgConf: s.avg_confidence, lastSeen: '' };
+      }) : [];
+    }
+
+    // Filter by species dropdown
+    if (speciesVal) {
+      speciesList = speciesList.filter(function(s) { return s.species === speciesVal; });
+    }
+
+    document.getElementById('stat-species').textContent = speciesList.length;
+    document.getElementById('stat-detections').textContent =
+      speciesList.reduce(function(sum, s) { return sum + s.count; }, 0).toLocaleString();
+
+    // Step 2: Get best clip per species.
+    // For "all time" mode, use "since" last 7 days — old clips may be deleted from disk.
+    var clipParams;
+    if (dateVal === 'all') {
+      var weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      clipParams = 'since=' + weekAgo.toISOString().slice(0, 10);
+    } else {
+      clipParams = 'date=' + dateVal;
+    }
+    if (sourceVal) clipParams += '&source=' + encodeURIComponent(sourceVal);
+    fetch('/bird-api/audio-best-clips?' + clipParams)
+      .then(function(r) { return r.json(); })
+      .then(function(clipData) {
+        var clipMap = {};
+        (clipData.clips || []).forEach(function(c) { clipMap[c.species] = c; });
+
+        speciesCards = speciesList
+          .map(function(sp) {
+            var clip = clipMap[sp.species];
+            return {
+              species: sp.species,
+              count: sp.count,
+              avgConf: sp.avgConf,
+              bestConf: clip ? clip.confidence : sp.avgConf,
+              bestClip: clip ? clip.clip_name : null,
+              lastSeen: sp.lastSeen || (clip ? clip.time : ''),
+              clipsLoaded: false,
+              clips: []
+            };
+          })
+          .filter(function(sp) { return sp.bestClip; }); // only show species with playable clips
+        render();
+      })
+      .catch(function() {
+        // Fallback: no best-clip data, just show species cards without play buttons
+        speciesCards = speciesList.map(function(sp) {
+          return { species: sp.species, count: sp.count, avgConf: sp.avgConf,
+                   bestConf: sp.avgConf, bestClip: null, lastSeen: sp.lastSeen,
+                   clipsLoaded: false, clips: [] };
+        });
+        render();
+      });
+  };
+
+  window.setSort = function(mode) {
+    sortMode = mode;
+    document.querySelectorAll('.sort-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.sort === mode); });
+    render();
+  };
+
+  function sortCards(cards) {
+    var sorted = cards.slice();
+    if (sortMode === 'confidence') sorted.sort(function(a, b) { return b.bestConf - a.bestConf; });
+    else if (sortMode === 'count') sorted.sort(function(a, b) { return b.count - a.count; });
+    else sorted.sort(function(a, b) { return b.lastSeen > a.lastSeen ? 1 : b.lastSeen < a.lastSeen ? -1 : 0; });
+    return sorted;
+  }
+
+  function render() {
+    var list = document.getElementById('species-list');
+    var sorted = sortCards(speciesCards);
+    if (sorted.length === 0) {
+      list.innerHTML = '<div class="empty"><span class="icon">&#x1F54A;</span>No birds heard. Check back soon.</div>';
+      return;
+    }
+    list.innerHTML = sorted.map(function(sp, idx) {
+      var confPct = Math.round(sp.bestConf * 100);
+      var confCls = confPct >= 80 ? 'high' : confPct >= 50 ? 'med' : 'low';
+      var imgUrl = '/bird-api/species-image/' + encodeURIComponent(sp.species);
+      var timeStr = sp.lastSeen ? formatTime(sp.lastSeen.split(' ').pop()) : '';
+      var playBtn = sp.bestClip
+        ? '<button class="card-play" id="main-' + idx + '" onclick="event.stopPropagation();playSpeciesQueue(' + idx + ')">&#9654;</button>'
+        : '';
+      return '<div class="species-card" style="animation-delay:' + (idx * 0.03) + 's">' +
+        '<div class="card-main" onclick="toggleCard(' + idx + ', this)">' +
+          '<img class="card-photo" src="' + imgUrl + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">' +
+          playBtn +
+          '<div class="card-info"><div class="card-species">' + sp.species + '<div class="card-viz" id="viz-' + idx + '"></div></div>' +
+            '<div class="card-meta">' +
+              '<span class="now-playing-time" id="now-time-' + idx + '"></span>' +
+              '<span class="now-playing-count" id="now-count-' + idx + '"></span>' +
+              (timeStr ? '<span id="last-heard-' + idx + '">Last heard ' + timeStr + '</span>' : '') +
+            '</div></div>' +
+          '<div class="card-right">' +
+            '<div class="conf-bar"><div class="conf-fill ' + confCls + '" style="width:' + confPct + '%">' + confPct + '</div></div>' +
+            '<span class="count-badge">' + sp.count.toLocaleString() + ' detection' + (sp.count !== 1 ? 's' : '') + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-clips" id="clips-' + idx + '"><div class="loading-clips">Loading clips...</div></div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.toggleCard = function(idx, mainEl) {
+    var clipsDiv = document.getElementById('clips-' + idx);
+    if (!clipsDiv) return;
+    var isOpen = clipsDiv.classList.contains('open');
+    // Close all other cards
+    document.querySelectorAll('.card-clips.open').forEach(function(c) { c.classList.remove('open'); });
+    if (isOpen) return;
+    clipsDiv.classList.add('open');
+
+    // Load clips on demand if not already loaded
+    var sorted = sortCards(speciesCards);
+    var sp = sorted[idx];
+    if (!sp) return;
+    if (sp.clipsLoaded) {
+      renderClips(idx, sp.clips);
+      return;
+    }
+
+    var dateVal = document.getElementById('filter-date').value || 'all';
+    var sourceVal = document.getElementById('filter-source').value;
+    var params = 'date=' + dateVal + '&species=' + encodeURIComponent(sp.species) + '&limit=50';
+    if (sourceVal) params += '&source=' + encodeURIComponent(sourceVal);
+    fetch('/bird-api/audio-detections?' + params)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        sp.clips = (data.detections || []).filter(function(d) { return d.has_clip; })
+          .sort(function(a, b) { return b.confidence - a.confidence; });
+        sp.clipsLoaded = true;
+        renderClips(idx, sp.clips);
+      })
+      .catch(function() {
+        clipsDiv.innerHTML = '<div class="loading-clips">Could not load clips</div>';
+      });
+  };
+
+  function renderClips(idx, clips) {
+    var div = document.getElementById('clips-' + idx);
+    if (!div) return;
+    if (clips.length === 0) {
+      div.innerHTML = '<div class="loading-clips">No clips available</div>';
+      return;
+    }
+    div.innerHTML = clips.map(function(c, ci) {
+      var cPct = Math.round(c.confidence * 100);
+      var confCls = cPct >= 80 ? 'high' : cPct >= 50 ? 'med' : 'low';
+      return '<div class="clip-row" id="cliprow-' + idx + '-' + ci + '">' +
+        '<button class="clip-play" id="clip-' + idx + '-' + ci + '" onclick="event.stopPropagation();playClip(\'' + c.clip_name.replace(/'/g, "\\'") + '\',\'clip-' + idx + '-' + ci + '\')">&#9654;</button>' +
+        '<span class="clip-time">' + formatTime(c.time) + '</span>' +
+        '<span class="clip-conf">' + cPct + '%</span>' +
+        '<span class="clip-source">' + (c.source || 'ground') + '</span>' +
+        '<button class="clip-trash" id="trash-' + idx + '-' + ci + '" onclick="event.stopPropagation();trashAudioClip(' + c.id + ',\'trash-' + idx + '-' + ci + '\',\'cliprow-' + idx + '-' + ci + '\')" title="Remove bad clip">&#x1F5D1;</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ── Crossfade Audio Engine ──
+  // Two audio elements leapfrog: one plays, one preloads. Crossfade at 300ms before end.
+  var playerA = document.getElementById('player-a');
+  var playerB = document.getElementById('player-b');
+
+  // ── Audio Visualizer (Web Audio API) ──
+  // AnalyserNode for real-time frequency visualization. Server-side loudnorm
+  // handles volume normalization — this is purely visual.
+
+  var _vizCtx = null;
+  var _vizAnalyser = null;
+  var _vizConnected = false;
+  var _vizRAF = null;
+  var _vizBars = [];  // currently active bars to update
+  var _vizBarCount = 16;
+
+  function initViz() {
+    if (_vizConnected) return;
+    try {
+      _vizCtx = new (window.AudioContext || window.webkitAudioContext)();
+      _vizAnalyser = _vizCtx.createAnalyser();
+      _vizAnalyser.fftSize = 64;
+      _vizAnalyser.smoothingTimeConstant = 0.7;
+      var srcA = _vizCtx.createMediaElementSource(playerA);
+      var srcB = _vizCtx.createMediaElementSource(playerB);
+      srcA.connect(_vizAnalyser);
+      srcB.connect(_vizAnalyser);
+      _vizAnalyser.connect(_vizCtx.destination);
+      _vizConnected = true;
+    } catch(e) {}
+  }
+
+  function setVizTarget(bars) { _vizBars = bars || []; }
+
+  function startViz() {
+    if (_vizRAF || !_vizAnalyser) return;
+    var freqData = new Uint8Array(_vizAnalyser.frequencyBinCount);
+    function draw() {
+      _vizAnalyser.getByteFrequencyData(freqData);
+      for (var i = 0; i < _vizBars.length && i < freqData.length; i++) {
+        _vizBars[i].style.height = Math.max(2, (freqData[i] / 255) * 22) + 'px';
+      }
+      _vizRAF = requestAnimationFrame(draw);
+    }
+    _vizRAF = requestAnimationFrame(draw);
+  }
+
+  function stopViz() {
+    if (_vizRAF) { cancelAnimationFrame(_vizRAF); _vizRAF = null; }
+    // Remove bars entirely — clean state when not playing
+    _vizBars.forEach(function(b) { if (b.parentNode) b.parentNode.removeChild(b); });
+    _vizBars = [];
+  }
+
+  function buildBarElements(container, count) {
+    var bars = [];
+    for (var i = 0; i < count; i++) {
+      var bar = document.createElement('span');
+      bar.className = 'vbar idle';
+      container.appendChild(bar);
+      bars.push(bar);
+    }
+    return bars;
+  }
+
+  var queue = [];             // [{clip_name, time, confidence}]
+  var queueIdx = -1;
+  var queueCardIdx = -1;      // which species card owns the queue
+  var crossfadeRAF = null;
+  var isCrossfading = false;
+  var CROSSFADE_MS = 50;      // 50ms — just enough to prevent click artifacts
+  var OVERLAP_MS = 50;        // next clip starts right as current ends
+  var MAX_QUEUE = 10;
+
+  function stopAll() {
+    if (crossfadeRAF) { cancelAnimationFrame(crossfadeRAF); crossfadeRAF = null; }
+    if (_crossfadeWatchRAF) { cancelAnimationFrame(_crossfadeWatchRAF); _crossfadeWatchRAF = null; }
+    isCrossfading = false;
+    stopViz();
+    playerA.ontimeupdate = null;
+    playerB.ontimeupdate = null;
+    playerA.onended = null;
+    playerB.onended = null;
+    playerA.pause(); playerA.currentTime = 0; playerA.volume = 1;
+    playerB.pause(); playerB.currentTime = 0; playerB.volume = 1;
+    playingClip = null;
+    queueIdx = -1;
+    queue = [];
+    document.querySelectorAll('.card-play.playing, .card-play.queued, .clip-play.playing').forEach(function(b) {
+      b.classList.remove('playing', 'queued');
+    });
+    document.querySelectorAll('.now-playing-time').forEach(function(el) { el.classList.remove('visible'); el.textContent = ''; });
+    document.querySelectorAll('.now-playing-count').forEach(function(el) { el.textContent = ''; });
+    document.querySelectorAll('[id^="last-heard-"]').forEach(function(el) { el.style.display = ''; });
+    queueCardIdx = -1;
+  }
+
+  function showNowPlaying(cardIdx, clip, position, total) {
+    var timeEl = document.getElementById('now-time-' + cardIdx);
+    var countEl = document.getElementById('now-count-' + cardIdx);
+    var lastEl = document.getElementById('last-heard-' + cardIdx);
+    if (lastEl) lastEl.style.display = 'none';
+    if (timeEl) {
+      timeEl.classList.remove('visible');
+      setTimeout(function() {
+        timeEl.textContent = formatTime(clip.time);
+        timeEl.classList.add('visible');
+      }, 150);
+    }
+    if (countEl) {
+      countEl.textContent = position + ' of ' + total;
+    }
+  }
+
+  // Get which player handles which queue index (A=even, B=odd)
+  function playerFor(idx) { return (idx % 2 === 0) ? playerA : playerB; }
+
+  function startQueue() {
+    queueIdx = 0;
+    if (queue.length === 0) { stopAll(); return; }
+
+    var clip = queue[0];
+    var p = playerFor(0);
+    p.src = '/bird-api/birdnet-clip-enhanced/' + clip.clip_name;
+    p.volume = 1;
+    p.play().then(function() {
+      playingClip = clip.clip_name;
+      showNowPlaying(queueCardIdx, clip, 1, queue.length);
+    }).catch(function(e) { console.warn('Queue start failed:', e); stopAll(); });
+
+    // Preload the next clip on the other player
+    if (queue.length > 1) {
+      var pNext = playerFor(1);
+      pNext.src = '/bird-api/birdnet-clip-enhanced/' + queue[1].clip_name;
+      pNext.volume = 0;
+      pNext.load();
+    }
+
+    // Watch for crossfade point
+    scheduleCrossfadeWatch(p, 0);
+  }
+
+  var _crossfadeWatchRAF = null;
+
+  function scheduleCrossfadeWatch(currentPlayer, currentIdx) {
+    // Use rAF polling instead of ontimeupdate — ontimeupdate fires at ~250ms
+    // intervals which is too coarse for precise crossfade timing. rAF gives
+    // us ~16ms precision.
+    currentPlayer.ontimeupdate = null;
+
+    function watchTick() {
+      if (isCrossfading || currentPlayer.paused) return;
+      if (!currentPlayer.duration || isNaN(currentPlayer.duration)) {
+        _crossfadeWatchRAF = requestAnimationFrame(watchTick);
+        return;
+      }
+      var remaining = currentPlayer.duration - currentPlayer.currentTime;
+      var nextIdx = currentIdx + 1;
+      if (remaining <= OVERLAP_MS / 1000 && remaining > 0 && nextIdx < queue.length) {
+        beginCrossfade(currentPlayer, currentIdx, nextIdx);
+        return; // crossfade takes over
+      }
+      _crossfadeWatchRAF = requestAnimationFrame(watchTick);
+    }
+    _crossfadeWatchRAF = requestAnimationFrame(watchTick);
+
+    // Fallback: if clip ends without crossfade (last clip)
+    currentPlayer.onended = function() {
+      if (_crossfadeWatchRAF) { cancelAnimationFrame(_crossfadeWatchRAF); _crossfadeWatchRAF = null; }
+      if (isCrossfading) return;
+      var nextIdx = currentIdx + 1;
+      if (nextIdx < queue.length) {
+        advanceToClip(nextIdx);
+      } else {
+        stopAll();
+      }
+    };
+  }
+
+  function beginCrossfade(outPlayer, outIdx, inIdx) {
+    // Hard cut — no fade. Just stop the old clip and start the new one.
+    isCrossfading = true;
+    outPlayer.ontimeupdate = null;
+
+    // Stop outgoing immediately
+    outPlayer.pause();
+    outPlayer.currentTime = 0;
+    outPlayer.volume = 1;
+
+    // Start incoming at full volume
+    var inPlayer = playerFor(inIdx);
+    var inClip = queue[inIdx];
+    inPlayer.volume = 1;
+    inPlayer.play().catch(function() {});
+
+    queueIdx = inIdx;
+    playingClip = inClip.clip_name;
+    showNowPlaying(queueCardIdx, inClip, inIdx + 1, queue.length);
+
+    isCrossfading = false;
+
+    // Preload the NEXT next clip on the now-free outPlayer
+    var preloadIdx = inIdx + 1;
+    if (preloadIdx < queue.length) {
+      outPlayer.src = '/bird-api/birdnet-clip-enhanced/' + queue[preloadIdx].clip_name;
+      outPlayer.volume = 0;
+      outPlayer.load();
+    }
+
+    // Watch for next transition
+    scheduleCrossfadeWatch(inPlayer, inIdx);
+  }
+
+  // Direct advance (no crossfade — fallback for missed timing)
+  function advanceToClip(idx) {
+    queueIdx = idx;
+    var clip = queue[idx];
+    var p = playerFor(idx);
+    p.src = '/bird-api/birdnet-clip-enhanced/' + clip.clip_name;
+    p.volume = 1;
+    p.play().then(function() {
+      playingClip = clip.clip_name;
+      showNowPlaying(queueCardIdx, clip, idx + 1, queue.length);
+    }).catch(function() {});
+
+    // Preload next
+    if (idx + 1 < queue.length) {
+      var pNext = playerFor(idx + 1);
+      pNext.src = '/bird-api/birdnet-clip-enhanced/' + queue[idx + 1].clip_name;
+      pNext.volume = 0;
+      pNext.load();
+    }
+    scheduleCrossfadeWatch(p, idx);
+  }
+
+  // Main play button handler — loads clips and starts queue
+  window.playSpeciesQueue = function(idx) {
+    var sorted = sortCards(speciesCards);
+    var sp = sorted[idx];
+    if (!sp) return;
+
+    // Init viz on first user gesture
+    initViz();
+    if (_vizCtx && _vizCtx.state === 'suspended') _vizCtx.resume();
+
+    // Toggle off if already playing this species
+    if (queueCardIdx === idx && playingClip) {
+      stopAll();
+      return;
+    }
+
+    stopAll();
+    queueCardIdx = idx;
+
+    // Show loading state on button
+    var btn = document.getElementById('main-' + idx);
+    if (btn) btn.classList.add('queued');
+
+    // Fetch clips if not loaded
+    function beginQueue(clips) {
+      queue = clips.slice(0, MAX_QUEUE);
+      if (queue.length === 0) { stopAll(); return; }
+      if (btn) { btn.classList.remove('queued'); btn.classList.add('playing'); }
+      // Build viz bars for this card
+      var vizContainer = document.getElementById('viz-' + idx);
+      if (vizContainer) {
+        vizContainer.innerHTML = '';
+        setVizTarget(buildBarElements(vizContainer, _vizBarCount));
+        startViz();
+      }
+      startQueue();
+    }
+
+    if (sp.clipsLoaded && sp.clips.length > 0) {
+      beginQueue(sp.clips);
+    } else {
+      var dateVal = document.getElementById('filter-date').value || 'all';
+      var sourceVal = document.getElementById('filter-source').value;
+      var params = 'date=' + dateVal + '&species=' + encodeURIComponent(sp.species) + '&limit=50';
+      if (sourceVal) params += '&source=' + encodeURIComponent(sourceVal);
+      fetch('/bird-api/audio-detections?' + params)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          sp.clips = (data.detections || []).filter(function(d) { return d.clip_name; })
+            .sort(function(a, b) { return b.confidence - a.confidence; });
+          sp.clipsLoaded = true;
+          beginQueue(sp.clips);
+        })
+        .catch(function() { stopAll(); });
+    }
+  };
+
+  // Trash a clip from the audio browser
+  window.trashAudioClip = function(clipId, trashBtnId, rowId) {
+    var btn = document.getElementById(trashBtnId);
+    var row = document.getElementById(rowId);
+    if (!btn) return;
+
+    fetch('/bird-api/game/trash-clip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clip_id: clipId, player_name: 'audio-browser', reason: 'bad_clip'})
+    }).then(function() {
+      btn.classList.add('trashed');
+      if (row) { row.style.opacity = '0.3'; row.style.textDecoration = 'line-through'; }
+    }).catch(function() {});
+  };
+
+  // Single clip play (from expanded clip list)
+  window.playClip = function(clipName, btnId) {
+    initViz();
+    if (_vizCtx && _vizCtx.state === 'suspended') _vizCtx.resume();
+    var btn = document.getElementById(btnId);
+    // Stop any queue playback
+    stopAll();
+    if (playingClip === clipName) return;
+
+    document.querySelectorAll('.clip-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+    playerA.src = '/bird-api/birdnet-clip-enhanced/' + clipName;
+    playerA.volume = 1;
+    playerA.play().then(function() { playingClip = clipName; if (btn) btn.classList.add('playing'); })
+      .catch(function(e) { console.warn('Playback failed:', e); });
+    playerA.onended = function() {
+      playingClip = null;
+      document.querySelectorAll('.clip-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+    };
+    playerA.ontimeupdate = null;
+  };
+})();
+</script>
+</body>
+</html>

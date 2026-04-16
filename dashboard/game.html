@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Name That Call</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080b10;
+    --bg-card: #10141c;
+    --bg-glow: #131825;
+    --border: rgba(255,255,255,0.05);
+    --text: #eef0f4;
+    --text-dim: #5a6478;
+    --gold: #e2b358;
+    --gold-glow: rgba(226,179,88,0.2);
+    --green: #34d399;
+    --green-glow: rgba(52,211,153,0.25);
+    --red: #f87171;
+    --red-glow: rgba(248,113,113,0.25);
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Ambient background */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(226,179,88,0.04) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 80%, rgba(52,211,153,0.03) 0%, transparent 60%);
+    animation: drift 20s ease-in-out infinite alternate;
+    pointer-events: none; z-index: 0;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) rotate(0deg); }
+    to { transform: translate(-3%, 2%) rotate(2deg); }
+  }
+
+  .game { position: relative; z-index: 1; width: 100%; max-width: 480px; padding: 24px; }
+
+  /* ── Name Entry Screen ── */
+  .screen { display: none; }
+  .screen.active { display: flex; flex-direction: column; align-items: center; }
+
+  .title {
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 2.2rem;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--gold), #f5d88e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    margin-bottom: 32px;
+  }
+
+  .name-input {
+    width: 100%;
+    padding: 14px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+  .name-input:focus { border-color: var(--gold); }
+  .name-input::placeholder { color: var(--text-dim); }
+
+  .player-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  .chip {
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Outfit', sans-serif;
+  }
+  .chip:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-glow); }
+
+  /* Mode selector */
+  .mode-selector {
+    display: flex;
+    gap: 6px;
+    margin-top: 16px;
+    margin-bottom: 4px;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 10px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-dim);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .mode-btn:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+  .mode-btn.active { background: var(--gold-glow); border-color: var(--gold); color: var(--gold); }
+
+  /* Learn preview grid */
+  .learn-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    margin-top: 16px;
+  }
+  .learn-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .learn-card:hover { border-color: rgba(255,255,255,0.15); background: var(--bg-glow); }
+  .learn-card.playing { border-color: var(--green); background: var(--green-glow); }
+  .learn-card img {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg);
+    border: 2px solid var(--border);
+  }
+  .learn-card.playing img { border-color: var(--green); }
+  .learn-card .learn-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .learn-card .learn-hint {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  /* Match mode — split into listen area + select button */
+  .answer-match {
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .match-listen {
+    padding: 10px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    transition: background 0.15s;
+  }
+  .match-listen:hover { background: rgba(96,165,250,0.08); }
+  .match-listen img {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg);
+    border: 2px solid var(--border);
+  }
+  .match-speaker {
+    font-size: 0.72rem;
+    color: var(--blue);
+    font-weight: 500;
+  }
+  .answer-match.match-listening { border-color: var(--blue); }
+  .answer-match.match-listening .match-listen { background: rgba(96,165,250,0.1); }
+  .answer-match.match-listening .match-listen img { border-color: var(--blue); }
+  .match-select {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255,255,255,0.03);
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .match-select:hover { background: var(--gold-glow); color: var(--gold); }
+  .answer-match.correct .match-select { background: var(--green-glow); color: var(--green); }
+  .answer-match.wrong .match-select { background: var(--red-glow); color: var(--red); }
+  .answer-match.was-correct .match-select { color: var(--green); opacity: 0.6; }
+
+  .start-btn {
+    margin-top: 24px;
+    padding: 14px 48px;
+    background: linear-gradient(135deg, var(--gold), #c9952e);
+    color: #000;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .start-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--gold-glow); }
+  .start-btn:active { transform: translateY(0); }
+  .start-btn:disabled { opacity: 0.4; cursor: default; transform: none; box-shadow: none; }
+
+  /* ── Game Screen ── */
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .streak {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .streak .fire { font-size: 1.3rem; }
+  .progress-dots {
+    display: flex;
+    gap: 6px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.3s, transform 0.3s;
+  }
+  .dot.correct { background: var(--green); transform: scale(1.2); }
+  .dot.wrong { background: var(--red); transform: scale(1.2); }
+  .dot.current { background: var(--text-dim); animation: pulse-dot 1s ease-in-out infinite; }
+  @keyframes pulse-dot { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+  /* Bird reveal area */
+  .reveal {
+    width: 100%;
+    aspect-ratio: 1;
+    max-height: 260px;
+    border-radius: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .reveal-photo {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    position: absolute;
+  }
+  .reveal-photo.show { opacity: 1; }
+  .reveal-icon {
+    font-size: 3rem;
+    opacity: 0.15;
+    position: absolute;
+  }
+
+  /* Audio visualizer — frequency bars inside the reveal area */
+  .visualizer {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 60px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 12px 8px;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .viz-bar {
+    flex: 1;
+    max-width: 6px;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--gold);
+    opacity: 0.7;
+    transition: height 0.05s ease-out;
+  }
+  .viz-bar.example { background: var(--blue); }
+
+  /* Clip counter dots below the visualizer */
+  .clip-dots {
+    position: absolute;
+    bottom: 2px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    z-index: 2;
+  }
+  .clip-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    transition: background 0.2s;
+  }
+  .clip-dot.played { background: var(--gold); }
+  .clip-dot.playing { background: var(--gold); animation: pulse-dot 0.6s ease-in-out infinite; }
+  .reveal-species {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .reveal-species.show { opacity: 1; transform: translateY(0); }
+
+  .play-again-btn {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: var(--gold-glow);
+    border: 2px solid var(--gold);
+    color: var(--gold);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 2;
+  }
+  .play-again-btn:hover { background: var(--gold); color: #000; transform: translate(-50%, -50%) scale(1.1); }
+  .play-again-btn.hidden { display: none; }
+
+  /* Answer buttons */
+  .answers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+  .answer-btn {
+    padding: 10px 10px 12px;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 500;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    line-height: 1.3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .answer-btn img {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg);
+    border: 2px solid var(--border);
+    transition: border-color 0.15s;
+  }
+  .answer-btn.correct img { border-color: var(--green); }
+  .answer-btn.wrong img { border-color: var(--red); opacity: 0.6; }
+  .answer-btn.was-correct img { border-color: var(--green); }
+  .answer-btn:hover { border-color: rgba(255,255,255,0.2); background: var(--bg-glow); }
+  .answer-btn:active { transform: scale(0.97); }
+  .answer-btn.correct {
+    border-color: var(--green);
+    background: var(--green-glow);
+    color: var(--green);
+    animation: pop 0.3s ease;
+  }
+  .answer-btn.wrong {
+    border-color: var(--red);
+    background: var(--red-glow);
+    color: var(--red);
+  }
+  .answer-btn.was-correct {
+    border-color: var(--green);
+    color: var(--green);
+    opacity: 0.6;
+  }
+  .answer-btn:disabled { cursor: default; }
+  @keyframes pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
+  .trash-btn {
+    margin-top: 12px;
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    align-self: center;
+  }
+  .trash-btn:hover { border-color: var(--red); color: var(--red); background: var(--red-glow); }
+  .trash-btn.trashed { color: var(--red); border-color: var(--red); pointer-events: none; }
+
+  /* ── Summary Screen ── */
+  .summary-score {
+    font-family: 'Playfair Display', serif;
+    font-size: 4rem;
+    font-weight: 900;
+    margin: 8px 0;
+  }
+  .summary-score .of { font-size: 1.5rem; color: var(--text-dim); font-weight: 400; }
+  .summary-label { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 4px; }
+  .summary-streak {
+    font-size: 1.2rem;
+    color: var(--gold);
+    font-weight: 600;
+    margin-bottom: 24px;
+  }
+  .missed-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 24px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .missed-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 0.85rem;
+  }
+  .missed-item img {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg);
+  }
+  .missed-item .you-said { color: var(--red); font-size: 0.75rem; }
+
+  /* Leaderboard link */
+  .lb-link {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    margin-top: 12px;
+    cursor: pointer;
+  }
+  .lb-link:hover { color: var(--gold); }
+
+  /* ── Leaderboard Screen ── */
+  .lb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    margin-top: 16px;
+  }
+  .lb-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-table td {
+    padding: 10px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-table tr.me td { color: var(--gold); font-weight: 600; }
+
+  /* ── Game Juice ── */
+
+  /* Screen shake on wrong answer */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 50%, 90% { transform: translateX(-4px); }
+    30%, 70% { transform: translateX(4px); }
+  }
+  .shake { animation: shake 0.4s ease-out; }
+
+  /* Squash and stretch on correct answer button */
+  @keyframes squash-stretch {
+    0% { transform: scale(1, 1); }
+    15% { transform: scale(1.15, 0.88); }
+    30% { transform: scale(0.92, 1.08); }
+    45% { transform: scale(1.05, 0.95); }
+    60% { transform: scale(0.98, 1.02); }
+    100% { transform: scale(1, 1); }
+  }
+  .squash { animation: squash-stretch 0.5s ease-out; }
+
+  /* Wrong button jitter */
+  @keyframes jitter {
+    0%, 100% { transform: translateX(0) rotate(0deg); }
+    20% { transform: translateX(-3px) rotate(-1deg); }
+    40% { transform: translateX(3px) rotate(1deg); }
+    60% { transform: translateX(-2px) rotate(-0.5deg); }
+    80% { transform: translateX(2px) rotate(0.5deg); }
+  }
+  .jitter { animation: jitter 0.35s ease-out; }
+
+  /* Reveal photo entrance */
+  @keyframes reveal-zoom {
+    0% { transform: scale(0.6); opacity: 0; }
+    50% { transform: scale(1.05); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .reveal-photo.show { animation: reveal-zoom 0.4s ease-out forwards; }
+
+  /* Streak fire pulse on increment */
+  @keyframes fire-pulse {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.6); }
+    100% { transform: scale(1); }
+  }
+  .fire-pulse { animation: fire-pulse 0.4s ease-out; }
+
+  /* Combo text that flies up and fades */
+  .combo-text {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 2rem;
+    color: var(--gold);
+    pointer-events: none;
+    z-index: 100;
+    animation: combo-fly 1s ease-out forwards;
+    text-shadow: 0 2px 20px var(--gold-glow);
+  }
+  @keyframes combo-fly {
+    0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(0.5); }
+    30% { opacity: 1; transform: translateX(-50%) translateY(-30px) scale(1.2); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-80px) scale(0.8); }
+  }
+
+  /* Particle burst — individual particles */
+  .particle {
+    position: fixed;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 99;
+    animation: particle-fly 0.7s ease-out forwards;
+  }
+  @keyframes particle-fly {
+    0% { opacity: 1; transform: translate(0, 0) scale(1); }
+    100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
+  }
+
+  /* Answer buttons slide in on new question */
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .answer-btn { animation: slide-up 0.3s ease-out both; }
+  .answer-btn:nth-child(1) { animation-delay: 0.05s; }
+  .answer-btn:nth-child(2) { animation-delay: 0.1s; }
+  .answer-btn:nth-child(3) { animation-delay: 0.15s; }
+  .answer-btn:nth-child(4) { animation-delay: 0.2s; }
+
+  /* Summary score count-up */
+  @keyframes count-pop {
+    0% { transform: scale(0.5); opacity: 0; }
+    60% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+  .count-pop { animation: count-pop 0.5s ease-out; }
+
+  @media (max-width: 500px) {
+    .game { padding: 16px; }
+    .title { font-size: 1.8rem; }
+    .reveal { max-height: 200px; }
+    .answer-btn { padding: 14px 8px; font-size: 0.82rem; }
+  }
+</style>
+</head>
+<body>
+<div class="game">
+  <!-- Name Entry -->
+  <div class="screen active" id="screen-name">
+    <div class="title">Name That Call</div>
+    <div class="subtitle">Identify birds by their songs and calls</div>
+    <a href="/audio" target="_top" style="position:absolute;top:16px;left:16px;color:var(--text-dim);text-decoration:none;font-size:0.8rem;opacity:0.5;transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">&larr; Back to audio</a>
+    <input class="name-input" id="name-input" type="text" placeholder="Your name" maxlength="20"
+           onkeydown="if(event.key==='Enter')startGame()">
+    <div class="player-chips" id="player-chips"></div>
+    <div class="mode-selector" id="mode-selector">
+      <button class="mode-btn active" data-mode="play" onclick="selectMode('play')">&#x1F3AF; Play</button>
+      <button class="mode-btn" data-mode="learn" onclick="selectMode('learn')">&#x1F4D6; Learn</button>
+      <button class="mode-btn" data-mode="match" onclick="selectMode('match')">&#x1F50A; Match</button>
+    </div>
+    <button class="start-btn" id="start-btn" onclick="startGame()" disabled>Play</button>
+  </div>
+
+  <!-- Learn Preview -->
+  <div class="screen" id="screen-learn">
+    <div class="subtitle">Learn these calls first</div>
+    <div class="learn-grid" id="learn-grid"></div>
+    <button class="start-btn" id="learn-go-btn" onclick="startRound()" style="margin-top:20px;">I'm ready — start the round</button>
+  </div>
+
+  <!-- Game -->
+  <div class="screen" id="screen-game">
+    <div class="topbar">
+      <span style="cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="stopSequence();showScreen('screen-name')" title="Back to menu">
+        <span style="font-size:1.1rem;">&#x2190;</span>
+        <span id="player-label"></span>
+      </span>
+      <div class="progress-dots" id="progress-dots"></div>
+      <div class="streak"><span class="fire">&#x1F525;</span> <span id="streak-num">0</span></div>
+    </div>
+    <div class="reveal" id="reveal">
+      <span class="reveal-icon" id="reveal-icon">&#x1F3B6;</span>
+      <img class="reveal-photo" id="reveal-photo" src="" alt="">
+      <div class="visualizer" id="visualizer"></div>
+      <div class="clip-dots" id="clip-dots-viz"></div>
+      <div class="reveal-species" id="reveal-species"></div>
+      <button class="play-again-btn" id="replay-btn" onclick="replayClip()" title="Replay">&#9654;</button>
+    </div>
+    <div class="answers" id="answers"></div>
+    <button class="trash-btn" id="trash-btn" onclick="trashClip()">&#x1F5D1; Bad clip — skip this one</button>
+  </div>
+
+  <!-- Summary -->
+  <div class="screen" id="screen-summary">
+    <div class="subtitle">Round Complete</div>
+    <div class="summary-score"><span id="summary-correct">0</span><span class="of"> / 10</span></div>
+    <div class="summary-streak"><span class="fire">&#x1F525;</span> Best streak: <span id="summary-streak">0</span></div>
+    <div class="summary-label" id="missed-label">Species to practice:</div>
+    <div class="missed-list" id="missed-list"></div>
+    <button class="start-btn" onclick="showScreen('screen-name')">Play Again</button>
+    <a class="lb-link" onclick="showLeaderboard()">&#x1F3C6; Leaderboard</a>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="screen" id="screen-leaderboard">
+    <div class="title" style="font-size:1.5rem;">Leaderboard</div>
+    <table class="lb-table" id="lb-table"></table>
+    <button class="start-btn" style="margin-top:20px;" onclick="showScreen('screen-name')">Back</button>
+  </div>
+</div>
+
+<audio id="clip-audio" preload="none"></audio>
+<audio id="example-audio" preload="none"></audio>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── Juice Effects ──
+
+  function screenShake() {
+    var el = document.querySelector('.game');
+    el.classList.add('shake');
+    el.addEventListener('animationend', function() { el.classList.remove('shake'); }, {once: true});
+  }
+
+  function squashStretch(btn) {
+    btn.classList.add('squash');
+    btn.addEventListener('animationend', function() { btn.classList.remove('squash'); }, {once: true});
+  }
+
+  function jitterBtn(btn) {
+    btn.classList.add('jitter');
+    btn.addEventListener('animationend', function() { btn.classList.remove('jitter'); }, {once: true});
+  }
+
+  function firePulse() {
+    var fire = document.querySelector('.fire');
+    if (!fire) return;
+    fire.classList.remove('fire-pulse');
+    void fire.offsetWidth; // force reflow
+    fire.classList.add('fire-pulse');
+  }
+
+  function spawnParticles(x, y, color, count) {
+    for (var i = 0; i < count; i++) {
+      var p = document.createElement('div');
+      p.className = 'particle';
+      var angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+      var dist = 40 + Math.random() * 60;
+      p.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+      p.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+      p.style.left = x + 'px';
+      p.style.top = y + 'px';
+      p.style.background = color;
+      p.style.width = (4 + Math.random() * 6) + 'px';
+      p.style.height = p.style.width;
+      document.body.appendChild(p);
+      p.addEventListener('animationend', function() { p.remove(); });
+    }
+  }
+
+  function showCombo(text) {
+    var el = document.createElement('div');
+    el.className = 'combo-text';
+    el.textContent = text;
+    el.style.top = '35%';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', function() { el.remove(); });
+  }
+
+  var playerName = '';
+  var gameMode = 'play';  // 'play', 'learn', 'match'
+  var roundData = null;
+  var questionIdx = 0;
+  var streak = 0;
+  var bestStreak = 0;
+  var results = [];
+  var answered = false;
+  var audio = document.getElementById('clip-audio');
+  var exampleAudio = document.getElementById('example-audio');  // in DOM for reliable playback
+  var speciesExamples = {};  // {species: [{clip_url, ...}]}
+  var learnData = null;      // {mini_rounds: [{species, questions}]}
+  var learnRoundIdx = 0;     // which mini-round we're on
+
+  window.selectMode = function(mode) {
+    gameMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    var startBtn = document.getElementById('start-btn');
+    if (mode === 'play') startBtn.textContent = 'Play';
+    else if (mode === 'learn') startBtn.textContent = 'Learn';
+    else startBtn.textContent = 'Match';
+  };
+
+  // ── Screen management ──
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
+    document.getElementById(id).classList.add('active');
+  }
+  window.showScreen = showScreen;
+
+  // ── Cookie helpers ──
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : '';
+  }
+  function setCookie(name, val, days) {
+    var d = new Date(); d.setTime(d.getTime() + days * 86400000);
+    document.cookie = name + '=' + encodeURIComponent(val) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  }
+
+  // ── Init: load saved player + known players ──
+  var saved = getCookie('bird_game_player');
+  if (saved) {
+    document.getElementById('name-input').value = saved;
+    document.getElementById('start-btn').disabled = false;
+  }
+
+  // Enable button when name is entered
+  document.getElementById('name-input').addEventListener('input', function() {
+    document.getElementById('start-btn').disabled = !this.value.trim();
+  });
+
+  // Load known players
+  fetch('/bird-api/game/leaderboard')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var chips = document.getElementById('player-chips');
+      (data.players || []).forEach(function(p) {
+        var chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.textContent = p.name;
+        chip.onclick = function() {
+          document.getElementById('name-input').value = p.name;
+          document.getElementById('start-btn').disabled = false;
+        };
+        chips.appendChild(chip);
+      });
+    })
+    .catch(function() {});
+
+  // ── Start Game ──
+  window.startGame = function() {
+    playerName = document.getElementById('name-input').value.trim();
+    if (!playerName) return;
+    setCookie('bird_game_player', playerName, 365);
+
+    document.getElementById('start-btn').textContent = 'Loading...';
+    document.getElementById('start-btn').disabled = true;
+
+    // Learn mode uses a different API — 5 mini-rounds of 3 species
+    if (gameMode === 'learn') {
+      fetch('/bird-api/game/start-learn', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({player_name: playerName})
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        learnData = data;
+        learnRoundIdx = 0;
+        streak = 0;
+        bestStreak = 0;
+        results = [];
+        document.getElementById('player-label').textContent = playerName;
+        showLearnPreview();
+        document.getElementById('start-btn').textContent = 'Learn';
+        document.getElementById('start-btn').disabled = false;
+      })
+      .catch(function(e) {
+        console.warn('Learn start failed:', e);
+        document.getElementById('start-btn').textContent = 'Learn';
+        document.getElementById('start-btn').disabled = false;
+      });
+      return;
+    }
+
+    fetch('/bird-api/game/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({player_name: playerName})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      roundData = data;
+      questionIdx = 0;
+      streak = 0;
+      bestStreak = 0;
+      results = [];
+      document.getElementById('player-label').textContent = playerName;
+
+      if (gameMode === 'match') {
+        // Match mode: fetch example clips for all choice species
+        var roundSpecies = {};
+        data.questions.forEach(function(q) {
+          q.choices.forEach(function(sp) { roundSpecies[sp] = true; });
+        });
+        fetch('/bird-api/game/species-examples', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({species: Object.keys(roundSpecies)})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(exData) {
+          speciesExamples = exData.species_clips || {};
+          showScreen('screen-game');
+          buildProgressDots();
+          showQuestion();
+        })
+        .catch(function() {
+          showScreen('screen-game');
+          buildProgressDots();
+          showQuestion();
+        });
+      } else {
+        showScreen('screen-game');
+        buildProgressDots();
+        showQuestion();
+      }
+      document.getElementById('start-btn').textContent = 'Play';
+      document.getElementById('start-btn').disabled = false;
+    })
+    .catch(function(e) {
+      console.warn('Game start failed:', e);
+      document.getElementById('start-btn').textContent = 'Play';
+      document.getElementById('start-btn').disabled = false;
+    });
+  };
+
+  // ── Learn Mode ──
+  // 5 mini-rounds of 3 species. Learn 3 → quiz 3 → learn 3 → quiz 3 → etc.
+
+  function showLearnPreview() {
+    if (!learnData || learnRoundIdx >= learnData.mini_rounds.length) {
+      showSummary();
+      return;
+    }
+
+    var mini = learnData.mini_rounds[learnRoundIdx];
+    var grid = document.getElementById('learn-grid');
+
+    document.querySelector('#screen-learn .subtitle').textContent =
+      'Round ' + (learnRoundIdx + 1) + ' of ' + learnData.mini_rounds.length + ' — learn these calls';
+
+    grid.innerHTML = mini.species.map(function(sp) {
+      var imgUrl = '/bird-api/species-image/' + encodeURIComponent(sp.species);
+      var safeName = sp.species.replace(/'/g, "\\'");
+      return '<div class="learn-card" id="learn-' + safeName.replace(/[^a-z]/gi, '') + '" ' +
+        'onclick="playLearnSequence(\'' + safeName + '\', this)">' +
+        '<img src="' + imgUrl + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
+        '<div class="learn-name">' + sp.species + '</div>' +
+        '<div class="learn-hint">Tap to hear 5 calls</div>' +
+      '</div>';
+    }).join('');
+
+    // Store examples for Match mode use too
+    mini.species.forEach(function(sp) {
+      speciesExamples[sp.species] = sp.examples.map(function(url) { return {clip_url: url}; });
+    });
+
+    showScreen('screen-learn');
+  }
+
+  window.playLearnSequence = function(species, cardEl) {
+    console.log('[LEARN] playLearnSequence:', species, 'learnRoundIdx:', learnRoundIdx);
+    var mini = learnData.mini_rounds[learnRoundIdx];
+    var sp = mini.species.find(function(s) { return s.species === species; });
+    console.log('[LEARN] sp found:', !!sp, 'examples:', sp ? sp.examples.length : 0);
+    if (!sp || !sp.examples.length) return;
+
+    // Stop any other playing
+    stopSequence();
+    document.querySelectorAll('.learn-card.playing').forEach(function(c) { c.classList.remove('playing'); });
+    if (cardEl) cardEl.classList.add('playing');
+
+    playSequence(sp.examples, exampleAudio, function() {
+      if (cardEl) cardEl.classList.remove('playing');
+    }, true);
+  };
+
+  // Start the quiz portion of the current Learn mini-round
+  window.startRound = function() {
+    stopSequence();
+    var mini = learnData.mini_rounds[learnRoundIdx];
+
+    // Set up roundData to look like a normal round so showQuestion works
+    roundData = {
+      round_id: learnData.round_id,
+      questions: mini.questions,
+    };
+    questionIdx = 0;
+
+    showScreen('screen-game');
+    buildProgressDots();
+    showQuestion();
+  };
+
+  // ── Match Mode — tap photo to hear 5-clip example sequence for that species ──
+  window.playMatchExample = function(species, btnEl) {
+    var clips = speciesExamples[species];
+    if (!clips || clips.length === 0) return;
+
+    // Stop any current sequence
+    stopSequence();
+    document.querySelectorAll('.match-listening').forEach(function(b) { b.classList.remove('match-listening'); });
+    btnEl.classList.add('match-listening');
+
+    var urls = clips.map(function(c) { return c.clip_url; }).slice(0, 5);
+    playSequence(urls, exampleAudio, function() {
+      btnEl.classList.remove('match-listening');
+    }, true);
+  }
+
+  function buildProgressDots() {
+    var dots = document.getElementById('progress-dots');
+    dots.innerHTML = '';
+    for (var i = 0; i < roundData.questions.length; i++) {
+      var dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.id = 'dot-' + i;
+      dots.appendChild(dot);
+    }
+  }
+
+  // ── Show Question ──
+  function showQuestion() {
+    if (questionIdx >= roundData.questions.length) {
+      showSummary();
+      return;
+    }
+
+    answered = false;
+    var q = roundData.questions[questionIdx];
+
+    // Reset reveal area
+    document.getElementById('reveal-photo').classList.remove('show');
+    document.getElementById('reveal-species').classList.remove('show');
+    document.getElementById('reveal-species').textContent = '';
+    document.getElementById('reveal-icon').style.display = '';
+    document.getElementById('replay-btn').classList.remove('hidden');
+
+    // Update current dot
+    for (var i = 0; i < roundData.questions.length; i++) {
+      var dot = document.getElementById('dot-' + i);
+      if (i === questionIdx) dot.className = 'dot current';
+      else if (i < questionIdx) dot.className = results[i] && results[i].is_correct ? 'dot correct' : 'dot wrong';
+      else dot.className = 'dot';
+    }
+
+    // Render answer buttons with species photos
+    var answersEl = document.getElementById('answers');
+    var isMatch = (gameMode === 'match');
+    answersEl.innerHTML = q.choices.map(function(species, idx) {
+      var imgUrl = '/bird-api/species-image/' + encodeURIComponent(species);
+      var matchClass = isMatch ? ' match-mode' : '';
+      var safeSpecies = species.replace(/'/g, "\\'");
+      // In Match mode: tap the image area to hear the example, tap the name to submit
+      if (isMatch) {
+        return '<div class="answer-match" id="match-' + idx + '">' +
+          '<div class="match-listen" onclick="playMatchExample(\'' + safeSpecies + '\', document.getElementById(\'match-' + idx + '\'))">' +
+            '<img src="' + imgUrl + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
+            '<span class="match-speaker">&#x1F50A; Listen</span>' +
+          '</div>' +
+          '<button class="match-select" onclick="submitAnswer(' + idx + ')">This one</button>' +
+        '</div>';
+      }
+      return '<button class="answer-btn" onclick="submitAnswer(' + idx + ')">' +
+        '<img src="' + imgUrl + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
+        species + '</button>';
+    }).join('');
+
+    // Reset trash button
+    var trashBtn = document.getElementById('trash-btn');
+    trashBtn.classList.remove('trashed');
+    trashBtn.textContent = '\uD83D\uDDD1 Bad clip \u2014 skip this one';
+
+    // Play 5-clip sequence
+    var clips = q.clip_sequence || [q.clip_url];
+    playSequence(clips, audio);
+
+    // Update streak display
+    document.getElementById('streak-num').textContent = streak;
+  }
+
+  window.trashClip = function() {
+    if (answered) return;
+    var q = roundData.questions[questionIdx];
+
+    // Visual feedback immediately
+    var trashBtn = document.getElementById('trash-btn');
+    trashBtn.classList.add('trashed');
+    trashBtn.textContent = '\uD83D\uDDD1 Trashed — loading new clip...';
+    audio.pause();
+
+    // Collect all clip IDs used in this round to exclude from replacement
+    var usedIds = roundData.questions.map(function(qq) { return qq.clip_id; });
+
+    // Mark clip as bad + fetch replacement
+    fetch('/bird-api/game/trash-clip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clip_id: q.clip_id, player_name: playerName, reason: 'bad_clip'})
+    }).catch(function() {});
+
+    fetch('/bird-api/game/replacement-question', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({exclude_clip_ids: usedIds})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.question) {
+        // Replace current question with the new one
+        roundData.questions[questionIdx] = data.question;
+        showQuestion();
+      } else {
+        // No replacement available — skip
+        questionIdx++;
+        showQuestion();
+      }
+    })
+    .catch(function() {
+      questionIdx++;
+      showQuestion();
+    });
+  };
+
+  // ── Audio Visualizer (Web Audio API) ──
+  // AnalyserNode gives us real-time frequency data from playing audio.
+  // Per MDN: createMediaElementSource can only be called once per element.
+  // We set up on first user gesture and reuse forever.
+
+  var _vizCtx = null;
+  var _vizAnalyser = null;
+  var _vizConnected = false;
+  var _vizRAF = null;
+  var _vizBars = [];
+  var _vizBarCount = 32;
+  var _vizIsExample = false;  // true = blue bars (example), false = gold (mystery)
+
+  function initVisualizer() {
+    if (_vizConnected) return;
+    try {
+      _vizCtx = new (window.AudioContext || window.webkitAudioContext)();
+      _vizAnalyser = _vizCtx.createAnalyser();
+      _vizAnalyser.fftSize = 64;
+      _vizAnalyser.smoothingTimeConstant = 0.75;
+
+      // Connect both audio elements through the analyser
+      var srcMain = _vizCtx.createMediaElementSource(audio);
+      var srcExample = _vizCtx.createMediaElementSource(exampleAudio);
+      srcMain.connect(_vizAnalyser);
+      srcExample.connect(_vizAnalyser);
+      _vizAnalyser.connect(_vizCtx.destination);
+
+      _vizConnected = true;
+    } catch(e) {
+      console.warn('[VIZ] Init failed:', e.message);
+    }
+  }
+
+  function buildVizBars() {
+    var container = document.getElementById('visualizer');
+    if (!container) return;
+    container.innerHTML = '';
+    _vizBars = [];
+    for (var i = 0; i < _vizBarCount; i++) {
+      var bar = document.createElement('div');
+      bar.className = 'viz-bar';
+      container.appendChild(bar);
+      _vizBars.push(bar);
+    }
+  }
+
+  function updateClipDots(totalClips, currentIdx) {
+    var container = document.getElementById('clip-dots-viz');
+    if (!container) return;
+    container.innerHTML = '';
+    for (var i = 0; i < totalClips; i++) {
+      var dot = document.createElement('span');
+      dot.className = 'clip-dot' + (i < currentIdx ? ' played' : i === currentIdx ? ' playing' : '');
+      container.appendChild(dot);
+    }
+  }
+
+  function startVizLoop() {
+    if (_vizRAF) return;
+    if (!_vizAnalyser) return;
+    var freqData = new Uint8Array(_vizAnalyser.frequencyBinCount);
+
+    function draw() {
+      _vizAnalyser.getByteFrequencyData(freqData);
+      for (var i = 0; i < _vizBars.length && i < freqData.length; i++) {
+        var val = freqData[i]; // 0-255
+        var height = Math.max(2, (val / 255) * 55);
+        _vizBars[i].style.height = height + 'px';
+        _vizBars[i].className = 'viz-bar' + (_vizIsExample ? ' example' : '');
+      }
+      _vizRAF = requestAnimationFrame(draw);
+    }
+    _vizRAF = requestAnimationFrame(draw);
+  }
+
+  function stopVizLoop() {
+    if (_vizRAF) { cancelAnimationFrame(_vizRAF); _vizRAF = null; }
+    _vizBars.forEach(function(bar) { if (bar.parentNode) bar.parentNode.removeChild(bar); });
+    _vizBars = [];
+  }
+
+  buildVizBars();
+
+  // ── Sequence Player — plays N clips in a row with brief gaps ──
+  var _seqPlaying = false;
+  var _seqQueue = [];
+  var _seqIdx = 0;
+  var _seqAudio = null;  // which audio element to use
+  var _seqOnFinish = null;
+
+  function playSequence(clips, audioEl, onFinish, isExample) {
+    stopSequence();
+    if (!clips || clips.length === 0) return;
+    _seqQueue = clips.slice();
+    _seqIdx = 0;
+    _seqAudio = audioEl;
+    _seqPlaying = true;
+    _seqOnFinish = onFinish || null;
+
+    // Init visualizer on first play (needs user gesture)
+    initVisualizer();
+    if (_vizCtx && _vizCtx.state === 'suspended') _vizCtx.resume();
+    _vizIsExample = !!isExample;
+    updateClipDots(_seqQueue.length, 0);
+    startVizLoop();
+
+    _playNextInSeq();
+  }
+
+  function _playNextInSeq() {
+    if (!_seqPlaying || _seqIdx >= _seqQueue.length) {
+      _seqPlaying = false;
+      stopVizLoop();
+      if (_seqOnFinish) _seqOnFinish();
+      return;
+    }
+    updateClipDots(_seqQueue.length, _seqIdx);
+    var url = _seqQueue[_seqIdx];
+    _seqAudio.src = url;
+    _seqAudio.play().catch(function(e) {
+      // Skip failed clip
+      _seqIdx++;
+      _playNextInSeq();
+    });
+    _seqAudio.onended = function() {
+      _seqIdx++;
+      _playNextInSeq();
+    };
+  }
+
+  function stopSequence() {
+    _seqPlaying = false;
+    _seqQueue = [];
+    if (_seqAudio) { _seqAudio.pause(); _seqAudio.onended = null; }
+    stopVizLoop();
+  }
+
+  window.replayClip = function() {
+    var q = roundData.questions[questionIdx];
+    var clips = q.clip_sequence || [q.clip_url];
+    playSequence(clips, audio);
+  };
+
+  // ── Submit Answer ──
+  window.submitAnswer = function(chosenIdx) {
+    if (answered) return;
+    answered = true;
+
+    var q = roundData.questions[questionIdx];
+    var isCorrect = (chosenIdx === q.correct_index);
+    var chosen = q.choices[chosenIdx];
+
+    if (isCorrect) {
+      streak++;
+      if (streak > bestStreak) bestStreak = streak;
+    } else {
+      streak = 0;
+    }
+
+    results.push({
+      correct_species: q.correct_species,
+      chosen_species: chosen,
+      is_correct: isCorrect
+    });
+
+    // Update UI with juice effects
+    var buttons = document.querySelectorAll('.answer-btn, .answer-match');
+    buttons.forEach(function(btn, idx) {
+      btn.disabled = true;
+      btn.style.pointerEvents = 'none'; // also works on divs
+      if (idx === q.correct_index) {
+        btn.classList.add(isCorrect ? 'correct' : 'was-correct');
+        if (isCorrect) {
+          squashStretch(btn);
+          // Particle burst from the correct button
+          var rect = btn.getBoundingClientRect();
+          var cx = rect.left + rect.width / 2;
+          var cy = rect.top + rect.height / 2;
+          spawnParticles(cx, cy, '#34d399', 12);
+          firePulse();
+          // Streak milestones
+          if (streak === 3) showCombo('Nice! 3x');
+          else if (streak === 5) showCombo('On Fire! 5x');
+          else if (streak === 7) showCombo('Unstoppable! 7x');
+          else if (streak === 10) showCombo('PERFECT!');
+        }
+      }
+      if (idx === chosenIdx && !isCorrect) {
+        btn.classList.add('wrong');
+        jitterBtn(btn);
+        screenShake();
+      }
+    });
+
+    // Reveal species
+    var photo = document.getElementById('reveal-photo');
+    photo.src = '/bird-api/species-image/' + encodeURIComponent(q.correct_species);
+    photo.classList.add('show');
+    document.getElementById('reveal-icon').style.display = 'none';
+    document.getElementById('replay-btn').classList.add('hidden');
+    var speciesEl = document.getElementById('reveal-species');
+    speciesEl.textContent = q.correct_species;
+    speciesEl.classList.add('show');
+
+    // Update dot
+    var dot = document.getElementById('dot-' + questionIdx);
+    dot.className = isCorrect ? 'dot correct' : 'dot wrong';
+    document.getElementById('streak-num').textContent = streak;
+
+    // Send answer to server (only tracked in Play mode)
+    if (gameMode === 'play') {
+      fetch('/bird-api/game/answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          round_id: roundData.round_id,
+          question_index: questionIdx,
+          chosen_species: chosen,
+          is_correct: isCorrect
+        })
+      }).catch(function() {});
+    }
+
+    // Next question after delay
+    questionIdx++;
+    setTimeout(showQuestion, 1800);
+  };
+
+  // ── Summary ──
+  function showSummary() {
+    // In Learn mode: advance to next mini-round instead of summary (unless last round)
+    if (gameMode === 'learn' && learnData) {
+      learnRoundIdx++;
+      if (learnRoundIdx < learnData.mini_rounds.length) {
+        showLearnPreview();
+        return;
+      }
+      // Last round done — show summary of all results
+    }
+
+    var correct = results.filter(function(r) { return r.is_correct; }).length;
+
+    // Animated count-up
+    var scoreEl = document.getElementById('summary-correct');
+    scoreEl.textContent = '0';
+    scoreEl.classList.add('count-pop');
+    var count = 0;
+    var countInterval = setInterval(function() {
+      count++;
+      scoreEl.textContent = count;
+      if (count >= correct) {
+        clearInterval(countInterval);
+        if (correct >= 8) spawnParticles(window.innerWidth / 2, window.innerHeight / 3, '#e2b358', 20);
+      }
+    }, 120);
+
+    document.getElementById('summary-streak').textContent = bestStreak;
+
+    var missed = results.filter(function(r) { return !r.is_correct; });
+    var missedEl = document.getElementById('missed-list');
+    var missedLabel = document.getElementById('missed-label');
+    if (missed.length === 0) {
+      missedLabel.textContent = 'Perfect round!';
+      missedEl.innerHTML = '';
+    } else {
+      missedLabel.textContent = 'Species to practice:';
+      missedEl.innerHTML = missed.map(function(m) {
+        return '<div class="missed-item">' +
+          '<img src="/bird-api/species-image/' + encodeURIComponent(m.correct_species) + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
+          '<div><div>' + m.correct_species + '</div>' +
+          '<div class="you-said">You said: ' + m.chosen_species + '</div></div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Save round (Play mode only)
+    if (gameMode === 'play') {
+      fetch('/bird-api/game/finish-round', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          round_id: roundData.round_id,
+          score: correct,
+          best_streak: bestStreak
+        })
+      }).catch(function() {});
+    }
+
+    showScreen('screen-summary');
+  }
+
+  // ── Leaderboard ──
+  window.showLeaderboard = function() {
+    fetch('/bird-api/game/leaderboard')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var table = document.getElementById('lb-table');
+        table.innerHTML = '<tr><th>#</th><th>Player</th><th>&#x1F525; Streak</th><th>Accuracy</th><th>Rounds</th></tr>';
+        (data.players || []).forEach(function(p, i) {
+          var isMe = p.name === playerName;
+          table.innerHTML += '<tr class="' + (isMe ? 'me' : '') + '">' +
+            '<td>' + (i + 1) + '</td>' +
+            '<td>' + p.name + '</td>' +
+            '<td>' + p.best_streak + '</td>' +
+            '<td>' + p.accuracy_pct + '%</td>' +
+            '<td>' + p.total_rounds + '</td>' +
+          '</tr>';
+        });
+        showScreen('screen-leaderboard');
+      })
+      .catch(function() {});
+  };
+})();
+</script>
+</body>
+</html>

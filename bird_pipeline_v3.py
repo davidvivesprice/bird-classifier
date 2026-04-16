@@ -29,11 +29,13 @@ REGIONAL_SPECIES_PATH = MODELS_DIR / "chilmark_feeder_species.txt"
 # minimal timing offset from the main stream. Lower CPU than decoding 1080p.
 CAMERAS_DETECT = {
     CAMERA_FEEDER: "rtsp://127.0.0.1:8554/feeder-sub",
-    CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-sub",
+    # Ground camera disabled — free CPU headroom for feeder quality.
+    # Re-enable when ground cam detection is prioritized.
+    # CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-sub",
 }
 CAMERAS_MAIN = {
     CAMERA_FEEDER: "rtsp://127.0.0.1:8554/feeder-main",
-    CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-main",
+    # CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-main",
 }
 
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
@@ -181,6 +183,9 @@ def main():
                 frame_height=360,
                 capture=capture,
             )
+            # HLS recorder: -c copy remux with bounded segments for delayed
+            # playback overlay. Fixed settings: hls_list_size=15, delete_segments,
+            # program_date_time. CPU <1%, minimal disk (30s rolling window).
             recorder = HlsRecorder(name, main_url, str(HLS_DIR / name))
 
             capture.start()

@@ -11,6 +11,28 @@
 <meta name="theme-color" content="#0f1114">
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAFm0lEQVR4nO2XbWyVZxnHf9d93895a2nLS7eBg6lpZIONMZvFsUwPjVOJkmhiTufrppGQzIT4gagxGo9HE2OmLkEXozFmki3GtWYKOgMWN46JTTZS2yKKoEEodEuBdX09pz3P/dyXH047EZhtmXN+8P7yPB+e5/r/7//1cv9v+P96DZaCvF7YUgD7uiAXwcy/79/54VUsUgWz8CeLAM/nXQkCxvDIXbd944Xh5+8FtFAovPZqPJPHATzeccdNj9627g8P37z2sa6ugt2zbVt6Mf9fswIKomA6yvgn37n5/Q3jLx5JNKSXLV95ZPqHZ3dvuv56KS4i/jURKBYxAioi4Zf5jSUZH/vF6Gzcms5m0zbMvt2k7U9Ppo8lJdCFYrmlgmsRIyXCyT170id/9r0fR5XKh8ZmE+9cJD6OsxMkQ9mJ6vZsy8q9Cn6hSlxSv86D/3rXtibff2qfqcxsHffqRaytEXQaZrx1h1KrV335waeeG1QQWUCFRaegOAfes7PQHB/52wFTqW4di0MsYlwiKjNBJQi2JgzbmsoP2tujxcRdlAJzO2H/zp1ZBg71uDi++6IPXoxxIoLHMJX4kHbWR00Nuz9R/vMjMDcbilAqEV4NAekqYApdqk/e1bYvV6ttn/A+boxsJKJMYaiqRY3BABlriK3rk2Xp4kcODj4F0FWoT8fObpIlE9B83pnflf3jW97y9TZf/cJ0nMTBEJ2ZnCLb2EBkHVNJPZNSz3iSMcYaZwmR+7nJNH61s+fIwHy8rgL2UiL/lkAxjyuV8ay/e02HPzX0tqzS7Kz5YyWWNe1bOD7Yxzr1bE5HpFQwIlgRVAggNEbW1ER8UHnCYvcWnj1+SJB/KcpXJDBf8cPF7auWuTN7H3569L1P/KUSmrPGpBBu33wnfccGeJep8Y4IJlVQLFUbEYwBEVQkEbA5a/ECCfQnEh77a3rdd0vlcgLoVQnMg49+reOmptqZgzYVryfYcPCEmr0DVUaqCZXZKm25LPellWangGICXCDDlE0hRuaii6IaRESb0s6NxWEk88ZTb5hLg1zRhsUihhKqj+ZvWJ4MHbC+tn76hVAdOVMLW9yM7lijBFXSjY28L2toywjOCM4YsBYVQVBQpf5QAbEgxF6TFTn3XGc3yVxh6hWT8CsAqpz/3C3fzL44efPkWA3jfTZScKpsykXakrJyzisXc4ZMCtJeERUmEpgSg5nXVevpViAOyta2FXZFc6qXMhQ25AXKV68BVZXeB29vDX+fbl3RMrNBSNYakdW9z9d2GGjZf17CcA2zMWPZ3axUgxIHYTQxvKSO+qblEnC4c22LNudc8uy50Vs7e0+fUDACYUmjuPmWTXds9BcO5kJtFUZ0VsXcm3PcaoWqgopBYI4AgJAoRE582/IGd2xkat+njg594NJWfMXDSEEoIocP18f1hesw93Uf7V/91jd9cGrSPx00SAT620oiuYzjzRaqgNYpICooYAUNqnLi4rRvSLkvKQgb/nk+LEmB9naivj7id2+4cbdNZr/lfeLH1bh7Uo57Mpbpl6WXOSUAiJelbDTh9fP3959+6PJBtCQ/0NeHz+dxvzk+/G0v7kAs4m4UTbZkLbO8nPa6gkoAfFNko/Ga/9H9/acfKuZxl4/jpRoSLZcJqiqkWh9waoff05ARiwRFkHr/BVX1TsQ0WOMmYv+dBwbP7ugqYEvlK8+Ca3FEobuA6Tl69HzHDWs+eV0mZ2oBj+JRJGPENEXGgQ5Vgv/oxwfPfqYIprObwFW8wTVZss5ukmI+7774+4GemVT0/ZWZVCpnxFmVkKgOVH3y2ZcSNn9s4NxPugrYElcHh1dxg5n3CHt27Uq19v7q064Wj4iRwcLg2T/Nf3N5wf3XVjGPW+z17D9xh5Nn8nl7mDKUCXNOeEE3/D+z/gHrNX8F/uYRQwAAAABJRU5ErkJggg==">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script type="module">
+  import {VideoRTC} from '/video-rtc.js';
+  class BirdVideoRTC extends VideoRTC {
+    oninit() {
+      super.oninit();
+      // Bridge: give internal video the old ID so all existing overlay/mute/fullscreen code works
+      this.video.id = 'live-video';
+      this.video.muted = true;
+      this.video.controls = false; // remove browser chrome — reduces compositor layers
+      // Promote video to its own compositor layer for smooth playback in complex pages
+      this.video.style.willChange = 'transform';
+      this.video.style.transform = 'translateZ(0)';
+      // Expose PeerConnection for debug harness
+      window.__v3DebugPC = null;
+    }
+    onwebrtc() {
+      super.onwebrtc();
+      if (this.pc) window.__v3DebugPC = this.pc;
+    }
+  }
+  customElements.define('video-rtc', BirdVideoRTC);
+</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -311,7 +333,7 @@
   .live-controls > * { pointer-events: auto; }
 
   .live-mute-btn {
-    background: rgba(0,0,0,0.55);
+    background: rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
     border-radius: 8px;
@@ -322,14 +344,12 @@
     align-items: center;
     gap: 5px;
     transition: background 0.2s;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
   }
   .live-mute-btn:hover, .live-fs-btn:hover, .live-enhance-btn:hover { background: rgba(0,0,0,0.8); }
   .live-mute-btn .mute-label { font-size: 0.72rem; letter-spacing: 0.03em; }
 
   .live-enhance-btn {
-    background: rgba(0,0,0,0.55);
+    background: rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
     border-radius: 8px;
@@ -340,8 +360,6 @@
     align-items: center;
     gap: 5px;
     transition: background 0.2s;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     letter-spacing: 0.03em;
   }
   .live-enhance-btn.active {
@@ -352,7 +370,7 @@
 
   .live-fs-btn {
     margin-left: auto;
-    background: rgba(0,0,0,0.55);
+    background: rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.2);
     color: #fff;
     border-radius: 8px;
@@ -363,8 +381,6 @@
     align-items: center;
     gap: 5px;
     transition: background 0.2s;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
   }
 
   .live-wrapper:fullscreen { background: #000; padding-bottom: 0; }
@@ -1947,7 +1963,7 @@
   }
   .stream-btn {
     padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
+    background: rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.2);
     color: rgba(255,255,255,0.7);
     border-radius: 6px;
@@ -1955,8 +1971,6 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
   }
   .stream-btn:hover { background: rgba(0,0,0,0.75); color: #fff; }
   .stream-btn.active { background: rgba(96,165,250,0.6); border-color: var(--accent-blue); color: #fff; }
@@ -2017,7 +2031,7 @@
     right: 10px;
     z-index: 5;
     padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
+    background: rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.2);
     color: rgba(255,255,255,0.7);
     border-radius: 6px;
@@ -2025,8 +2039,6 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     pointer-events: auto;
   }
   .overlay-toggle:hover { background: rgba(0,0,0,0.75); color: #fff; }
@@ -2159,32 +2171,33 @@
       <div class="panel">
         <div class="panel-header"><span class="icon">&#x1F3A5;</span> Live Camera Feed <span id="live-detect-status" title="Detection overlay status" style="font-size:10px;margin-left:8px;opacity:0.7;">●</span></div>
         <div class="live-wrapper" id="live-wrapper">
-          <video id="live-video" autoplay muted playsinline></video>
-          <canvas id="detection-overlay" class="detection-overlay"></canvas>
+          <video-rtc id="live-video-rtc" style="display:block; width:100%; height:100%;"></video-rtc>
+          <!-- detection-overlay canvas removed: was dead code from old overlay system, added compositor cost -->
           <div class="stream-switcher" id="stream-switcher">
-            <button class="stream-btn" id="stream-btn-feeder" onclick="switchStream('feeder-main')">Feeder</button>
+            <button class="stream-btn active" id="stream-btn-feeder" onclick="switchStream('feeder-main')">Feeder</button>
             <button class="stream-btn" id="stream-btn-ground" onclick="switchStream('ground-main')">Ground</button>
-            <button class="stream-btn active" id="stream-btn-both" onclick="switchStream('both')">Both</button>
+            <button class="stream-btn" id="stream-btn-both" onclick="switchStream('both')">Both</button>
           </div>
-          <button class="overlay-toggle" id="overlay-toggle" onclick="toggleDetectionOverlay()" title="Toggle detection labels">&#x1F3F7;&#xFE0F; Labels</button>
+          <button class="overlay-toggle" id="overlay-toggle" onclick="toggleDetectionOverlay()" title="Toggle detection labels">Labels</button>
           <div class="live-controls">
             <button class="live-mute-btn" id="live-mute-btn" onclick="toggleLiveMute()" title="Toggle audio">
-              <span id="mute-icon">&#x1F507;</span><span class="mute-label" id="mute-label">Unmute</span>
+              <span id="mute-icon">&#x1F507;</span>
             </button>
-            <button class="live-enhance-btn active" id="live-enhance-btn" onclick="toggleAudioEnhance()" title="Toggle audio enhancement">
-              Enhanced
-            </button>
+            <!-- Enhanced audio button removed — enhanced is always on.
+                 Toggle code preserved in toggleAudioEnhance() if raw mode is ever needed. -->
             <button class="live-fs-btn" id="live-fs-btn" onclick="toggleLiveFullscreen()" title="Fullscreen">
               <span id="fs-icon">&#x26F6;</span>
             </button>
+            <!-- Autofocus removed: G3 Dome has fixed-focus lens (canTouchFocus=false).
+                 Protect API accepted ztrig but camera has no focus motor. -->
           </div>
           <div class="live-offline" id="live-offline">
             <span class="big">&#x1F4F7;</span>
             <div id="live-offline-text">Connecting to camera...</div>
             <div id="live-offline-hint" style="display:none;font-size:0.75rem;margin-top:6px;opacity:0.6;">Camera feeds require local network access</div>
           </div>
-          <!-- v3 label overlay drawn on top of the EXISTING live-video.
-               No new video element. The proven connectMSE player handles
+          <!-- v3 label overlay drawn on top of VideoRTC's internal video.
+               VideoRTC (video-rtc.js from go2rtc) handles
                the video. We just add labels on top. -->
           <div id="v3-overlay-layer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none;">
             <canvas id="v3-label-overlay"
@@ -2194,13 +2207,11 @@
             <img id="v3-debug-pip" src="" alt=""
                  style="position:absolute; bottom:72px; right:8px; z-index:3;
                         width:200px; height:auto; border:1px solid rgba(74,222,128,0.5);
-                        border-radius:4px; opacity:0.85; display:block;">
-            <div id="v3-sync-slider" style="position:absolute; bottom:36px; left:0; right:0; z-index:2; display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.45); padding:3px 10px; font-size:10px; color:rgba(255,255,255,0.6); pointer-events:auto;">
-              <span style="white-space:nowrap;">⏱</span>
-              <input type="range" id="v3-offset-range" min="-2000" max="1000" step="50" value="0"
-                     style="flex:1; height:3px; accent-color:#4ade80; cursor:pointer;">
-              <span id="v3-offset-val" style="min-width:42px; text-align:right; font-variant-numeric:tabular-nums; font-size:10px;">0</span>
-            </div>
+                        border-radius:4px; opacity:0.85; display:none;">
+            <div id="v3-transport-debug" style="position:absolute; top:8px; left:8px; z-index:4; background:rgba(0,0,0,0.75); color:#e8eaed; font-family:monospace; font-size:11px; padding:6px 10px; border-radius:6px; line-height:1.6; pointer-events:none; display:none; min-width:220px;"></div>
+            <!-- Sync trim slider removed — no longer needed with hls.js playingDate
+                 providing wall-clock timestamps directly from PROGRAM-DATE-TIME tags.
+                 See: docs/superpowers/specs/2026-04-15-delayed-playback-overlay-design.md -->
           </div>
         </div>
       </div>
@@ -2484,22 +2495,9 @@
 </div>
 
 <!-- Activity Tab -->
-<!-- Audio Detection Browser Tab -->
+<!-- Audio Tab — loads the redesigned audio browser -->
 <div class="tab-content" id="tab-audio">
-  <div class="audio-filters">
-    <select id="audio-species-filter" onchange="loadAudioDetections()">
-      <option value="">All species</option>
-    </select>
-    <select id="audio-source-filter" onchange="loadAudioDetections()">
-      <option value="">All cameras</option>
-      <option value="ground">Ground</option>
-      <option value="magnolia">Magnolia</option>
-    </select>
-    <span id="audio-total" style="color:var(--text-muted);font-size:0.85rem;margin-left:auto;"></span>
-  </div>
-  <div class="audio-det-list" id="audio-det-list"></div>
-  <button class="audio-load-more" id="audio-load-more" onclick="loadMoreAudio()" style="display:none">Load more</button>
-  <audio id="audio-browser-player" preload="none" style="display:none"></audio>
+  <iframe id="audio-iframe" src="" style="width:100%;border:none;min-height:85vh;border-radius:var(--radius);background:var(--bg-primary);" loading="lazy"></iframe>
 </div>
 
 <div class="tab-content" id="tab-activity">
@@ -2820,7 +2818,7 @@
   }
   let selectedDate = todayStr();
   let currentCamera = 'all';         // 'all' | 'feeder' | 'ground'
-  let currentStream = 'both'; // go2rtc stream name for live video
+  let currentStream = 'feeder-main'; // go2rtc stream name for live video
   let showDetectionOverlay = true;   // detection bbox overlay enabled
   let liveDetectionSource = null;    // SSE EventSource for /live-detections/events (legacy, no-op with v3)
 
@@ -2966,29 +2964,14 @@
 
   function _applyMuteState() {
     var icon = document.getElementById('mute-icon');
-    var label = document.getElementById('mute-label');
-    if (_liveMuted) {
-      if (icon) icon.innerHTML = '&#x1F507;';
-      if (label) label.textContent = 'Unmute';
-    } else {
-      if (icon) icon.innerHTML = '&#x1F50A;';
-      if (label) label.textContent = 'Mute';
-    }
+    if (icon) icon.innerHTML = _liveMuted ? '&#x1F507;' : '&#x1F50A;';
 
-    // ALL views use hidden audio elements for sound.
+    // ALL views use enhanced audio (server-processed bandpass + noisereduce + normalization).
     // Video elements are always kept muted to avoid autoplay policy issues.
     var ga = _ensureGroundAudio();
-
-    if (_audioEnhanced) {
-      // Enhanced mode: mute raw, play from server-processed stream
-      ga.muted = true;
-      var ea = _ensureEnhancedAudio();
-      ea.muted = _liveMuted;
-    } else {
-      // Raw mode: play from original HLS audio, mute enhanced
-      ga.muted = _liveMuted;
-      if (_enhancedAudioEl) _enhancedAudioEl.muted = true;
-    }
+    ga.muted = true;  // raw audio always muted
+    var ea = _ensureEnhancedAudio();
+    ea.muted = _liveMuted;
 
     // Keep all video elements muted always
     var mainVid = document.getElementById('live-video');
@@ -3044,6 +3027,25 @@
       video.webkitEnterFullscreen();
     }
   }
+  // ── Auto-focus ──
+  window.triggerAutofocus = function() {
+    // Determine which camera is active
+    var cam = 'feeder';
+    if (currentStream === 'ground-main') cam = 'ground';
+    var btn = document.getElementById('live-af-btn');
+    if (btn) btn.style.opacity = '0.4';
+    fetch('/api/camera/autofocus?camera=' + cam, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (btn) { btn.style.opacity = '1'; }
+        console.log('[AF] Auto-focus triggered:', cam, d);
+      })
+      .catch(function(e) {
+        if (btn) btn.style.opacity = '1';
+        console.warn('[AF] Auto-focus failed:', e);
+      });
+  };
+
   // Update fullscreen icon on change
   document.addEventListener('fullscreenchange', updateFsIcon);
   document.addEventListener('webkitfullscreenchange', updateFsIcon);
@@ -3054,257 +3056,75 @@
     icon.innerHTML = isFs ? '&#x2716;' : '&#x26F6;';
   }
 
-  // ── Live Feed: go2rtc with MSE → HLS → MP4 fallback ──
+  // ── Live Feed: go2rtc VideoRTC component (handles WebRTC → MSE → HLS → MP4) ──
   function initLiveFeed() {
-    // v3 label overlay draws on top of this video. No separate video element.
-    var video = document.getElementById('live-video');
+    var wrapper = document.getElementById('live-wrapper');
     var offline = document.getElementById('live-offline');
-    if (!video) return;
+    if (!wrapper) return;
+
+    // VideoRTC is registered via <script type="module"> which is deferred.
+    if (!customElements.get('video-rtc')) {
+      customElements.whenDefined('video-rtc').then(function() { initLiveFeed(); });
+      return;
+    }
+
+    // Destroy and recreate the <video-rtc> element on every stream switch.
+    // VideoRTC's set src() won't switch streams if an existing ws/pc exists
+    // (onconnect line 310 returns false). Replacing the element entirely
+    // avoids this — same pattern that works in initSplitFeed().
+    var old = document.getElementById('live-video-rtc');
+    if (old) {
+      old.src = '';  // triggers ondisconnect via disconnectedCallback
+      old.remove();
+    }
+    var player = document.createElement('video-rtc');
+    player.id = 'live-video-rtc';
+    player.style.display = 'block';
+    player.style.width = '100%';
+    player.style.height = '100%';
+    // Insert before the first child (overlay layer, controls, etc. come after)
+    wrapper.insertBefore(player, wrapper.firstChild);
 
     // Show helpful hint and hide controls if camera doesn't connect within 8s
     setTimeout(function() {
       var hint = document.getElementById('live-offline-hint');
       var text = document.getElementById('live-offline-text');
-      if (hint && offline && offline.style.display !== 'none') {
+      var vid = document.getElementById('live-video');
+      if (hint && offline && (!vid || vid.readyState < 2)) {
         text.textContent = 'Camera offline';
         hint.style.display = '';
-        // Hide controls when offline
         var wrapper = document.getElementById('live-wrapper');
-        if (wrapper) wrapper.style.paddingBottom = '30%'; // collapse height
-        ['stream-switcher','overlay-toggle','live-mute-btn','live-enhance-btn','live-fs-btn'].forEach(function(id) {
+        if (wrapper) wrapper.style.paddingBottom = '30%';
+        ['stream-switcher','overlay-toggle','live-mute-btn','live-fs-btn'].forEach(function(id) {
           var el = document.getElementById(id);
           if (el) el.style.display = 'none';
         });
       }
     }, 8000);
 
-    var hasMSE = 'MediaSource' in window || 'ManagedMediaSource' in window;
-    var hasNativeHLS = video.canPlayType('application/vnd.apple.mpegurl') !== '';
-
-    console.log('[LiveFeed] MSE=' + hasMSE + ' NativeHLS=' + hasNativeHLS);
-
-    if (hasMSE) {
-      connectMSE(video, offline);
-    } else if (hasNativeHLS) {
-      connectHLS(video, offline);
+    // Build the go2rtc WebSocket URL
+    var stream = currentStream;
+    var isLocal = /^(192\.168\.|10\.|100\.|172\.(1[6-9]|2\d|3[01])\.|localhost|127\.)/.test(location.hostname);
+    var wsUrl;
+    if (isLocal) {
+      wsUrl = 'ws://' + location.hostname + ':1984/api/ws?src=' + stream;
     } else {
-      connectMP4(video, offline);
-    }
-  }
-
-  // ── MSE over WebSocket (desktop Chrome/Firefox/Edge + Safari/iOS via ManagedMediaSource) ──
-  function connectMSE(video, offline, streamName) {
-    var ws, mediaSource, sourceBuffer, queue = [];
-
-    function cleanup() {
-      if (ws) { try { ws.close(); } catch(e) {} ws = null; }
-      if (mediaSource && mediaSource.readyState === 'open') {
-        try { mediaSource.endOfStream(); } catch(e) {}
-      }
-      mediaSource = null;
-      sourceBuffer = null;
-      queue = [];
+      wsUrl = 'wss://go2rtc.vivessato.com/api/ws?src=' + stream;
     }
 
-    function flushQueue() {
-      if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
-      try {
-        if (video.buffered.length > 0) {
-          var end = video.buffered.end(video.buffered.length - 1);
-          var start = video.buffered.start(0);
-          if (end - start > 8) {
-            sourceBuffer.remove(start, end - 4);
-            return;
-          }
-          if (video.currentTime < end - 3) {
-            video.currentTime = end - 0.5;
-          }
-        }
-      } catch(e) {}
-      try {
-        sourceBuffer.appendBuffer(queue.shift());
-      } catch(e) {
-        queue = [];
-      }
-    }
+    console.log('[LiveFeed] VideoRTC src=' + wsUrl);
+    player.mode = 'webrtc,mse,hls,mp4';
+    player.visibilityCheck = false;  // we handle visibility ourselves
+    player.src = wsUrl;
 
-    function connect() {
-      cleanup();
-      if (offline) offline.style.display = '';
-
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var stream = streamName || currentStream;
-      // Always connect directly to go2rtc — never through the Python proxy.
-      // Local: ws://192.168.x.x:1984  Remote: wss://go2rtc.vivessato.com
-      var go2rtcUrl;
-      if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost|127\.)/.test(location.hostname)) {
-        go2rtcUrl = 'ws://' + location.hostname + ':1984/api/ws?src=' + stream;
-      } else {
-        go2rtcUrl = 'wss://go2rtc.vivessato.com/api/ws?src=' + stream;
-      }
-      ws = new WebSocket(go2rtcUrl);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = function() {
+    // Hide offline indicator once video starts playing
+    var checkPlaying = setInterval(function() {
+      var vid = document.getElementById('live-video');
+      if (vid && vid.readyState >= 2) {
         if (offline) offline.style.display = 'none';
-        var MSConstructor = window.ManagedMediaSource || window.MediaSource;
-        mediaSource = new MSConstructor();
-        if (window.ManagedMediaSource) {
-          video.disableRemotePlayback = true;
-          video.srcObject = mediaSource;
-        } else {
-          video.src = URL.createObjectURL(mediaSource);
-        }
-        mediaSource.addEventListener('sourceopen', function() {
-          ws.send(JSON.stringify({type: 'mse'}));
-        });
-      };
-
-      ws.onmessage = function(event) {
-        if (typeof event.data === 'string') {
-          try {
-            var msg = JSON.parse(event.data);
-            if (msg.type === 'mse' && mediaSource.readyState === 'open') {
-              sourceBuffer = mediaSource.addSourceBuffer(msg.value);
-              sourceBuffer.mode = 'segments';
-              sourceBuffer.addEventListener('updateend', flushQueue);
-              video.play().catch(function(){});
-            }
-          } catch(e) {}
-        } else if (sourceBuffer) {
-          if (sourceBuffer.updating || queue.length > 0) {
-            queue.push(event.data);
-            // Cap queue to prevent unbounded memory growth when tab is background
-            if (queue.length > 30) {
-              queue.splice(0, queue.length - 10); // Keep only last 10 segments
-            }
-          } else {
-            try {
-              sourceBuffer.appendBuffer(event.data);
-            } catch(e) {
-              queue = [];
-            }
-          }
-        }
-      };
-
-      ws.onclose = function() {
-        if (offline) offline.style.display = '';
-        setTimeout(connect, 3000);
-      };
-
-      ws.onerror = function() { ws.close(); };
-    }
-
-    connect();
-  }
-
-  // ── HLS via WebSocket negotiation (Safari / iOS) ──
-  function connectHLS(video, offline) {
-    var ws;
-    var reconnectTimer;
-    var hlsFailed = false;
-
-    function cleanup() {
-      if (ws) { try { ws.close(); } catch(e) {} ws = null; }
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-    }
-
-    function connect() {
-      cleanup();
-      if (offline) offline.style.display = '';
-      console.log('[LiveFeed] Connecting via HLS...');
-
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var wsURL = proto + '//' + location.host + '/api/ws?src=' + currentStream;
-      ws = new WebSocket(wsURL);
-
-      // Timeout: if no HLS response in 10s, fall back to MP4
-      var hlsTimeout = setTimeout(function() {
-        if (!hlsFailed) {
-          console.warn('[LiveFeed] HLS negotiation timeout, falling back to MP4');
-          hlsFailed = true;
-          cleanup();
-          connectMP4(video, offline);
-        }
-      }, 10000);
-
-      ws.onopen = function() {
-        var codecs = '';
-        var testCodecs = ['avc1.640029','avc1.64002A','mp4a.40.2','mp4a.40.5'];
-        for (var i = 0; i < testCodecs.length; i++) {
-          if (video.canPlayType('video/mp4; codecs="' + testCodecs[i] + '"')) {
-            codecs += (codecs ? ',' : '') + testCodecs[i];
-          }
-        }
-        ws.send(JSON.stringify({type: 'hls', value: codecs}));
-      };
-
-      ws.onmessage = function(event) {
-        if (typeof event.data !== 'string') return;
-        try {
-          var msg = JSON.parse(event.data);
-          if (msg.type === 'hls' && msg.value) {
-            clearTimeout(hlsTimeout);
-            // Rewrite relative HLS URLs to absolute, matching go2rtc's approach
-            var httpProto = location.protocol + '//';
-            var baseURL = httpProto + location.host + '/api/hls/';
-            var playlist = msg.value.replace(/hls\//g, baseURL);
-            video.src = 'data:application/vnd.apple.mpegurl;base64,' + btoa(playlist);
-            video.play().then(function() {
-              if (offline) offline.style.display = 'none';
-              console.log('[LiveFeed] HLS playing');
-            }).catch(function(e) {
-              console.warn('[LiveFeed] HLS play failed, trying MP4:', e);
-              if (!hlsFailed) { hlsFailed = true; cleanup(); connectMP4(video, offline); }
-            });
-          } else if (msg.type === 'error') {
-            console.warn('[LiveFeed] HLS error from server:', msg.value);
-            clearTimeout(hlsTimeout);
-            if (!hlsFailed) { hlsFailed = true; cleanup(); connectMP4(video, offline); }
-          }
-        } catch(e) {
-          console.warn('[LiveFeed] HLS parse error:', e);
-        }
-      };
-
-      ws.onclose = function() {
-        clearTimeout(hlsTimeout);
-        if (hlsFailed) return;
-        console.log('[LiveFeed] HLS WebSocket closed, reconnecting...');
-        if (offline) offline.style.display = '';
-        reconnectTimer = setTimeout(connect, 5000);
-      };
-
-      ws.onerror = function() {
-        clearTimeout(hlsTimeout);
-        ws.close();
-      };
-    }
-
-    connect();
-  }
-
-  // ── MP4 progressive stream fallback (universal) ──
-  function connectMP4(video, offline) {
-    console.log('[LiveFeed] Falling back to MP4 stream...');
-    if (offline) offline.style.display = '';
-
-    video.src = '/api/stream.mp4?src=' + currentStream;
-    video.play().then(function() {
-      if (offline) offline.style.display = 'none';
-      console.log('[LiveFeed] MP4 playing');
-    }).catch(function(e) {
-      console.warn('[LiveFeed] MP4 play failed:', e);
-      // Retry after delay
-      setTimeout(function() { connectMP4(video, offline); }, 5000);
-    });
-
-    video.onerror = function() {
-      console.warn('[LiveFeed] MP4 error, retrying...');
-      if (offline) offline.style.display = '';
-      setTimeout(function() { connectMP4(video, offline); }, 5000);
-    };
+        clearInterval(checkPlaying);
+      }
+    }, 500);
   }
 
   // ── Lightbox ──
@@ -3876,12 +3696,14 @@
   }
 
   // ── Tab navigation ──
+  window.__activeTab = 'dashboard'; // Exposed for overlay/debug gating
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      window.__activeTab = btn.dataset.tab;
       if (btn.dataset.tab === 'review') loadReviewData();
       if (btn.dataset.tab === 'activity') loadActivityTab();
     });
@@ -5745,9 +5567,13 @@
   function teardownSplit() {
     var split = document.getElementById('live-split');
     if (split) {
+      // Disconnect VideoRTC elements by clearing their src
+      split.querySelectorAll('video-rtc').forEach(function(rtc) {
+        rtc.src = '';
+      });
       split.querySelectorAll('video').forEach(function(v) {
         if (v._splitWs) { try { v._splitWs.close(); } catch(e) {} }
-        v.pause(); v.removeAttribute('src'); v.srcObject = null; v.load();
+        v.pause(); v.removeAttribute('src'); v.srcObject = null;
       });
       split.remove();
     }
@@ -5757,11 +5583,15 @@
   function initSplitFeed() {
     var wrapper = document.getElementById('live-wrapper');
     if (!wrapper) return;
-    // Hide primary video + overlay
-    var mainVideo = document.getElementById('live-video');
+    if (!customElements.get('video-rtc')) {
+      customElements.whenDefined('video-rtc').then(function() { initSplitFeed(); });
+      return;
+    }
+    // Hide primary player + overlay
+    var player = document.getElementById('live-video-rtc');
     var overlay = document.getElementById('detection-overlay');
     var offline = document.getElementById('live-offline');
-    if (mainVideo) { mainVideo.pause(); mainVideo.removeAttribute('src'); mainVideo.srcObject = null; mainVideo.load(); mainVideo.style.display = 'none'; }
+    if (player) player.style.display = 'none';
     if (overlay) overlay.style.display = 'none';
     if (offline) offline.style.display = 'none';
 
@@ -5772,15 +5602,20 @@
     split.className = 'live-split';
     split.id = 'live-split';
 
-    ['feeder', 'ground'].forEach(function(camName, idx) {
+    var isLocal = /^(192\.168\.|10\.|100\.|172\.(1[6-9]|2\d|3[01])\.|localhost|127\.)/.test(location.hostname);
+
+    ['feeder', 'ground'].forEach(function(camName) {
       var cell = document.createElement('div');
       cell.className = 'split-cell';
       cell.dataset.cam = camName;
 
-      var vid = document.createElement('video');
-      vid.autoplay = true; vid.muted = true; vid.playsInline = true;
-      vid.id = 'split-video-' + camName;
-      cell.appendChild(vid);
+      // Use VideoRTC for split view too — same smooth player
+      var rtcEl = document.createElement('video-rtc');
+      rtcEl.id = 'split-video-rtc-' + camName;
+      rtcEl.style.display = 'block';
+      rtcEl.style.width = '100%';
+      rtcEl.style.height = '100%';
+      cell.appendChild(rtcEl);
 
       var cvs = document.createElement('canvas');
       cvs.className = 'split-overlay';
@@ -5789,61 +5624,13 @@
 
       split.appendChild(cell);
 
-      // Connect via MSE WebSocket (same as single-camera view)
-      (function(video, streamSrc) {
-        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = proto + '//' + location.host + '/api/ws?src=' + streamSrc;
-        var ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-        var MSConstructor = window.ManagedMediaSource || window.MediaSource;
-        var mediaSource, sourceBuffer, queue = [];
-
-        ws.onopen = function() {
-          mediaSource = new MSConstructor();
-          if (window.ManagedMediaSource) {
-            video.disableRemotePlayback = true;
-            video.srcObject = mediaSource;
-          } else {
-            video.src = URL.createObjectURL(mediaSource);
-          }
-          mediaSource.addEventListener('sourceopen', function() {
-            ws.send(JSON.stringify({type: 'mse'}));
-          });
-        };
-
-        ws.onmessage = function(event) {
-          if (typeof event.data === 'string') {
-            var msg = JSON.parse(event.data);
-            if (msg.type === 'mse' && msg.value) {
-              sourceBuffer = mediaSource.addSourceBuffer(msg.value);
-              sourceBuffer.mode = 'segments';
-              sourceBuffer.addEventListener('updateend', flush);
-            }
-          } else {
-            queue.push(event.data);
-            flush();
-          }
-        };
-
-        function flush() {
-          if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
-          try {
-            if (video.buffered.length > 0) {
-              var end = video.buffered.end(video.buffered.length - 1);
-              if (end - video.buffered.start(0) > 8) { sourceBuffer.remove(video.buffered.start(0), end - 4); return; }
-              if (video.currentTime < end - 3) video.currentTime = end - 0.5;
-            }
-            sourceBuffer.appendBuffer(queue.shift());
-          } catch(e) { queue = []; }
-        }
-
-        ws.onclose = function() {
-          setTimeout(function() { ws = new WebSocket(wsUrl); ws.binaryType = 'arraybuffer'; }, 3000);
-        };
-
-        // Store for cleanup
-        video._splitWs = ws;
-      })(vid, camName + '-main');
+      // Set source — VideoRTC handles WebRTC + MSE + fallbacks
+      var wsUrl = isLocal
+        ? 'ws://' + location.hostname + ':1984/api/ws?src=' + camName + '-main'
+        : 'wss://go2rtc.vivessato.com/api/ws?src=' + camName + '-main';
+      rtcEl.mode = 'webrtc,mse,hls,mp4';
+      rtcEl.visibilityCheck = false;
+      rtcEl.src = wsUrl;
     });
 
     wrapper.appendChild(split);
@@ -5857,8 +5644,19 @@
     document.getElementById('stream-btn-ground').classList.toggle('active', streamName === 'ground-main');
     document.getElementById('stream-btn-both').classList.toggle('active', streamName === 'both');
 
-    // Clear detection overlay
+    // Clear detection overlay (old system) + v3 label state
     clearDetectionOverlay();
+    // Clear v3 pending events and track states so old camera labels don't linger
+    if (window.__v3PendingEvents) window.__v3PendingEvents.length = 0;
+    if (window.__v3TrackStates) {
+      for (var k in window.__v3TrackStates) delete window.__v3TrackStates[k];
+    }
+    window.__v3LabelAgeEma = null;
+    // Map stream name to pipeline camera name and reconnect SSE + debug PiP
+    var camName = (streamName === 'ground-main' || streamName === 'ground-sub') ? 'ground' : 'feeder';
+    if (streamName === 'both') camName = 'feeder'; // default for split mode
+    window.__v3CurrentCamera = camName;
+    if (window.__v3ReconnectSSE) window.__v3ReconnectSSE(camName);
 
     var wrapper = document.getElementById('live-wrapper');
 
@@ -5872,18 +5670,12 @@
     // Leaving split mode — restore primary video
     if (wrapper) wrapper.classList.remove('both-active');
     teardownSplit();
-    var mainVideo = document.getElementById('live-video');
+    var player = document.getElementById('live-video-rtc');
     var overlay = document.getElementById('detection-overlay');
-    if (mainVideo) mainVideo.style.display = '';
+    if (player) player.style.display = '';
     if (overlay) overlay.style.display = '';
 
-    // Reinitialize the live feed with the new stream
-    if (mainVideo) {
-      mainVideo.pause();
-      mainVideo.removeAttribute('src');
-      mainVideo.srcObject = null;
-      mainVideo.load();
-    }
+    // Update VideoRTC source — it handles teardown and reconnection internally
     initLiveFeed();
     _applyMuteState(); // reapply audio routing for new view
   };
@@ -5899,14 +5691,9 @@
   };
 
   function clearDetectionOverlay() {
-    var canvas = document.getElementById('detection-overlay');
+    // Clear the v3 label overlay canvas
+    var canvas = document.getElementById('v3-label-overlay');
     if (canvas) { var ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
-    // Also clear split overlays
-    ['feeder', 'ground'].forEach(function(cam) {
-      var cvs = document.getElementById('split-overlay-' + cam);
-      if (cvs) { var c = cvs.getContext('2d'); c.clearRect(0, 0, cvs.width, cvs.height); }
-    });
-    if (window._splitDetections) window._splitDetections = { feeder: [], ground: [] };
   }
 
   // ── Live Detection SSE (bounding boxes) ──
@@ -6162,12 +5949,11 @@
 
     if (document.hidden) {
       // ── Tab went to background ──
-      console.log('[Perf] Tab hidden — pausing video & refresh');
+      console.log('[Perf] Tab hidden — pausing refresh timers');
 
-      // Pause video to stop decoder work
-      if (video && !video.paused) {
-        video.pause();
-      }
+      // DON'T pause the video — VideoRTC manages its own buffer lifecycle.
+      // Pausing causes MSE data to accumulate, then on resume the adaptive
+      // playbackRate catch-up causes visible fast-forward stutter.
 
       // Stop periodic timers
       clearManagedInterval('refresh');
@@ -6178,9 +5964,14 @@
       // ── Tab became visible ──
       console.log('[Perf] Tab visible — resuming');
 
-      // Resume video
-      if (video && video.paused && video.src) {
-        video.play().catch(function() {});
+      // Seek to live edge so we don't play stale buffer.
+      // Matches VideoRTC's own connectedCallback pattern (video-rtc.js:204).
+      if (video) {
+        var seek = video.seekable;
+        if (seek && seek.length > 0) {
+          video.currentTime = seek.end(seek.length - 1);
+        }
+        if (video.paused) video.play().catch(function() {});
       }
 
       // Immediate refresh if we missed cycles
@@ -6774,14 +6565,14 @@
     };
   };
 
-  // Load audio detections when Audio tab is shown
+  // Load audio iframe when Audio tab is first shown
   var _audioTabLoaded = false;
   var origTabClick = document.querySelectorAll('.tab-btn');
   origTabClick.forEach(function(btn) {
     btn.addEventListener('click', function() {
       if (btn.dataset.tab === 'audio' && !_audioTabLoaded) {
         _audioTabLoaded = true;
-        loadAudioDetections();
+        document.getElementById('audio-iframe').src = '/audio';
       }
     });
   });
@@ -7258,39 +7049,23 @@ function hideToast(id) {
 // plays through go2rtc → MSE with some variable buffer delay (typically
 // 0.5–2s, varies by browser, network, and device).
 //
-// Labels drain when wall_time_ms <= (Date.now() + __v3LiveSyncOffset).
-// The sync offset slider fine-tunes alignment without a page reload.
+// Labels on the main dashboard still use Date.now() for drain timing.
+// The /live page uses hls.js playingDate for frame-accurate sync instead.
 </script>
 
 <script>
 (function setupV3Overlay() {
-  // No v3 video player — the existing initLiveFeed/connectMSE handles
-  // the video. This IIFE only sets up the overlay extras (debug PiP,
-  // sync slider) on top of the existing live-video element.
-
-  // Debug PiP: poll /api/pipeline/debug/latest.jpg at 2fps
+  // Debug PiP: poll /api/pipeline/debug/latest.jpg at 2fps.
+  // Only polls when visible (not backgrounded, not on another tab, PiP shown).
+  window.__v3CurrentCamera = 'feeder';
   var debugPip = document.getElementById('v3-debug-pip');
   if (debugPip) {
     setInterval(function() {
-      debugPip.src = '/api/pipeline/debug/latest.jpg?camera=feeder&t=' + Date.now();
+      if (document.hidden || window.__activeTab !== 'dashboard') return;
+      if (debugPip.style.display === 'none') return;
+      var cam = window.__v3CurrentCamera || 'feeder';
+      debugPip.src = '/api/pipeline/debug/latest.jpg?camera=' + cam + '&t=' + Date.now();
     }, 500);
-  }
-
-  // Wire up the sync offset slider — live-updates the annotation offset
-  // without requiring a page reload. Persists to localStorage.
-  var slider = document.getElementById('v3-offset-range');
-  var valDisplay = document.getElementById('v3-offset-val');
-  if (slider) {
-    var saved = parseInt(localStorage.getItem('v3SyncTrimMs') || '0', 10);
-    slider.value = saved;
-    valDisplay.textContent = saved === 0 ? 'auto' : saved + 'ms';
-    slider.addEventListener('input', function() {
-      var v = parseInt(slider.value, 10);
-      valDisplay.textContent = v === 0 ? 'auto' : v + 'ms';
-      window.__v3LiveSyncOffset = v;
-      localStorage.setItem('v3SyncTrimMs', String(v));
-    });
-    window.__v3LiveSyncOffset = saved;
   }
 })();
 </script>
@@ -7298,22 +7073,50 @@ function hideToast(id) {
 <script>
 (function setupV3LabelRenderer() {
   const canvas = document.getElementById('v3-label-overlay');
-  const video = document.getElementById('live-video');
-  if (!canvas || !video) return;
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
 
+  // VideoRTC creates its internal <video id="live-video"> asynchronously.
+  // Wait for it to appear in the DOM before wiring up resize listeners.
+  var video = document.getElementById('live-video');
+  if (!video) {
+    var waitCount = 0;
+    var waitInterval = setInterval(function() {
+      video = document.getElementById('live-video');
+      waitCount++;
+      if (video) {
+        clearInterval(waitInterval);
+        console.log('[v3 overlay] Found live-video after', waitCount * 100, 'ms');
+        video.addEventListener('loadedmetadata', resizeCanvas);
+        video.addEventListener('loadeddata', resizeCanvas);
+        resizeCanvas();
+      } else if (waitCount > 100) {
+        clearInterval(waitInterval);
+        console.warn('[v3 overlay] live-video not found after 10s');
+      }
+    }, 100);
+  }
+
+  var _lastCanvasW = 0, _lastCanvasH = 0;
   function resizeCanvas() {
-    // Use the live-wrapper's size for the canvas. It's the 16:9 padding-bottom
-    // container that holds the video. Reliable on both desktop and mobile.
     const container = document.getElementById('live-wrapper');
-    const rect = container ? container.getBoundingClientRect() : video.getBoundingClientRect();
-    canvas.width = Math.max(1, Math.floor(rect.width));
-    canvas.height = Math.max(1, Math.floor(rect.height));
+    var fallback = video || canvas.parentElement;
+    const rect = container ? container.getBoundingClientRect() : fallback.getBoundingClientRect();
+    var w = Math.max(1, Math.floor(rect.width));
+    var h = Math.max(1, Math.floor(rect.height));
+    // Only assign if changed — assigning clears the canvas buffer + resets GPU state
+    if (w !== _lastCanvasW || h !== _lastCanvasH) {
+      canvas.width = w;
+      canvas.height = h;
+      _lastCanvasW = w;
+      _lastCanvasH = h;
+    }
   }
   window.addEventListener('resize', resizeCanvas);
-  video.addEventListener('loadedmetadata', resizeCanvas);
-  video.addEventListener('loadeddata', resizeCanvas);
-  // Poll as a fallback for cases where the size changes outside of events
+  if (video) {
+    video.addEventListener('loadedmetadata', resizeCanvas);
+    video.addEventListener('loadeddata', resizeCanvas);
+  }
   setInterval(resizeCanvas, 500);
   resizeCanvas();
 
@@ -7429,6 +7232,15 @@ function hideToast(id) {
   }
 
   function renderFrame() {
+    // Skip rendering when tab is hidden or live panel isn't the active dashboard tab
+    if (document.hidden || window.__activeTab !== 'dashboard') {
+      requestAnimationFrame(renderFrame); return;
+    }
+    // Labels toggle — controlled by the Labels button via showDetectionOverlay (global)
+    if (typeof showDetectionOverlay !== 'undefined' && !showDetectionOverlay) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(renderFrame); return;
+    }
     // Frame-precise label sync via fMP4 baseMediaDecodeTime.
     //
     // Each binary MSE chunk's tfdt box contains baseMediaDecodeTime (90kHz
@@ -7450,11 +7262,14 @@ function hideToast(id) {
     // Drain labels. The slider shifts which labels are "ready" — negative
     // values drain labels earlier (compensate for label lag), positive
     // values hold them longer (compensate for label lead).
-    const trim = window.__v3LiveSyncOffset || 0;
-    const displayedWallTime = Date.now() + trim;
-    while (pendingEvents.length > 0 && pendingEvents[0].wall_time_ms <= displayedWallTime) {
-      applyEventToTrackStates(pendingEvents.shift());
+    const displayedWallTime = Date.now();
+    // Drain with read pointer (O(n) not O(n²) during catch-up bursts)
+    var drainIdx = 0;
+    while (drainIdx < pendingEvents.length && pendingEvents[drainIdx].wall_time_ms <= displayedWallTime) {
+      applyEventToTrackStates(pendingEvents[drainIdx]);
+      drainIdx++;
     }
+    if (drainIdx > 0) pendingEvents.splice(0, drainIdx);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const LABEL_W_ESTIMATE = 140;  // worst-case horizontal collision box
@@ -7612,25 +7427,28 @@ function hideToast(id) {
       }
     }
 
-    // Pipeline stats overlay (top-right corner)
-    ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.font = '11px monospace';
-    ctx.fillStyle = '#4ade80';
-    ctx.textAlign = 'right';
-    var statsY = 14;
-    ctx.fillText('tracks: ' + trackStates.size, canvas.width - 8, statsY);
-    statsY += 14;
-    if (window.__v3LabelAgeEma) {
-      ctx.fillText('label age: ' + Math.round(window.__v3LabelAgeEma) + 'ms', canvas.width - 8, statsY);
+    // Pipeline stats overlay (top-right corner) — only shown when debug is active (D key)
+    var debugPanel = document.getElementById('v3-transport-debug');
+    if (debugPanel && debugPanel.style.display !== 'none') {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#4ade80';
+      ctx.textAlign = 'right';
+      var statsY = 14;
+      ctx.fillText('tracks: ' + trackStates.size, canvas.width - 8, statsY);
       statsY += 14;
+      if (window.__v3LabelAgeEma) {
+        ctx.fillText('label age: ' + Math.round(window.__v3LabelAgeEma) + 'ms', canvas.width - 8, statsY);
+        statsY += 14;
+      }
+      var pendingCount = pendingEvents ? pendingEvents.length : 0;
+      if (pendingCount > 0) {
+        ctx.fillStyle = '#f87171';
+        ctx.fillText('pending: ' + pendingCount, canvas.width - 8, statsY);
+      }
+      ctx.restore();
     }
-    var pendingCount = pendingEvents ? pendingEvents.length : 0;
-    if (pendingCount > 0) {
-      ctx.fillStyle = '#f87171';
-      ctx.fillText('pending: ' + pendingCount, canvas.width - 8, statsY);
-    }
-    ctx.restore();
 
     requestAnimationFrame(renderFrame);
   }
@@ -7639,36 +7457,204 @@ function hideToast(id) {
 </script>
 
 <script>
+// V3 SSE subscription — dynamic camera, reconnects on stream switch.
 (function setupV3SSESubscription() {
-  const pendingEvents = window.__v3PendingEvents;
+  var pendingEvents = window.__v3PendingEvents;
   if (!pendingEvents) {
     console.warn('v3 pendingEvents not initialized, SSE subscription skipped');
     return;
   }
 
-  const es = new EventSource('/api/pipeline/events/sse?camera=feeder');
-  es.addEventListener('message', (ev) => {
-    let data;
-    try { data = JSON.parse(ev.data); }
-    catch (e) { console.warn('v3 SSE parse error', e); return; }
-    if (!data.tracks || data.wall_time_ms == null) return;
-    // Track how old labels are when they arrive — used by renderFrame
-    // for auto-calibrated sync (no manual slider needed).
-    var labelAge = Date.now() - data.wall_time_ms;
-    if (labelAge > 0 && labelAge < 30000) {  // sanity: ignore if clock skew > 30s
-      window.__v3LabelAgeEma = window.__v3LabelAgeEma
-        ? window.__v3LabelAgeEma * 0.95 + labelAge * 0.05
-        : labelAge;
+  var currentES = null;
+
+  function connectSSE(camera) {
+    if (currentES) {
+      currentES.close();
+      currentES = null;
     }
-    pendingEvents.push(data);
-    // Defensive cap: if events pile up (network burst, video paused too long,
-    // tab backgrounded, etc.) drop oldest so memory doesn't grow unbounded.
-    const MAX_PENDING = 1000;
-    if (pendingEvents.length > MAX_PENDING) {
-      pendingEvents.splice(0, pendingEvents.length - MAX_PENDING);
+    var es = new EventSource('/api/pipeline/events/sse?camera=' + camera);
+    es.addEventListener('message', function(ev) {
+      var data;
+      try { data = JSON.parse(ev.data); }
+      catch (e) { console.warn('v3 SSE parse error', e); return; }
+      if (!data.tracks || data.wall_time_ms == null) return;
+      var labelAge = Date.now() - data.wall_time_ms;
+      if (labelAge > 0 && labelAge < 30000) {
+        window.__v3LabelAgeEma = window.__v3LabelAgeEma
+          ? window.__v3LabelAgeEma * 0.95 + labelAge * 0.05
+          : labelAge;
+      }
+      pendingEvents.push(data);
+      if (pendingEvents.length > 1000) {
+        pendingEvents.splice(0, pendingEvents.length - 1000);
+      }
+    });
+    es.addEventListener('error', function(e) { console.warn('v3 SSE error', e); });
+    currentES = es;
+  }
+
+  // Expose so switchStream can reconnect SSE to the correct camera
+  window.__v3ReconnectSSE = function(camera) {
+    connectSSE(camera);
+  };
+
+  // Start with feeder
+  connectSSE('feeder');
+})();
+</script>
+
+<script>
+// ── Transport Debug Harness ──
+// Toggle: press 'D' key or call window.__showTransportDebug()
+(function() {
+  var el = document.getElementById('v3-transport-debug');
+  if (!el) return;
+  var visible = false;
+
+  window.__showTransportDebug = function() {
+    visible = !visible;
+    el.style.display = visible ? 'block' : 'none';
+  };
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'd' || e.key === 'D') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      window.__showTransportDebug();
     }
   });
-  es.addEventListener('error', (e) => console.warn('v3 SSE error', e));
+
+  var frameCount = 0;
+  var lastFpsTime = performance.now();
+  var currentFps = 0;
+  var video = document.getElementById('live-video');
+
+  // Count decoded frames via requestVideoFrameCallback (Chrome) or fallback
+  if (video && video.requestVideoFrameCallback) {
+    function onFrame(now, metadata) {
+      frameCount++;
+      video.requestVideoFrameCallback(onFrame);
+    }
+    video.requestVideoFrameCallback(onFrame);
+  } else if (video) {
+    // Fallback: poll webkitDecodedFrameCount or estimate
+    setInterval(function() {
+      if (video.webkitDecodedFrameCount !== undefined) {
+        frameCount = video.webkitDecodedFrameCount;
+      }
+    }, 200);
+  }
+
+  // Compute FPS every second
+  setInterval(function() {
+    var now = performance.now();
+    var elapsed = (now - lastFpsTime) / 1000;
+    if (elapsed > 0) {
+      currentFps = Math.round(frameCount / elapsed);
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+  }, 1000);
+
+  // Update display every 500ms
+  setInterval(function() {
+    if (!visible) return;
+    var lines = [];
+    var vid = document.getElementById('live-video');
+
+    // 1. Transport protocol
+    if (vid && vid.srcObject && vid.srcObject instanceof MediaStream) {
+      lines.push('<span style="color:#4ade80">WEBRTC</span>');
+    } else if (vid && vid.src && vid.src.startsWith('blob:')) {
+      lines.push('<span style="color:#fb923c">MSE</span>');
+    } else if (vid && vid.src) {
+      lines.push('<span style="color:#f87171">HLS/MP4</span>');
+    } else {
+      lines.push('<span style="color:#6b7280">NO SOURCE</span>');
+    }
+
+    // 2. Video dimensions + FPS
+    if (vid) {
+      lines[0] += ' &nbsp; ' + (vid.videoWidth || '?') + 'x' + (vid.videoHeight || '?');
+      lines[0] += ' &nbsp; <b>' + currentFps + ' fps</b>';
+    }
+
+    // 3. WebRTC stats (if available)
+    if (window.__v3DebugPC) {
+      var pc = window.__v3DebugPC;
+      lines.push('ICE: ' + pc.iceConnectionState + ' &nbsp; Conn: ' + pc.connectionState);
+
+      // Get detailed stats async — show from last poll
+      if (window.__v3DebugStats) {
+        var s = window.__v3DebugStats;
+        if (s.candidateType) lines.push('Candidate: <b>' + s.candidateType + '</b> ' + (s.protocol || ''));
+        if (s.codec) lines.push('Codec: ' + s.codec);
+        if (s.bytesReceived) lines.push('Recv: ' + (s.bytesReceived / 1024 / 1024).toFixed(1) + ' MB');
+        if (s.framesDecoded) lines.push('Decoded: ' + s.framesDecoded + ' frames');
+        if (s.framesDropped !== undefined) lines.push('Dropped: <b style="color:' + (s.framesDropped > 0 ? '#f87171' : '#4ade80') + '">' + s.framesDropped + '</b>');
+        if (s.jitter !== undefined) lines.push('Jitter: ' + (s.jitter * 1000).toFixed(1) + 'ms');
+        if (s.packetsLost !== undefined) lines.push('Lost: ' + s.packetsLost + ' pkts');
+      }
+    } else {
+      lines.push('<span style="color:#6b7280">No PeerConnection</span>');
+    }
+
+    // 4. Buffer info (MSE)
+    if (vid && vid.buffered && vid.buffered.length > 0) {
+      var bufLen = (vid.buffered.end(vid.buffered.length - 1) - vid.buffered.start(0)).toFixed(1);
+      lines.push('Buffer: ' + bufLen + 's');
+    }
+
+    el.innerHTML = lines.join('<br>');
+  }, 500);
+
+  // Poll WebRTC stats every 2s
+  setInterval(function() {
+    var pc = window.__v3DebugPC;
+    if (!pc || pc.connectionState !== 'connected') {
+      window.__v3DebugStats = null;
+      return;
+    }
+    pc.getStats().then(function(stats) {
+      var result = {};
+      stats.forEach(function(report) {
+        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+          result.framesDecoded = report.framesDecoded;
+          result.framesDropped = report.framesDropped;
+          result.bytesReceived = report.bytesReceived;
+          result.packetsLost = report.packetsLost;
+          result.jitter = report.jitter;
+        }
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          result.remoteCandidateId = report.remoteCandidateId;
+          result.localCandidateId = report.localCandidateId;
+        }
+        if (report.type === 'remote-candidate' && result.remoteCandidateId === report.id) {
+          result.candidateType = report.candidateType;
+          result.protocol = report.protocol;
+        }
+        if (report.type === 'local-candidate' && result.localCandidateId === report.id) {
+          result.localCandidateType = report.candidateType;
+          result.localProtocol = report.protocol;
+        }
+        if (report.type === 'codec' && report.mimeType && report.mimeType.startsWith('video/')) {
+          result.codec = report.mimeType;
+        }
+      });
+      // Fallback: find candidate types if candidate-pair didn't match
+      if (!result.candidateType) {
+        stats.forEach(function(report) {
+          if (report.type === 'candidate-pair' && report.nominated) {
+            stats.forEach(function(r2) {
+              if (r2.id === report.remoteCandidateId) {
+                result.candidateType = r2.candidateType;
+                result.protocol = r2.protocol;
+              }
+            });
+          }
+        });
+      }
+      window.__v3DebugStats = result;
+    });
+  }, 2000);
 })();
 </script>
 </body>
