@@ -28,7 +28,8 @@ class CameraProcessThread:
                  motion_gate, detector, tracker, classifier,
                  event_store, health=None, sse_server=None,
                  frame_width: int = 640, frame_height: int = 360,
-                 capture: "Optional[FrameCapture]" = None):
+                 capture: "Optional[FrameCapture]" = None,
+                 snapshot_writer=None):
         self.name = name
         self.frame_queue = frame_queue
         self.motion_gate = motion_gate
@@ -41,6 +42,7 @@ class CameraProcessThread:
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.capture = capture
+        self.snapshot_writer = snapshot_writer
         self._dry_run = os.environ.get("PIPELINE_DRY_RUN") == "1"
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -112,6 +114,21 @@ class CameraProcessThread:
 
         # 5. Classify tracks needing classification
         self._classify_tracks(frame, tracker_out.active)
+
+        # 5b. Snapshot + classifications.db write for freshly-locked tracks.
+        # Runs once per track (snapshot_saved flag on Track). Non-blocking: the
+        # writer has its own thread + bounded queue. This restores the pre-v3
+        # data flow into classifications.db so the dashboard sees fresh rows.
+        if self.snapshot_writer is not None and not self._dry_run:
+            for track in tracker_out.active:
+                if track.is_locked and not track.snapshot_saved:
+                    try:
+                        self.snapshot_writer.submit(
+                            self.name, frame.bgr, frame.wall_time_ms, track,
+                        )
+                        track.snapshot_saved = True
+                    except Exception as e:
+                        log.warning("[%s] snapshot submit error: %s", self.name, e)
 
         # 6. Write events to DB (skipped in dry-run / testing mode)
         if not self._dry_run:

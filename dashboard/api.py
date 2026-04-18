@@ -129,6 +129,29 @@ def serve_hls_test():
     return FileResponse(str(DASHBOARD_DIR / "hls-test.html"), media_type="text/html")
 
 
+@app.get("/sync-test")
+def serve_sync_test():
+    """Serve the overlay-sync diagnostic page (main + sub streams side-by-side)."""
+    return FileResponse(str(DASHBOARD_DIR / "sync-test.html"), media_type="text/html")
+
+
+@app.get("/tmp-preview/{name}")
+def serve_tmp_preview(name: str):
+    """Serve preview images from /tmp for brainstorm/diagnostic use.
+
+    Whitelisted filenames only (no traversal). Used for one-off PNGs like
+    AOI previews that don't belong in the repo.
+    """
+    import os
+    allowed = {"feeder-sub-aoi.png", "feeder-sub-grid.png", "feeder-sub-weights.png"}
+    if name not in allowed:
+        raise HTTPException(status_code=404, detail="Not in allowlist")
+    path = f"/tmp/{name}"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/hls-live/{camera}/{path:path}")
 def serve_hls_segments(camera: str, path: str):
     """Serve HLS playlist and segments from the pipeline's HLS recorder output.
@@ -142,7 +165,7 @@ def serve_hls_segments(camera: str, path: str):
     from pathlib import Path
     HLS_ROOT = Path.home() / "bird-snapshots" / "hls"
     # Validate camera name — prevent traversal
-    if camera not in ("feeder", "ground"):
+    if camera not in ("feeder", "ground", "feeder-sub", "ground-sub"):
         raise HTTPException(status_code=400, detail="Invalid camera")
     # Validate path — no traversal
     safe_path = Path(path)

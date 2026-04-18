@@ -28,6 +28,7 @@ class Track:
     motion_history: deque = field(default_factory=lambda: deque(maxlen=10))
     vote_history: list = field(default_factory=list)
     is_locked: bool = False
+    snapshot_saved: bool = False  # set True once we've written JPG + DB row for this track
 
     @property
     def is_stationary(self) -> bool:
@@ -80,8 +81,15 @@ def _frigate_distance(detection: norfair.Detection,
 class BirdTracker:
     """Norfair wrapper with frigate_distance and stationary detection."""
 
-    def __init__(self, distance_threshold: float = 1.0,
+    def __init__(self, distance_threshold: float = 2.0,
                  hit_counter_max: int = 15, initialization_delay: int = 1):
+        # 2026-04-17: bumped from 1.0 → 2.0. Threshold = normalized (dx_norm +
+        # dy_norm) per Frigate-style distance. At 5fps effective detection rate,
+        # a bird flying 1 body-width in 200ms is normal motion; the old 1.0
+        # threshold lost the track on anything faster → new track_id → label
+        # change mid-flight. 2.0 tolerates 2 body-widths between frames.
+        # Larger threshold can cause two-bird confusion when tracks cross; with
+        # typical 1-3 simultaneous tracks on this feeder it's a safe trade.
         self.norfair = norfair.Tracker(
             distance_function=_frigate_distance,
             distance_threshold=distance_threshold,

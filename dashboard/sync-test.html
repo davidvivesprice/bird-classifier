@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Overlay Sync — Diagnostic</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #000; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; min-height: 100%; }
+  body { padding: 12px; }
+  .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+  .bar button {
+    background: #1f2937; border: 1px solid #374151; color: #f5f5f5;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  .bar button:hover { background: #374151; }
+  .bar button.active { background: #065f46; border-color: #10b981; }
+  .bar label { display:flex; align-items:center; gap: 8px; color:#9ca3af; }
+  .bar input[type=range] { width: 180px; }
+  .bar .spacer { flex: 1; }
+  .bar .delta { font-family: monospace; font-size: 12px; color: #f59e0b; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: calc(100vh - 60px); }
+  .stream { position: relative; background: #000; border: 1px solid #1f2937; border-radius: 8px; overflow: hidden; }
+  .stream video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .stream canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  .stream .badge {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(0,0,0,0.75); color: #e5e7eb;
+    padding: 4px 10px; border-radius: 6px;
+    font-family: monospace; font-size: 11px; line-height: 1.4;
+    border: 1px solid rgba(255,255,255,0.1);
+    pointer-events: none;
+    max-width: 360px;
+  }
+  .stream .badge .lbl { color: #9ca3af; font-weight: 600; text-transform: uppercase; font-size: 9px; letter-spacing: 0.08em; }
+  .stream .badge .t { color: #10b981; font-weight: 500; }
+  .stream .tag {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.75); color: #9ca3af;
+    padding: 4px 10px; border-radius: 6px; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button id="btn-playpause" onclick="togglePlay()">Pause both</button>
+  <button id="btn-labels" class="active" onclick="toggleLabels()">Overlays</button>
+  <span class="spacer"></span>
+  <label>Sub fine-tune: <input id="sub-offset" type="range" min="-2000" max="2000" step="25" value="0"> <span id="sub-offset-val">0</span>ms</label>
+  <span class="delta" id="delta">Δ main-sub: —</span>
+</div>
+
+<div class="grid">
+  <div class="stream" id="main">
+    <video id="video-main" muted playsinline></video>
+    <canvas id="canvas-main"></canvas>
+    <div class="tag">MAIN · 1920×1080</div>
+    <div class="badge" id="badge-main">
+      <div class="lbl">Displayed wall-clock</div>
+      <div class="t" id="t-main">—</div>
+      <div class="lbl" style="margin-top:4px">Matched event Δ</div>
+      <div id="m-main">—</div>
+    </div>
+  </div>
+  <div class="stream" id="sub">
+    <video id="video-sub" muted playsinline></video>
+    <canvas id="canvas-sub"></canvas>
+    <div class="tag">SUB · 640×360 · YOLO input</div>
+    <div class="badge" id="badge-sub">
+      <div class="lbl">Displayed wall-clock (est)</div>
+      <div class="t" id="t-sub">—</div>
+      <div class="lbl" style="margin-top:4px">Matched event Δ</div>
+      <div id="m-sub">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── Shared: SSE event buffer ──
+  var eventBuffer = [];
+  var BUFFER_MS = 120000;
+  var MATCH_TOL_MS = 3000;
+  var STALE_MS = 1200;
+
+  var es = new EventSource('/api/pipeline/events/sse?camera=feeder');
+  es.addEventListener('message', function(ev) {
+    var data; try { data = JSON.parse(ev.data); } catch(e) { return; }
+    if (!data.tracks || data.wall_time_ms == null) return;
+    eventBuffer.push(data);
+    var cutoff = Date.now() - BUFFER_MS;
+    while (eventBuffer.length > 0 && eventBuffer[0].wall_time_ms < cutoff) eventBuffer.shift();
+  });
+
+  function findEvent(targetMs) {
+    if (eventBuffer.length === 0) return null;
+    var best = null, bestDist = Infinity;
+    for (var i = eventBuffer.length - 1; i >= 0; i--) {
+      var dist = Math.abs(eventBuffer[i].wall_time_ms - targetMs);
+      if (dist < bestDist) { best = eventBuffer[i]; bestDist = dist; }
+      if (eventBuffer[i].wall_time_ms < targetMs - MATCH_TOL_MS) break;
+    }
+    return bestDist <= MATCH_TOL_MS ? best : null;
+  }
+
+  // ── Drawing helpers (same as live.html) ──
+  function drawBox(ctx, x1, y1, x2, y2, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.restore();
+  }
+  function drawLabel(ctx, cx, y, text, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.font = '13px system-ui, -apple-system, sans-serif';
+    var w = ctx.measureText(text).width + 14;
+    var h = 22;
+    var rx = cx - w / 2, ry = y - h / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, w, h, 10);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, y);
+    ctx.restore();
+  }
+
+  // ── Per-stream state builder ──
+  function makeStream(opts) {
+    var video = document.getElementById(opts.videoId);
+    var canvas = document.getElementById(opts.canvasId);
+    var ctx = canvas.getContext('2d');
+    var trackStates = new Map();
+
+    return {
+      video: video, canvas: canvas, ctx: ctx, trackStates: trackStates,
+      name: opts.name,
+      getDisplayedWallMs: opts.getDisplayedWallMs,
+      tEl: document.getElementById(opts.tElId),
+      mEl: document.getElementById(opts.mElId),
+    };
+  }
+
+  function applyEvent(state, data) {
+    if (!data.tracks) return;
+    var wall = data.wall_time_ms;
+    var seen = {};
+    for (var i = 0; i < data.tracks.length; i++) {
+      var t = data.tracks[i];
+      seen[t.track_id] = true;
+      var s = state.trackStates.get(t.track_id);
+      if (!s) { s = { first_seen_t: wall }; state.trackStates.set(t.track_id, s); }
+      s.last_t = wall;
+      s.bbox = t.bbox;
+      s.species = t.species;
+      s.frame_width = t.frame_width;
+      s.frame_height = t.frame_height;
+      s.fadeOutAt = null;
+    }
+    state.trackStates.forEach(function(s, id) {
+      if (!seen[id] && !s.fadeOutAt) s.fadeOutAt = wall;
+    });
+  }
+
+  function render(state) {
+    var rect = state.video.getBoundingClientRect();
+    var w = Math.floor(rect.width), h = Math.floor(rect.height);
+    if (state.canvas.width !== w) state.canvas.width = w;
+    if (state.canvas.height !== h) state.canvas.height = h;
+    state.ctx.clearRect(0, 0, w, h);
+
+    var displayedMs = state.getDisplayedWallMs();
+    if (displayedMs == null) {
+      state.tEl.textContent = '(not ready)';
+      state.mEl.textContent = '—';
+      state.video.requestVideoFrameCallback(function() { render(state); });
+      return;
+    }
+
+    state.tEl.textContent = new Date(displayedMs).toLocaleTimeString('en-US', {hour12:false}) + '.' + String(displayedMs % 1000).padStart(3,'0');
+
+    if (!window._showLabels) {
+      state.mEl.textContent = '(overlays off)';
+      state.video.requestVideoFrameCallback(function() { render(state); });
+      return;
+    }
+
+    var ev = findEvent(displayedMs);
+    if (ev) {
+      state.mEl.textContent = (ev.wall_time_ms - displayedMs).toFixed(0) + 'ms (' + (ev.tracks ? ev.tracks.length : 0) + ' track' + ((ev.tracks && ev.tracks.length !== 1) ? 's' : '') + ')';
+      applyEvent(state, ev);
+    } else {
+      state.mEl.textContent = 'no match within ±' + (MATCH_TOL_MS/1000) + 's';
+    }
+
+    // Compute the actual video content rectangle inside the canvas,
+    // accounting for letterbox/pillarbox bars from object-fit: contain.
+    var vw = state.video.videoWidth || 1920;
+    var vh = state.video.videoHeight || 1080;
+    var videoAspect = vw / vh;
+    var containerAspect = w / h;
+    var contentW, contentH, offX, offY;
+    if (containerAspect > videoAspect) {
+      // Pillarbox (container wider than video): black bars left/right
+      contentH = h;
+      contentW = h * videoAspect;
+      offY = 0;
+      offX = (w - contentW) / 2;
+    } else {
+      // Letterbox (container taller than video): black bars top/bottom
+      contentW = w;
+      contentH = w / videoAspect;
+      offX = 0;
+      offY = (h - contentH) / 2;
+    }
+
+    state.trackStates.forEach(function(s, id) {
+      var elapsed = displayedMs - s.last_t;
+      if (elapsed > STALE_MS && !s.fadeOutAt) s.fadeOutAt = displayedMs;
+      if (s.fadeOutAt && (displayedMs - s.fadeOutAt) > 400) {
+        state.trackStates.delete(id); return;
+      }
+      var opacity = 1;
+      if (s.fadeOutAt) opacity = Math.max(0, 1 - (displayedMs - s.fadeOutAt) / 400);
+      else if (s.first_seen_t) opacity = Math.max(0, Math.min(1, (displayedMs - s.first_seen_t) / 200));
+
+      var fw = s.frame_width || 640, fh = s.frame_height || 360;
+      var sx = contentW / fw, sy = contentH / fh;
+      var x1 = offX + s.bbox[0] * sx, y1 = offY + s.bbox[1] * sy;
+      var x2 = offX + s.bbox[2] * sx, y2 = offY + s.bbox[3] * sy;
+      drawBox(state.ctx, x1, y1, x2, y2, opacity);
+      if (s.species) drawLabel(state.ctx, (x1+x2)/2, Math.max(22, y1 - 12), s.species, opacity);
+    });
+
+    state.video.requestVideoFrameCallback(function() { render(state); });
+  }
+
+  // ── Shared sidecar manifest machinery (one fetcher per camera) ──
+  function makeManifestLoader(url) {
+    var state = { map: Object.create(null) };
+    function refresh() {
+      fetch(url, { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data || !Array.isArray(data.segments)) return;
+          var next = Object.create(null);
+          for (var i = 0; i < data.segments.length; i++) {
+            var s = data.segments[i];
+            if (s && s.file && typeof s.completed_ms === 'number') next[s.file] = s.completed_ms;
+          }
+          state.map = next;
+        })
+        .catch(function(){});
+    }
+    refresh();
+    setInterval(refresh, 2000);
+    return state;
+  }
+
+  function makeHlsWithSidecar(videoId, playlistUrl, manifestState) {
+    var hls = new Hls({
+      // Target 12s behind live so our periodic seek-to-target has headroom in
+      // both directions (matches TARGET_DELAY_MS below). maxBufferLength gives
+      // hls.js enough buffered to seek within without stalls.
+      liveSyncDuration: 12, liveMaxLatencyDuration: 25,
+      maxBufferLength: 30, backBufferLength: 15, lowLatencyMode: false,
+    });
+    hls.loadSource(playlistUrl);
+    hls.attachMedia(document.getElementById(videoId));
+    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+      document.getElementById(videoId).play().catch(function(){});
+    });
+    function displayedWallMs() {
+      if (!hls.levels || !hls.levels[0] || !hls.levels[0].details) return null;
+      var frags = hls.levels[0].details.fragments;
+      if (!frags || !frags.length) return null;
+      var v = document.getElementById(videoId);
+      var ct = v.currentTime;
+      for (var i = 0; i < frags.length; i++) {
+        var f = frags[i];
+        if (ct >= f.start && ct < f.start + f.duration) {
+          var url = f.relurl || f.url || '';
+          var fname = url.split('?')[0].split('/').pop();
+          var completedMs = manifestState.map[fname];
+          if (typeof completedMs !== 'number') return null;
+          return completedMs - (f.duration * 1000) + ((ct - f.start) * 1000);
+        }
+      }
+      return null;
+    }
+    return { hls: hls, displayedWallMs: displayedWallMs };
+  }
+
+  var mainManifest = makeManifestLoader('/api/hls-live/feeder/segments.json');
+  var subManifest  = makeManifestLoader('/api/hls-live/feeder-sub/segments.json');
+  var mainPlayer   = makeHlsWithSidecar('video-main', '/api/hls-live/feeder/live.m3u8',       mainManifest);
+  var subPlayerRaw = makeHlsWithSidecar('video-sub',  '/api/hls-live/feeder-sub/live.m3u8',   subManifest);
+
+  // Sub fine-tune offset (small manual nudge if needed). Positive = treat sub
+  // as further ahead than sidecar says → overlay will find events earlier.
+  var subOffsetMs = 0;
+  var subOffsetEl = document.getElementById('sub-offset');
+  var subOffsetValEl = document.getElementById('sub-offset-val');
+  subOffsetEl.addEventListener('input', function() {
+    subOffsetMs = parseInt(subOffsetEl.value, 10);
+    subOffsetValEl.textContent = subOffsetMs;
+  });
+
+  function mainDisplayedWallMs() { return mainPlayer.displayedWallMs(); }
+  function subDisplayedWallMs() {
+    var ms = subPlayerRaw.displayedWallMs();
+    return ms == null ? null : ms + subOffsetMs;
+  }
+
+  // ── Shared target alignment ──
+  // Both players pin to the same target displayedWallMs = Date.now() - TARGET_DELAY_MS.
+  // If our wall-clock math is correct, both show the same camera moment frame-for-frame.
+  // Any visible delta = the math bug, expressed in ms.
+  var TARGET_DELAY_MS = 12000;  // 12s behind live edge; gives room for both HLS buffers to fill
+  var ALIGN_TOL_MS = 100;
+
+  function seekToTarget(playerObj, manifestState, videoId, targetMs) {
+    var hls = playerObj.hls;
+    if (!hls.levels || !hls.levels[0] || !hls.levels[0].details) return false;
+    var frags = hls.levels[0].details.fragments;
+    if (!frags || !frags.length) return false;
+    var v = document.getElementById(videoId);
+    for (var i = 0; i < frags.length; i++) {
+      var f = frags[i];
+      var url = f.relurl || f.url || '';
+      var fname = url.split('?')[0].split('/').pop();
+      var completedMs = manifestState.map[fname];
+      if (typeof completedMs !== 'number') continue;
+      var firstFrameMs = completedMs - (f.duration * 1000);
+      if (targetMs >= firstFrameMs && targetMs <= completedMs) {
+        var seekTo = f.start + (targetMs - firstFrameMs) / 1000;
+        if (Math.abs(v.currentTime - seekTo) > (ALIGN_TOL_MS / 1000)) {
+          try { v.currentTime = seekTo; } catch(e) {}
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Align both streams to the same moment every 3s.
+  // First call is deferred until both manifests + fragments are ready.
+  var _alignArmed = false;
+  setInterval(function() {
+    var target = Date.now() - TARGET_DELAY_MS;
+    var okMain = seekToTarget(mainPlayer, mainManifest, 'video-main', target);
+    var okSub  = seekToTarget(subPlayerRaw, subManifest, 'video-sub', target);
+    if (!_alignArmed && okMain && okSub) {
+      _alignArmed = true;
+      console.log('[sync-test] both streams aligned to target for first time');
+    }
+  }, 3000);
+
+  // ── Wire up render loops ──
+  window._showLabels = true;
+  var mainState = makeStream({ videoId:'video-main', canvasId:'canvas-main', name:'main',
+    getDisplayedWallMs: mainDisplayedWallMs, tElId:'t-main', mElId:'m-main' });
+  var subState  = makeStream({ videoId:'video-sub', canvasId:'canvas-sub', name:'sub',
+    getDisplayedWallMs: subDisplayedWallMs, tElId:'t-sub', mElId:'m-sub' });
+
+  setTimeout(function() {
+    render(mainState);
+    render(subState);
+  }, 200);
+
+  // Delta display: main-vs-sub + each stream's offset from the shared target.
+  // With alignment active, all three numbers should be near 0. Any non-zero
+  // values are measurements of the drift, expressed in ms.
+  setInterval(function() {
+    var target = Date.now() - TARGET_DELAY_MS;
+    var m = mainDisplayedWallMs(), s = subDisplayedWallMs();
+    var deltaEl = document.getElementById('delta');
+    var fmt = function(v) { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(0); };
+    if (m != null && s != null) {
+      deltaEl.textContent = 'Δ main-sub: ' + fmt(m - s) + 'ms · main-target: ' + fmt(m - target) + 'ms · sub-target: ' + fmt(s - target) + 'ms';
+    } else {
+      deltaEl.textContent = 'Δ main-sub: — · main-target: ' + fmt(m == null ? null : m - target) + 'ms · sub-target: ' + fmt(s == null ? null : s - target) + 'ms';
+    }
+  }, 500);
+
+  // ── Controls ──
+  window.togglePlay = function() {
+    var vm = document.getElementById('video-main'), vs = document.getElementById('video-sub');
+    var btn = document.getElementById('btn-playpause');
+    if (vm.paused) { vm.play(); vs.play(); btn.textContent = 'Pause both'; }
+    else { vm.pause(); vs.pause(); btn.textContent = 'Play both'; }
+  };
+  window.toggleLabels = function() {
+    window._showLabels = !window._showLabels;
+    document.getElementById('btn-labels').classList.toggle('active', window._showLabels);
+  };
+
+  // roundRect polyfill for older browsers
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+      this.beginPath(); this.moveTo(x+r, y);
+      this.lineTo(x+w-r, y); this.quadraticCurveTo(x+w, y, x+w, y+r);
+      this.lineTo(x+w, y+h-r); this.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+      this.lineTo(x+r, y+h); this.quadraticCurveTo(x, y+h, x, y+h-r);
+      this.lineTo(x, y+r); this.quadraticCurveTo(x, y, x+r, y);
+      this.closePath();
+    };
+  }
+})();
+</script>
+</body>
+</html>

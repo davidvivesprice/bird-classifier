@@ -5721,30 +5721,64 @@
       }
 
       // ── Inject into Recent Sightings (real-time freshness) ──
-      if (det.species && det.confidence > 0.50) {
-        var now = Date.now();
-        // Dedup: skip if same species+camera seen in last 30s
-        var dominated = recentDetections.some(function(r) {
-          if (r.action !== 'live') return false;
-          if (!r.top_prediction || r.top_prediction.common_name !== det.species) return false;
-          if (r.camera !== detCamera) return false;
-          var rTime = parseTimestamp(r.source_timestamp);
-          return (now - rTime) < 30000;
+      // Pipeline v3 SSE format: det.tracks[] with species per track.
+      // Legacy format: det.species / det.confidence at top level.
+      // Handle both so we don't silently drop events on format changes.
+      var candidates = [];
+      if (det.tracks && Array.isArray(det.tracks)) {
+        var tsIso = det.timestamp || (det.wall_time_ms ? new Date(det.wall_time_ms).toISOString() : new Date().toISOString());
+        for (var ti = 0; ti < det.tracks.length; ti++) {
+          var tk = det.tracks[ti];
+          if (!tk.species) continue;
+          var conf = tk.species_confidence;
+          if (conf == null || conf < 0.50) continue;
+          candidates.push({
+            species: tk.species,
+            confidence: conf,
+            bbox: tk.bbox,
+            timestamp: tsIso,
+            is_locked: !!tk.is_locked,
+          });
+        }
+      } else if (det.species && det.confidence != null && det.confidence > 0.50) {
+        candidates.push({
+          species: det.species,
+          confidence: det.confidence,
+          bbox: det.bbox,
+          timestamp: det.timestamp,
+          is_locked: true,
         });
-        if (!dominated) {
+      }
+
+      if (candidates.length > 0) {
+        var now = Date.now();
+        var rendered = false;
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var c = candidates[ci];
+          // Dedup: skip if same species+camera seen in last 30s
+          var dominated = recentDetections.some(function(r) {
+            if (r.action !== 'live') return false;
+            if (!r.top_prediction || r.top_prediction.common_name !== c.species) return false;
+            if (r.camera !== detCamera) return false;
+            var rTime = parseTimestamp(r.source_timestamp);
+            return (now - rTime) < 30000;
+          });
+          if (dominated) continue;
           var liveSighting = {
             file: null,
-            source_timestamp: det.timestamp,
-            timestamp: det.timestamp,
+            source_timestamp: c.timestamp,
+            timestamp: c.timestamp,
             camera: detCamera,
             action: 'live',
-            top_prediction: { common_name: det.species, scientific_name: det.scientific_name || '' },
-            best_detection: { confidence: det.confidence, box: det.bbox }
+            top_prediction: { common_name: c.species, scientific_name: '' },
+            best_detection: { confidence: c.confidence, box: c.bbox },
+            is_locked: c.is_locked,
           };
           recentDetections.unshift(liveSighting);
           if (recentDetections.length > 50) recentDetections = recentDetections.slice(0, 50);
-          renderRecent();
+          rendered = true;
         }
+        if (rendered) renderRecent();
       }
     } catch (e) {
       console.warn('[LiveDet SSE] Parse error:', e);
@@ -6011,22 +6045,25 @@
     // API dot
     _setDot('api', svc.api);
 
-    // Cams dot — aggregate from live_detector
-    var ld = svc.live_detector || {};
-    if (ld.status === 'ok') {
-      // Check if in nighttime pause
-      var nightSkips = ((ld.counters || {}).frames_skipped_night || 0);
-      var framesProcessed = ((ld.counters || {}).frames_processed || 0);
-      if (nightSkips > 0 && framesProcessed === 0) {
-        _setDot('cams', {status: 'ok', detail: 'Nighttime pause (saving CPU)'});
-      } else {
-        var funnel = (ld.funnels || {}).detection || [];
-        var frameCount = funnel.length > 0 ? funnel[0].count : 0;
-        var broadcastCount = funnel.length > 4 ? funnel[4].count : 0;
-        _setDot('cams', {status: 'ok', detail: frameCount + ' frames, ' + broadcastCount + ' detections'});
-      }
+    // Cams dot — aggregate from pipeline_v3 (per-camera capture/detector/tracker/classifier)
+    var p3 = svc.pipeline_v3 || {};
+    var cams = p3.pipeline || {};
+    var camNames = Object.keys(cams);
+    var totalFrames = 0;
+    var totalDetections = 0;
+    camNames.forEach(function(camName) {
+      var cam = cams[camName] || {};
+      totalFrames += ((cam.capture || {}).frames_processed || 0);
+      totalDetections += ((cam.detector || {}).detections_total || 0);
+    });
+    if (p3.status === 'ok' || p3.status === 'warn') {
+      var camLabel = camNames.length + ' cam' + (camNames.length === 1 ? '' : 's');
+      var summary = camLabel + ' · ' + totalFrames.toLocaleString() + ' frames · ' + totalDetections + ' detections';
+      // Mutate so the dropdown row picks up the same summary
+      p3.detail = summary;
+      _setDot('cams', {status: p3.status, detail: summary});
     } else {
-      _setDot('cams', ld);
+      _setDot('cams', p3);
     }
 
     // Audio dot — combine enhanced audio + audio analyzer
@@ -6087,7 +6124,7 @@
     // Render each service row
     var services = [
       {key: 'api', name: 'Dashboard API', icon: '📡'},
-      {key: 'live_detector', name: 'Live Detector', icon: '📷'},
+      {key: 'pipeline_v3', name: 'Detection Pipeline', icon: '📷'},
       {key: 'enhanced_audio', name: 'Audio Stream', icon: '🔊'},
       {key: 'audio_analyzer', name: 'Audio Analyzer', icon: '🎙️'},
     ];

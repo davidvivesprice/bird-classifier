@@ -44,6 +44,22 @@ YARD_LABELS = str(MODELS_DIR / "yard_model_labels.txt")
 AIY_MODEL = str(MODELS_DIR / "aiy_birds_v1.onnx")
 AIY_LABELS = str(MODELS_DIR / "inat_bird_labels.txt")
 
+# ── Per-camera Area-of-Interest polygons (substream pixel coords) ──
+# Motion outside the polygon is ignored by MotionGate → no YOLO call for
+# out-of-zone leaves/sky/fence/etc. ~5× reduction in YOLO triggers on feeder.
+#
+# 2026-04-17: David-approved trapezoid for feeder. Narrower at top (just the
+# feeder body), wider at bottom (includes hopping birds under the feeder).
+# Excludes sky, branches above the feeder roof, fence corners, and grass away
+# from the feeder's immediate area.
+#
+# Long-term: move to per-camera JSON config + a proper polygon editor. See
+# forget-me-nots: "Proper polygon-based AOI/zone system (Frigate-style)".
+CAMERA_AOI_POLYGONS = {
+    CAMERA_FEEDER: [(96, 306), (128, 198), (512, 198), (544, 306)],
+    # CAMERA_GROUND: None,  # no AOI; ground cam currently disabled anyway
+}
+
 running = True
 
 
@@ -99,6 +115,7 @@ def main():
     from pipeline.health import HealthState, HealthServer
     from pipeline.process_thread import CameraProcessThread
     from pipeline.sse_events import SSEEventServer
+    from pipeline.snapshot_writer import SnapshotWriter
 
     log.info("Starting bird_pipeline_v3...")
 
@@ -117,12 +134,22 @@ def main():
     health_server.start()
     sse_server = SSEEventServer(port=SSE_PORT)
     sse_server.start()
+    snapshot_writer = SnapshotWriter()
+    snapshot_writer.start()
+    log.info("SnapshotWriter started — classifications.db + JPG snapshots restored")
 
     regional_species = load_regional_species()
 
     from pipeline.camera_config import CameraClassifierConfig
 
     camera_configs = {
+        # 2026-04-17: Briefly flipped feeder to AIY-only hoping for honest
+        # uncertainty over confident-wrong. AIY returns "don't know" on ~82%
+        # of feeder crops, so tracks almost never lock species → labels don't
+        # appear → UX loses its fast-feedback loop. Yard-model wrongness is
+        # real (see forget-me-nots: DATA INTEGRITY AUDIT) but at least labels
+        # show up quickly and the overlay feels alive. Keep yard until the
+        # audit + retrain lands. Ground stays AIY-only as before.
         CAMERA_FEEDER: CameraClassifierConfig(use_yard=True),
         CAMERA_GROUND: CameraClassifierConfig(use_yard=False),
     }
@@ -162,7 +189,10 @@ def main():
             # at full resolution; they're independent RTSP consumers via go2rtc.
             capture = FrameCapture(name, detect_url, out_queue=frame_q,
                                    width=640, height=360, fps=5)
-            motion_gate = MotionGate()
+            aoi = CAMERA_AOI_POLYGONS.get(name)
+            motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
+            if aoi:
+                log.info("[%s] MotionGate AOI enabled: %d-point polygon", name, len(aoi))
             tracker = BirdTracker()
             detector = BirdDetector(
                 yolo_model_path=YOLO_MODEL,
@@ -182,6 +212,7 @@ def main():
                 frame_width=640,
                 frame_height=360,
                 capture=capture,
+                snapshot_writer=snapshot_writer,
             )
             # HLS recorder: -c copy remux with bounded segments for delayed
             # playback overlay. Fixed settings: hls_list_size=15, delete_segments,
