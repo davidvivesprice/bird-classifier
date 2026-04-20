@@ -176,14 +176,22 @@
 </head>
 <body>
 <div class="container">
-  <div style="text-align:right;margin-bottom:-8px;">
-    <span style="display:flex;gap:16px;justify-content:flex-end;">
-      <a href="/game" target="_top" style="color:var(--text-dim);text-decoration:none;font-size:0.72rem;opacity:0.4;transition:opacity 0.3s;font-family:'DM Sans',sans-serif;" onmouseover="this.style.opacity='1';this.style.color='#d4a853'" onmouseout="this.style.opacity='0.4';this.style.color=''">&#x1F3B5; Name That Call</a>
-      <a href="/game-visual" target="_top" style="color:var(--text-dim);text-decoration:none;font-size:0.72rem;opacity:0.4;transition:opacity 0.3s;font-family:'DM Sans',sans-serif;" onmouseover="this.style.opacity='1';this.style.color='#2dd4bf'" onmouseout="this.style.opacity='0.4';this.style.color=''">&#x1F426; Spot That Bird</a>
-    </span>
-  </div>
   <div class="header">
-    <h1>Today's Chorus</h1>
+    <div style="display:flex;align-items:center;justify-content:center;gap:20px;">
+      <a href="/game" target="_top" title="Name That Call" aria-label="Name That Call"
+         style="flex:0 0 auto;opacity:0.85;transition:opacity 0.2s,transform 0.2s;"
+         onmouseover="this.style.opacity='1';this.style.transform='scale(1.06)'"
+         onmouseout="this.style.opacity='0.85';this.style.transform='scale(1)'">
+        <img src="/game-audio.png" alt="Name That Call" style="height:72px;width:72px;display:block;">
+      </a>
+      <h1 style="margin:0;">Today's Chorus</h1>
+      <a href="/game-visual" target="_top" title="Spot That Bird" aria-label="Spot That Bird"
+         style="flex:0 0 auto;opacity:0.85;transition:opacity 0.2s,transform 0.2s;"
+         onmouseover="this.style.opacity='1';this.style.transform='scale(1.06)'"
+         onmouseout="this.style.opacity='0.85';this.style.transform='scale(1)'">
+        <img src="/game-visual.png" alt="Spot That Bird" style="height:72px;width:72px;display:block;">
+      </a>
+    </div>
     <div class="subtitle" id="date-label"></div>
     <div class="stats">
       <div class="stat"><div class="stat-value" id="stat-species">-</div><div class="stat-label">Species</div></div>

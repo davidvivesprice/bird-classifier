@@ -111,6 +111,24 @@ def serve_apple_touch_icon():
     return FileResponse(str(DASHBOARD_DIR / "apple-touch-icon.png"), media_type="image/png")
 
 
+@app.get("/logo.png")
+def serve_logo():
+    """Serve the Vives Ornithology brand logo. Intended to be reachable by
+    Cloudflare Access's login page renderer, which requires an unauth'd URL.
+    Cf Access side must have a Bypass policy for /logo.png."""
+    return FileResponse(str(DASHBOARD_DIR / "vives-logo.png"), media_type="image/png")
+
+
+@app.get("/game-audio.png")
+def serve_game_audio_icon():
+    return FileResponse(str(DASHBOARD_DIR / "game-audio.png"), media_type="image/png")
+
+
+@app.get("/game-visual.png")
+def serve_game_visual_icon():
+    return FileResponse(str(DASHBOARD_DIR / "game-visual.png"), media_type="image/png")
+
+
 @app.get("/live")
 def serve_live_html():
     """Serve the lightweight live video page (used as iframe in dashboard)."""
