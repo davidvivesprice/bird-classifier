@@ -3411,6 +3411,20 @@
     var offline = document.getElementById('live-offline');
     if (!wrapper) return;
 
+    // Reset any "offline timeout" damage from a prior init. Without this,
+    // one failed initial connect leaves wrapper squished and fs button
+    // hidden forever (0a-2, 0a-4; see 2026-04-22-live-tab-fix plan).
+    wrapper.style.paddingBottom = '';
+    ['stream-switcher','overlay-toggle','live-mute-btn','live-fs-btn'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+    var offlineText = document.getElementById('live-offline-text');
+    if (offlineText) offlineText.textContent = 'Connecting to camera...';
+    var offlineHint = document.getElementById('live-offline-hint');
+    if (offlineHint) offlineHint.style.display = 'none';
+    if (offline) offline.style.display = '';  // show overlay until first frame
+
     // VideoRTC is registered via <script type="module"> which is deferred.
     if (!customElements.get('video-rtc')) {
       customElements.whenDefined('video-rtc').then(function() { initLiveFeed(); });
@@ -3434,21 +3448,15 @@
     // Insert before the first child (overlay layer, controls, etc. come after)
     wrapper.insertBefore(player, wrapper.firstChild);
 
-    // Show helpful hint and hide controls if camera doesn't connect within 8s
+    // After 8s with no video, surface a helpful hint. Don't destroy the
+    // wrapper's layout or hide the controls — a slow tunnel cold-start
+    // still deserves an un-mutilated UI when the first frame arrives
+    // (0a-1, 0a-2, 0a-4 in the 2026-04-22-live-tab-fix plan).
     setTimeout(function() {
-      var hint = document.getElementById('live-offline-hint');
-      var text = document.getElementById('live-offline-text');
       var vid = document.getElementById('live-video');
-      if (hint && offline && (!vid || vid.readyState < 2)) {
-        text.textContent = 'Camera offline';
-        hint.style.display = '';
-        var wrapper = document.getElementById('live-wrapper');
-        if (wrapper) wrapper.style.paddingBottom = '30%';
-        ['stream-switcher','overlay-toggle','live-mute-btn','live-fs-btn'].forEach(function(id) {
-          var el = document.getElementById(id);
-          if (el) el.style.display = 'none';
-        });
-      }
+      if (vid && !vid.paused && vid.readyState >= 2) return;
+      var hint = document.getElementById('live-offline-hint');
+      if (hint) hint.style.display = '';
     }, 8000);
 
     // Build the go2rtc WebSocket URL — ALWAYS same-origin via the dashboard's
@@ -3464,14 +3472,30 @@
     player.visibilityCheck = false;  // we handle visibility ourselves
     player.src = wsUrl;
 
-    // Hide offline indicator once video starts playing
-    var checkPlaying = setInterval(function() {
+    // Hide offline indicator as soon as the video element exists AND fires
+    // `playing`. readyState polling was unreliable on MSE-over-tunnel
+    // (0a-3 in the 2026-04-22-live-tab-fix plan) — the `playing` event
+    // fires on every transport path (WebRTC, MSE, HLS, MP4) as soon as
+    // frames actually decode, so this is transport-agnostic.
+    var hideOffline = function() {
+      if (offline) offline.style.display = 'none';
+    };
+    var attachPlayingListener = function() {
       var vid = document.getElementById('live-video');
-      if (vid && vid.readyState >= 2) {
-        if (offline) offline.style.display = 'none';
-        clearInterval(checkPlaying);
-      }
-    }, 500);
+      if (!vid) return false;
+      vid.addEventListener('playing', hideOffline, { once: true });
+      // If already playing (rare race), hide immediately.
+      if (!vid.paused && vid.readyState >= 3) hideOffline();
+      return true;
+    };
+    // `live-video` is only given that id inside BirdVideoRTC.oninit, which
+    // runs after connectedCallback. Retry briefly until it exists.
+    if (!attachPlayingListener()) {
+      var retries = 0;
+      var retry = setInterval(function() {
+        if (attachPlayingListener() || ++retries > 20) clearInterval(retry);
+      }, 200);
+    }
   }
 
   // ── Lightbox ──
