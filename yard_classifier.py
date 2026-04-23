@@ -222,21 +222,70 @@ class YardClassifier:
         if not merged:
             return []
 
-        # Sort by score descending, take top 3
-        sorted_names = sorted(merged, key=merged.get, reverse=True)
-        top3_names = sorted_names[:3]
-        top3_raw = {name: merged[name] for name in top3_names}
+        # Softmax with temperature scaling over the FULL merged distribution.
+        #
+        # 2026-04-18: This addresses "yard model is always 100% confident,
+        # even when wrong."
+        #
+        # Root cause: the yard model is a weight-imprinted MobileNet, which
+        # produces near-one-hot raw logits (e.g., [255, 29, 4, 0, 0, ...] with
+        # the top-1 class overwhelmingly dominant). Standard softmax on such
+        # peaked logits collapses to [~1.0, ~0, ~0, ...] regardless of whether
+        # the prediction is correct — so the model sounds certain about
+        # everything, including its mistakes.
+        #
+        # Probe 2026-04-18 on real yard detections showed top-1 raw of 223 vs
+        # runner-up 29 (classifying a Chickadee as a Cardinal) → softmax gives
+        # 1.000. Meanwhile a genuine tie (92 vs 92) softmaxes to just 0.500 —
+        # indistinguishable from the confidently-wrong case by standard softmax.
+        #
+        # Temperature scaling (dividing logits by T > 1 before softmax) spreads
+        # the distribution so peaked predictions compress toward a reasonable
+        # confidence band and genuine ties drop below it. With T=100:
+        #   raw 223/29  → 0.450  (peaked but possibly wrong)
+        #   raw 255/1   → 0.538  (peaked)
+        #   raw 155/93  → 0.272  (close runners — less peaked)
+        #   raw 92/92   → 0.156  (tied — genuinely uncertain)
+        # The uncertainty band is now separable from the peaked band.
+        #
+        # T=100 was selected empirically from the probe; a principled future
+        # improvement would calibrate T against a labeled validation set
+        # (temperature scaling per Guo et al. 2017). For now T=100 gets honest
+        # numbers flowing to downstream consumers (SmartClassifier fallback,
+        # vote-lock, confidence displays, reviewer UI).
+        #
+        # Note: this does NOT fix the underlying "confidently wrong" issue —
+        # weight-imprinted models still pick wrong species on crops outside
+        # their training distribution. The proper fix is retraining with real
+        # transfer learning (TF Lite Model Maker / PyTorch). Until then,
+        # temperature + within-track agreement in the tracker's vote-lock
+        # (≥3 frames with ≥60% species agreement) is the layered defense.
+        TEMPERATURE = 100.0
 
-        # Softmax on top-3 scores
-        probs = softmax_top3(top3_raw)
+        names = list(merged.keys())
+        all_raw = np.array([merged[n] for n in names], dtype=np.float64)
+        all_raw /= TEMPERATURE          # temperature scaling
+        all_raw -= all_raw.max()        # numerical stability
+        all_exps = np.exp(all_raw)
+        all_probs = all_exps / all_exps.sum()
 
-        # Noise floor — distinct from YARD_THRESHOLD which is applied by
-        # classify.py's pick-winner logic. This just filters pure garbage.
-        if probs[0] < 0.10:
+        # Rank by probability (same as rank by raw since softmax is monotonic)
+        order = np.argsort(all_probs)[::-1][:3]
+        top3_names = [names[i] for i in order]
+        top3_probs = [float(all_probs[i]) for i in order]
+
+        # Noise floor tuned for the T=100 distribution.
+        # Observed floors:
+        #   - Confidently peaked (even if wrong species): ≥ 0.40
+        #   - Moderately peaked: 0.25–0.40
+        #   - Genuine ties/uncertainty: ≤ 0.16
+        # 0.10 filters true garbage and lets the SmartClassifier's threshold
+        # do the next-level gating.
+        if top3_probs[0] < 0.10:
             return []
 
         results = []
-        for name, prob in zip(top3_names, probs):
+        for name, prob in zip(top3_names, top3_probs):
             results.append({
                 "common_name": name,
                 "scientific_name": "",  # yard model has no scientific names

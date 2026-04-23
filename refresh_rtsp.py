@@ -72,12 +72,19 @@ def fetch_streams(camera_id):
 
 
 def write_rtsp_urls(tokens):
-    """Write rtsp_urls.json."""
+    """Write rtsp_urls.json for cameras whose token fetch succeeded.
+
+    Iterates `tokens` (successes), NOT `CAMERAS` (all). If a camera's fetch
+    failed upstream, it's omitted rather than raising KeyError — which was
+    crashing the nightly 3:10 AM cron and leaving go2rtc with stale tokens
+    when any single camera failed (the handoff-30 'silent audio downtime'
+    class of bug).
+    """
     data = {
         "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "streams": {
             name: {"high": tokens[name]["high"], "low": tokens[name]["low"]}
-            for name in CAMERAS
+            for name in tokens
         },
     }
     tmp = RTSP_URLS_FILE.with_suffix(".tmp")
@@ -86,9 +93,16 @@ def write_rtsp_urls(tokens):
 
 
 def write_go2rtc_config(tokens):
-    """Write go2rtc.yaml with fresh stream URLs."""
+    """Write go2rtc.yaml with fresh stream URLs.
+
+    Partial-failure safe: if a camera's token fetch failed upstream, its
+    streams are omitted rather than raising KeyError. The go2rtc daemon
+    drops those streams until the next successful fetch.
+    """
     lines = ["streams:"]
     for stream_name, (camera, quality) in GO2RTC_STREAMS.items():
+        if camera not in tokens:
+            continue
         url = tokens[camera][quality]
         lines.append(f"  {stream_name}:")
         lines.append(f"    - {url}#tcp")

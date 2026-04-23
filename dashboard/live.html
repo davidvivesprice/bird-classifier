@@ -400,35 +400,106 @@
     ctx.restore();
   }
 
-  // ── Smooth-label math: Catmull-Rom through bracketing events ──
-  // See docs/superpowers/specs/2026-04-17-smooth-label-overlay-design.md
+  // ── Adaptive Lock smoothing ──
+  // Designed in the motion sandbox with David and his father, April 18 2026.
+  // Two Gaussian kernels (wide and narrow) blended by the bird's instantaneous
+  // speed. Wide dominates when still (kills YOLO jitter); narrow dominates in
+  // motion (tracks responsively).
   //
-  // At render time T, we find up to 4 bracketing events (P0, P1, P2, P3) where
-  // P1.wall <= T < P2.wall. The ~10s HLS buffer gives us future events (P2, P3)
-  // that real-time trackers can't see — we interpolate instead of extrapolate.
+  // SYMMETRIC kernels (events from before AND after displayedWallMs) because
+  // /live.html plays video ~10s behind wall clock and renders against
+  // displayedWallMs from the sidecar — the buffer is full of future events
+  // relative to the displayed frame. This is the core reason the sandbox
+  // experience ports cleanly here: we port the CLOCK (video time) not just
+  // the math. See memory: feedback_port_the_clock_not_just_the_math.md.
 
-  function bboxToCenterSize(b) {
-    return { cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1] };
+  var SIGMA_WIDE_MS   = 450;
+  var SIGMA_NARROW_MS = 220;
+  var VEL_LO_PX_S     = 20;
+  var VEL_HI_PX_S     = 80;
+  var VEL_LOOKBACK_MS = 150;
+  var ALPHA_EMA_GAIN  = 0.1;
+  // α-EMA state persists across frames, keyed by track_id. indexTracksFromBuffer
+  // rebuilds series each frame, so we can't store it on series. Map entries are
+  // pruned by pruneAlphaState below.
+  var _adaptiveAlphaEMA = new Map();
+
+  // Symmetric Gaussian kernel over a track's events at time T. Returns the
+  // weighted-average anchor {cx, top} in substream coords. halfWindow = 3.2σ
+  // keeps truncation error under 0.3%.
+  function gaussianAt(events, T, sigma_ms) {
+    var sigma2 = sigma_ms * sigma_ms;
+    var halfWindow = sigma_ms * 3.2;
+    var sx = 0, sy = 0, sw = 0;
+    for (var i = 0; i < events.length; i++) {
+      var d = events[i].wall - T;
+      if (d > halfWindow) break;     // events chronological; rest is future beyond window
+      if (d < -halfWindow) continue; // too far in past
+      var w = Math.exp(-(d * d) / (2 * sigma2));
+      var b = events[i].bbox;
+      sx += ((b[0] + b[2]) / 2) * w;
+      sy += b[1] * w;
+      sw += w;
+    }
+    if (sw === 0) return null;
+    return { cx: sx / sw, top: sy / sw };
   }
 
-  // Non-uniform Catmull-Rom (time-parameterized Hermite with Catmull-Rom tangents).
-  // Missing P0 or P3 reduces to natural tangents at the endpoint → smoothly
-  // degrades to linear when we only have P1, P2.
-  function catmullRom1D(p0, p1, p2, p3, t0, t1, t2, t3, T) {
-    var dt12 = t2 - t1;
-    if (dt12 <= 0) return p1;
-    var u = (T - t1) / dt12;
-    var u2 = u * u, u3 = u2 * u;
-    var m1, m2;
-    if (p0 != null && (t2 - t0) > 0) m1 = (p2 - p0) / (t2 - t0);
-    else m1 = (p2 - p1) / dt12;
-    if (p3 != null && (t3 - t1) > 0) m2 = (p3 - p1) / (t3 - t1);
-    else m2 = (p2 - p1) / dt12;
-    var h00 = 2 * u3 - 3 * u2 + 1;
-    var h10 = u3 - 2 * u2 + u;
-    var h01 = -2 * u3 + 3 * u2;
-    var h11 = u3 - u2;
-    return h00 * p1 + h10 * dt12 * m1 + h01 * p2 + h11 * dt12 * m2;
+  // Adaptive Lock: blend Precision Lock (σ_wide) with Weighted Average (σ_narrow)
+  // based on the bird's current speed. Temporally smoothed blend weight avoids
+  // regime flicker at the transition band.
+  function adaptiveAnchorAt(trackId, series, T) {
+    var events = series.events;
+    if (!events.length) return null;
+    var narrow = gaussianAt(events, T, SIGMA_NARROW_MS);
+    if (!narrow) {
+      // No events within the ±σ_narrow window of T. Fall back to the
+      // event CHRONOLOGICALLY CLOSEST to T — NOT the newest event.
+      // On /live the video plays ~10 s behind wall-clock, so
+      // events[events.length-1] is the bird's FUTURE position (where
+      // it will be 10 s from now), not where it is on the displayed
+      // frame. The chronologically-closest event gives the best
+      // approximation of "where the bird actually is right now in
+      // what's on screen."
+      var closest = events[0];
+      var bestDt = Math.abs(events[0].wall - T);
+      for (var k = 1; k < events.length; k++) {
+        var dt = Math.abs(events[k].wall - T);
+        if (dt < bestDt) { bestDt = dt; closest = events[k]; }
+      }
+      var b = closest.bbox;
+      return { cx: (b[0] + b[2]) / 2, top: b[1] };
+    }
+    var wide = gaussianAt(events, T, SIGMA_WIDE_MS) || narrow;
+
+    var past = gaussianAt(events, T - VEL_LOOKBACK_MS, SIGMA_NARROW_MS);
+    var vel_px_s = 0;
+    if (past) {
+      var dx = narrow.cx - past.cx;
+      var dy = narrow.top - past.top;
+      vel_px_s = Math.sqrt(dx * dx + dy * dy) / (VEL_LOOKBACK_MS / 1000);
+    }
+    var alphaRaw = (vel_px_s - VEL_LO_PX_S) / (VEL_HI_PX_S - VEL_LO_PX_S);
+    if (alphaRaw < 0) alphaRaw = 0;
+    if (alphaRaw > 1) alphaRaw = 1;
+
+    var prev = _adaptiveAlphaEMA.get(trackId);
+    var alpha = (prev == null) ? alphaRaw : prev + (alphaRaw - prev) * ALPHA_EMA_GAIN;
+    _adaptiveAlphaEMA.set(trackId, alpha);
+
+    return {
+      cx:  (1 - alpha) * wide.cx  + alpha * narrow.cx,
+      top: (1 - alpha) * wide.top + alpha * narrow.top,
+    };
+  }
+
+  // Keep the α-EMA map bounded — drop entries for track_ids no longer present
+  // in the live trackSeries. Call once per frame after indexTracksFromBuffer.
+  function pruneAlphaState(liveTracks) {
+    if (_adaptiveAlphaEMA.size < 64) return;  // cheap guard — rarely grows
+    _adaptiveAlphaEMA.forEach(function(_, id) {
+      if (!liveTracks.has(id)) _adaptiveAlphaEMA.delete(id);
+    });
   }
 
   // Walk eventBuffer once per frame, group events by track_id chronologically.
@@ -458,62 +529,10 @@
     return tracks;
   }
 
-  // Smoothed bbox at time T in substream coords, or null if nothing to draw.
-  function smoothedBboxAt(series, T) {
-    var events = series.events;
-    if (!events.length) return null;
-    // Binary-ish scan for i1 where events[i1].wall <= T
-    var i1 = -1;
-    for (var i = 0; i < events.length; i++) {
-      if (events[i].wall <= T) i1 = i; else break;
-    }
-    // T before first event: hold at first
-    if (i1 < 0) return bboxToCenterSize(events[0].bbox);
-    // T past last event: hold at last (fade handled by caller)
-    if (i1 === events.length - 1) return bboxToCenterSize(events[events.length - 1].bbox);
-    // Bracketing segment: P1=events[i1], P2=events[i1+1], optional P0, P3
-    var P1 = events[i1], P2 = events[i1 + 1];
-    var P0 = i1 > 0 ? events[i1 - 1] : null;
-    var P3 = (i1 + 2) < events.length ? events[i1 + 2] : null;
-    var c1 = bboxToCenterSize(P1.bbox), c2 = bboxToCenterSize(P2.bbox);
-    var c0 = P0 ? bboxToCenterSize(P0.bbox) : null;
-    var c3 = P3 ? bboxToCenterSize(P3.bbox) : null;
-    var t0 = P0 ? P0.wall : null, t3 = P3 ? P3.wall : null;
-    return {
-      cx: catmullRom1D(c0 && c0.cx, c1.cx, c2.cx, c3 && c3.cx, t0, P1.wall, P2.wall, t3, T),
-      cy: catmullRom1D(c0 && c0.cy, c1.cy, c2.cy, c3 && c3.cy, t0, P1.wall, P2.wall, t3, T),
-      w:  catmullRom1D(c0 && c0.w,  c1.w,  c2.w,  c3 && c3.w,  t0, P1.wall, P2.wall, t3, T),
-      h:  catmullRom1D(c0 && c0.h,  c1.h,  c2.h,  c3 && c3.h,  t0, P1.wall, P2.wall, t3, T),
-    };
-  }
-
-  // Corner brackets: 4 L-shapes at the bbox corners, lets the bird breathe.
-  function drawCornerBrackets(x1, y1, x2, y2, opacity) {
-    var bw = x2 - x1, bh = y2 - y1;
-    var L = Math.max(10, Math.min(28, Math.min(bw, bh) * 0.18));
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetY = 1;
-    // Top-left
-    ctx.beginPath(); ctx.moveTo(x1, y1 + L); ctx.lineTo(x1, y1); ctx.lineTo(x1 + L, y1); ctx.stroke();
-    // Top-right
-    ctx.beginPath(); ctx.moveTo(x2 - L, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + L); ctx.stroke();
-    // Bottom-left
-    ctx.beginPath(); ctx.moveTo(x1, y2 - L); ctx.lineTo(x1, y2); ctx.lineTo(x1 + L, y2); ctx.stroke();
-    // Bottom-right
-    ctx.beginPath(); ctx.moveTo(x2 - L, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - L); ctx.stroke();
-    ctx.restore();
-  }
-
   // ── Frame Renderer ──
   // Uses requestVideoFrameCallback for frame-accurate sync.
   // Reads displayed wall-clock from sidecar manifest (no drift).
-  // Draws smoothed corner-bracket + label per track via Catmull-Rom.
+  // Labels-only overlay: Adaptive Lock smoothing feeds a single pill per track.
 
   var lastMatchedWall = 0;
   var lastRenderTrackCount = 0;
@@ -585,6 +604,7 @@
 
     // Walk the SSE buffer once, group by track.
     var trackSeries = indexTracksFromBuffer();
+    pruneAlphaState(trackSeries);
 
     var placements = [];
     trackSeries.forEach(function(series, trackId) {
@@ -594,25 +614,18 @@
       var ageAfterLast = displayedWallMs - series.lastSeen;
       if (ageAfterLast > (STALE_MS + FADE_OUT_MS)) return;
 
-      var sm = smoothedBboxAt(series, displayedWallMs);
+      // Adaptive Lock anchor — {cx, top} in substream coords. Only the
+      // two scalars we need for label placement; no bbox dimensions.
+      var sm = adaptiveAnchorAt(trackId, series, displayedWallMs);
       if (!sm) return;
 
       var fw = series.latestFrameW || 640;
       var fh = series.latestFrameH || 360;
 
-      // Inflate 10% on each side (substream coords, before scaling).
-      var INFLATE = 0.10;
-      var halfW = (sm.w * (1 + 2 * INFLATE)) / 2;
-      var halfH = (sm.h * (1 + 2 * INFLATE)) / 2;
-
-      // Scale smoothed coords to video content rect (not raw canvas).
+      // Scale smoothed anchor to the video content rect (not raw canvas).
       var sx = contentW / fw, sy = contentH / fh;
       var centerX = offX + sm.cx * sx;
-      var centerY = offY + sm.cy * sy;
-      var x1 = centerX - halfW * sx;
-      var x2 = centerX + halfW * sx;
-      var y1 = centerY - halfH * sy;
-      var y2 = centerY + halfH * sy;
+      var topY    = offY + sm.top * sy;
 
       // Opacity: fade in from first event, fade out after STALE_MS past last event.
       var opacity = 1;
@@ -627,14 +640,15 @@
 
       placements.push({
         trackId: trackId,
-        x1: x1, y1: y1, x2: x2, y2: y2,
         cx: centerX,
-        labelY: Math.max(22, y1 - 12),
+        labelY: Math.max(22, topY - 36),  // generous pill-height gap above bird head
         opacity: opacity,
         species: series.latestSpecies,
         confidence: series.latestConfidence,
         isLocked: series.latestLocked,
-        area: (x2 - x1) * (y2 - y1),
+        // Proxy for size-ordering in the collision pass — larger tracks
+        // (more events, or more recent) win the top slot.
+        area: series.events.length,
       });
     });
     lastRenderTrackCount = placements.length;
@@ -655,10 +669,10 @@
       placed.push(p);
     }
 
-    // Render: corner brackets + label per track.
+    // Render: label only (corner brackets removed 2026-04-18 per design
+    // decision — just the pill glued to the bird).
     for (var i = 0; i < placed.length; i++) {
       var p = placed[i];
-      drawCornerBrackets(p.x1, p.y1, p.x2, p.y2, p.opacity);
       var cxClamped = Math.max(LABEL_W_ESTIMATE / 2 + 8, Math.min(canvas.width - LABEL_W_ESTIMATE / 2 - 8, p.cx));
       if (p.species) {
         var conf = p.confidence != null ? ' ' + Math.round(p.confidence * 100) + '%' : '';

@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label Motion Sandbox — Bird Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #d4a556;
+    --bg: #0a0e13;
+    --panel: #12171f;
+    --ink: #e8ddc9;
+    --ink-dim: #9aa5b1;
+    --border: rgba(212, 165, 86, 0.18);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 300;
+    line-height: 1.55;
+  }
+  /* ── Typography ── */
+  .eyebrow {
+    font-family: 'Outfit', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--gold);
+    margin: 0 0 14px;
+    opacity: 0.9;
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 500;
+    font-style: italic;
+    font-size: 58px;
+    line-height: 1.05;
+    margin: 0 0 20px;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+  }
+  h1 em { color: var(--gold); font-style: italic; }
+  .lede {
+    font-size: 17px;
+    color: var(--ink);
+    max-width: 680px;
+    margin: 0 0 10px;
+    line-height: 1.55;
+    font-weight: 300;
+  }
+  .subtitle {
+    font-size: 15.5px;
+    color: var(--ink-dim);
+    max-width: 680px;
+    margin: 0 0 36px;
+  }
+  .section-heading {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 30px;
+    margin: 56px 0 8px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .section-heading em { color: var(--gold); font-style: italic; }
+  .section-sub {
+    color: var(--ink-dim);
+    font-size: 14.5px;
+    margin: 0 0 28px;
+    max-width: 680px;
+  }
+
+  .wrap {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 120px 24px 100px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px;
+  }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  @media (max-width: 960px) {
+    .grid-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+    h1 { font-size: 34px; }
+    .section-heading { font-size: 24px; }
+    .wrap { padding: 140px 16px 64px; }
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  }
+  .card:hover {
+    border-color: rgba(212, 165, 86, 0.32);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  }
+  .card-number {
+    position: absolute;
+    top: 14px; right: 18px;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-size: 15px;
+    color: var(--gold);
+    opacity: 0.55;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .card-canvas {
+    position: relative;
+    background: #000;
+    padding-top: 56.25%; /* 16:9 */
+  }
+  .card-canvas canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  .card-body { padding: 22px 26px 26px; }
+  .card-body h3 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    margin: 0 0 10px;
+    font-size: 24px;
+    color: var(--gold);
+    letter-spacing: -0.005em;
+  }
+  .card-body .how {
+    margin: 0 0 14px;
+    font-size: 14.5px;
+    color: var(--ink);
+    font-weight: 300;
+    line-height: 1.62;
+  }
+  .card-body .tech {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    font-family: 'SF Mono', Menlo, monospace;
+    background: rgba(212, 165, 86, 0.06);
+    border-left: 2px solid rgba(212, 165, 86, 0.35);
+    padding: 8px 12px;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.55;
+  }
+  .card-body .tech strong {
+    color: var(--gold);
+    font-weight: 500;
+    font-family: 'Outfit', sans-serif;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    display: inline-block;
+    margin-right: 6px;
+  }
+
+  /* ── Hero / showcase: wide single-column canvas cards ── */
+  .hero {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    margin: 0 0 8px;
+    position: relative;
+  }
+  .hero.showcase {
+    border: 1px solid rgba(212, 165, 86, 0.45);
+    box-shadow: 0 0 0 1px rgba(212, 165, 86, 0.08) inset,
+                0 24px 60px -28px rgba(212, 165, 86, 0.28);
+  }
+  .hero-canvas {
+    position: relative;
+    background: #000;
+    padding-top: 40%;  /* wider cinema aspect */
+  }
+  .hero-canvas canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  .hero-body {
+    padding: 22px 32px 26px;
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .hero-body h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--gold);
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .hero.showcase .hero-body h2 { font-size: 26px; }
+  .hero-body p {
+    margin: 0;
+    font-size: 14.5px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+    flex: 1;
+    min-width: 280px;
+  }
+  .hero.showcase .hero-body p { color: var(--ink); font-size: 15px; }
+  .hero-tech {
+    margin: 10px 32px 24px;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    font-family: 'SF Mono', Menlo, monospace;
+    background: rgba(212, 165, 86, 0.06);
+    border-left: 2px solid rgba(212, 165, 86, 0.35);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.55;
+  }
+  .hero-tech strong {
+    color: var(--gold);
+    font-weight: 500;
+    font-family: 'Outfit', sans-serif;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    display: inline-block;
+    margin-right: 8px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 22px;
+    margin: 0 0 32px;
+    font-size: 13px;
+    color: var(--ink-dim);
+    flex-wrap: wrap;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend .swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+  .swatch.raw   { background: transparent; outline: 1px dashed rgba(255,255,255,0.6); outline-offset: 0; height: 10px; width: 14px; border-radius: 0; }
+  .swatch.label { background: var(--gold); }
+  .swatch.bird  { background: #d4a556; border-radius: 50%; height: 10px; width: 10px; }
+
+  /* ── Byline footer ── */
+  .byline {
+    margin-top: 64px;
+    padding-top: 28px;
+    border-top: 1px solid rgba(212, 165, 86, 0.12);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12.5px;
+    color: #6b7685;
+  }
+  .byline strong { color: var(--ink-dim); font-weight: 400; font-style: italic; font-family: 'Playfair Display', Georgia, serif; font-size: 13.5px; }
+
+  /* Top bar — fixed, always visible. Holds the track switcher + bbox toggle. */
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    background: rgba(10, 14, 19, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .topbar-brand {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 17px;
+    color: var(--ink);
+    margin-right: auto;
+    letter-spacing: -0.01em;
+  }
+  .topbar-brand em { color: var(--gold); font-style: italic; }
+  @media (max-width: 760px) {
+    .topbar-inner { padding: 10px 14px; gap: 10px; }
+    .topbar-brand { display: none; }
+    .wrap { padding-top: 140px; }
+  }
+  .switcher {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 18px;
+  }
+  .switcher button {
+    background: transparent;
+    border: none;
+    color: var(--gold);
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 20px;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  .switcher button:hover { background: rgba(212, 165, 86, 0.12); }
+  .switcher button:disabled { color: #444; cursor: default; }
+  .switcher .track-name {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink);
+    min-width: 220px;
+    text-align: center;
+  }
+  .switcher .track-name .meta {
+    display: block;
+    font-family: 'Outfit', sans-serif;
+    font-style: normal;
+    font-size: 12px;
+    color: var(--ink-dim);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 18px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--ink-dim);
+    user-select: none;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .toggle:hover { color: var(--ink); }
+  .toggle input { display: none; }
+  .toggle .dot {
+    width: 32px; height: 18px;
+    border-radius: 999px;
+    background: #2a3443;
+    position: relative;
+    transition: background 0.2s;
+  }
+  .toggle .dot::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    background: #9aa5b1;
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .dot { background: rgba(212, 165, 86, 0.4); }
+  .toggle input:checked + .dot::after { transform: translateX(14px); background: var(--gold); }
+  .toggle-label { font-family: 'Outfit', sans-serif; }
+
+  .footnote {
+    margin-top: 48px;
+    font-size: 13.5px;
+    color: var(--ink-dim);
+    max-width: 820px;
+    line-height: 1.75;
+  }
+  .footnote strong { color: var(--ink); font-weight: 500; }
+  .footnote code {
+    background: rgba(212, 165, 86, 0.08);
+    color: #c4b698;
+    padding: 1px 6px; border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12.5px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-brand">Label motion <em>sandbox</em></div>
+    <div class="switcher" role="group" aria-label="Switch track">
+      <button id="prev-btn" aria-label="Previous track">◀</button>
+      <div class="track-name" id="track-name"></div>
+      <button id="next-btn" aria-label="Next track">▶</button>
+    </div>
+    <label class="toggle" for="bbox-toggle">
+      <input type="checkbox" id="bbox-toggle" checked>
+      <span class="dot"></span>
+      <span class="toggle-label">Show raw bbox</span>
+    </label>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <p class="eyebrow">Bird Observatory · Label motion study</p>
+  <h1>Making labels <em>glue</em> to the bird.</h1>
+  <p class="lede">
+    The pipeline sees the bird five to eight times a second; the screen refreshes sixty. Without
+    care, the label teleports with every detection. This page is a sandbox for deciding how
+    to bridge the gap.
+  </p>
+  <p class="subtitle">
+    Everything you'll see is real data — tracks pulled straight from the observatory's pipeline
+    database, looping on the page. Use the top bar to switch between tracks and to compare the
+    smoothed results against the raw observations.
+  </p>
+
+  <div class="legend">
+    <span><span class="swatch bird"></span>bird silhouette (smoothed — what your eye sees in real video)</span>
+    <span><span class="swatch raw"></span>raw pipeline bbox (updates only at event time)</span>
+    <span><span class="swatch label"></span>label (rendered at 60 fps)</span>
+  </div>
+
+  <p class="eyebrow" style="margin-top: 16px;">What we have today</p>
+  <div class="hero">
+    <div class="hero-canvas"><canvas id="cv-raw"></canvas></div>
+    <div class="hero-body">
+      <h2>Raw pipeline</h2>
+      <p>
+        No smoothing at all. The label is pinned to whichever bounding box just arrived and
+        teleports to the next one ~150 ms later. Every YOLO jitter shows up as a visible
+        flinch. This is the starting point — the problem we're trying to solve below.
+      </p>
+    </div>
+  </div>
+
+  <h2 class="section-heading">Four <em>candidates</em></h2>
+  <p class="section-sub">
+    Each panel renders the label at a full 60 fps, using a different method to turn the sparse
+    observations above into continuous motion. Hover on any card to lift it.
+  </p>
+
+  <div class="grid">
+
+    <div class="card">
+      <span class="card-number">01</span>
+      <div class="card-canvas"><canvas id="cv-precision"></canvas></div>
+      <div class="card-body">
+        <h3>Precision Lock</h3>
+        <p class="how">
+          At every render tick, take a weighted average of all observations in a wide time
+          window — with weights from a symmetric Gaussian centered at "now". Observations close
+          in time count heavily; far ones barely register. Strong noise rejection; the label
+          only moves when the bird genuinely has.
+        </p>
+        <p class="tech"><strong>Technique</strong> Gaussian kernel smoothing, σ ≈ 0.45 s (half-width ≈ 1.4 s).</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-number">02</span>
+      <div class="card-canvas"><canvas id="cv-organic"></canvas></div>
+      <div class="card-body">
+        <h3>Organic Glide</h3>
+        <p class="how">
+          Draw a smooth curve directly through the observations — four at a time, with tangents
+          inferred from the neighbouring points. The label passes through every real
+          measurement and travels between them along a C¹-continuous path (no velocity
+          discontinuities at sample boundaries).
+        </p>
+        <p class="tech"><strong>Technique</strong> non-uniform Catmull-Rom spline, 4-point stencil.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-number">03</span>
+      <div class="card-canvas"><canvas id="cv-weighted"></canvas></div>
+      <div class="card-body">
+        <h3>Weighted Average</h3>
+        <p class="how">
+          Same idea as Precision Lock, but with a narrower kernel — σ ≈ 0.22 s (half-width
+          ≈ 0.7 s). Still rejects per-frame YOLO flutter, but catches up to real motion
+          noticeably quicker. The trade-off knob between stillness and responsiveness is just σ.
+        </p>
+        <p class="tech"><strong>Technique</strong> Gaussian kernel smoothing, σ ≈ 0.22 s.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-number">04</span>
+      <div class="card-canvas"><canvas id="cv-elastic"></canvas></div>
+      <div class="card-body">
+        <h3>Elastic Trail</h3>
+        <p class="how">
+          No lookahead — uses only observations up to "now". The label's position accelerates
+          toward the latest observation like a mass on a spring with viscous damping: always
+          a tick behind, tiny overshoot on settle. Included as the "no-buffer" baseline.
+        </p>
+        <p class="tech"><strong>Technique</strong> PD controller (stiffness k ≈ 0.12, damping d ≈ 0.75).</p>
+      </div>
+    </div>
+
+  </div>
+
+  <h2 class="section-heading" style="margin-top: 72px;">A few more <em>in the mix</em>.</h2>
+  <p class="section-sub">
+    Three more approaches worth putting on the table — each bringing an idea the first four
+    don't have. Prediction (we actually model the bird's velocity), adaptive bandwidth (one
+    filter that tunes itself to speed), and local polynomial fitting (preserves the <em>shape</em>
+    of the motion, not just the average).
+  </p>
+
+  <div class="grid grid-3">
+
+    <div class="card">
+      <span class="card-number">05</span>
+      <div class="card-canvas"><canvas id="cv-kinematic"></canvas></div>
+      <div class="card-body">
+        <h3>Kinematic Lock</h3>
+        <p class="how">
+          Maintain a running estimate of both the bird's position <em>and</em> its velocity —
+          not just where it is, but how fast and in what direction. When a new observation
+          arrives, weigh it against where the filter predicted the bird would be, and update
+          both numbers. With a velocity estimate, the label can glide between observations
+          instead of jumping to them.
+        </p>
+        <p class="tech"><strong>Technique</strong> α-β filter (fixed-gain Kalman) with constant-velocity motion model, α = 0.25, β = 0.05.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-number">06</span>
+      <div class="card-canvas"><canvas id="cv-oneeuro"></canvas></div>
+      <div class="card-body">
+        <h3>One-Euro</h3>
+        <p class="how">
+          A low-pass filter whose cutoff frequency adapts to the bird's speed. Slow birds get
+          aggressive smoothing (low cutoff, calm label). Fast birds get permissive filtering
+          (high cutoff, responsive label). A single filter, smoothly self-tuning — from HCI
+          research; the de-facto standard for interactive pointer filtering.
+        </p>
+        <p class="tech"><strong>Technique</strong> Casiez, Roussel & Vogel 2012. fc<sub>min</sub> = 1 Hz, β = 0.05, derivative cutoff 1 Hz.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-number">07</span>
+      <div class="card-canvas"><canvas id="cv-localfit"></canvas></div>
+      <div class="card-body">
+        <h3>Local Fit</h3>
+        <p class="how">
+          Unlike a Gaussian kernel (which inherently blurs the <em>shape</em> of the motion),
+          this fits a local polynomial through the observations in a small window and evaluates
+          it at the current render time. A quadratic captures acceleration; the rendered path
+          matches the bird's actual trajectory more faithfully than any weighted average can.
+        </p>
+        <p class="tech"><strong>Technique</strong> Savitzky-Golay-style local least-squares fit, degree 2, ±0.4 s window.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="eyebrow" style="margin-top: 64px;">The refinement — a proposal</p>
+  <h2 class="section-heading">Calm when still, <em>alert</em> when moving.</h2>
+  <p class="section-sub">
+    Precision Lock's weakness is lag on real motion. Weighted Average's weakness is letting
+    jitter through while the bird is still. They're opposite failure modes. The refinement:
+    run <em>both</em> kernels, and at every frame blend them in proportion to how fast the bird
+    is actually moving. The same math, used in the regime where each wins.
+  </p>
+
+  <div class="hero showcase">
+    <div class="hero-canvas"><canvas id="cv-adaptive"></canvas></div>
+    <div class="hero-body">
+      <h2>Adaptive Lock</h2>
+      <p>
+        Two Gaussian kernels run in parallel: a wide one (σ = 0.45 s) and a narrow one
+        (σ = 0.22 s). The rendered label is a linear blend of their outputs, weighted by the
+        bird's current speed. Standing still → the wide kernel dominates and the label is
+        dead calm. Flying across the feeder → the narrow kernel takes over and the label
+        tracks without lag. Mid-motion → a smooth in-between. You never see it switch.
+      </p>
+    </div>
+    <p class="hero-tech">
+      <strong>Technique</strong>
+      Two Gaussian kernels (σ = 0.45 s, 0.22 s) linearly combined with blend weight
+      α = clamp((v − 20) / 60, 0, 1) where v is the current speed in px/s, then α itself is
+      low-pass filtered (τ ≈ 100 ms) to avoid regime jitter. Three multiply-adds per axis per frame.
+    </p>
+  </div>
+
+  <p class="footnote">
+    <strong>What to watch.</strong> The Nuthatch track has a dramatic fly-across around the
+    6-second mark — that's where the personality of each strategy shows up clearest.
+    <strong>Precision Lock</strong> smooths the jump into a graceful arc (at the cost of being
+    a tick behind the raw detection). <strong>Organic Glide</strong> hits the landing exactly
+    but curves through the flight. <strong>Weighted Average</strong> is the middle ground.
+    <strong>Elastic Trail</strong> snaps and springs, visibly chasing. <strong>Adaptive Lock</strong>
+    should look identical to Precision Lock while the bird is still — and then accelerate,
+    following the Weighted Average line once the bird actually moves. Watch the Finch track to
+    see the "still" side of that dial; watch the Nuthatch fly-across to see the "moving" side.
+    The quieter Finch track is the stress test for jitter — watch how much tiny noise leaks
+    through each one while the bird is basically standing still.
+  </p>
+
+  <div class="byline">
+    <span><strong>Bird Observatory</strong> &nbsp;·&nbsp; label motion sandbox</span>
+    <span>Tracks pulled from <code style="background:rgba(212,165,86,0.08); color:#c4b698; padding:1px 6px; border-radius:4px; font-family:'SF Mono',Menlo,monospace; font-size:12px;">pipeline.db</code> &nbsp;·&nbsp; 2026-04-18</span>
+  </div>
+
+</div>
+
+<script>
+// ── Real pipeline tracks ──
+// Each entry: { id, species, note, events: [[dt_ms, x1, y1, x2, y2], ...] }
+// Coords are the native 640×360 substream.
+const TRACKS = [
+  {
+    id: 'nuthatch',
+    species: 'White-breasted Nuthatch',
+    note: 'flies the full feeder, ~10 s',
+    events: [
+      [0, 0, 217, 164, 306], [265, 20, 213, 182, 308], [435, 51, 220, 201, 303],
+      [568, 45, 217, 199, 273], [702, 22, 219, 203, 277], [966, 42, 219, 218, 307],
+      [1133, 139, 220, 219, 277], [1311, 146, 220, 222, 279], [1435, 146, 216, 219, 278],
+      [1566, 147, 212, 218, 277], [1668, 149, 212, 219, 279], [1844, 149, 215, 240, 278],
+      [1966, 148, 213, 248, 277], [2072, 140, 217, 247, 278], [2199, 137, 220, 247, 282],
+      [2299, 54, 223, 248, 328], [2404, 81, 214, 243, 357], [2538, 133, 210, 246, 354],
+      [2667, 126, 214, 250, 329], [2797, 132, 217, 244, 329], [2935, 137, 217, 248, 335],
+      [3031, 155, 220, 251, 344], [3133, 143, 215, 248, 345], [3231, 141, 217, 243, 340],
+      [3339, 157, 223, 247, 346], [3500, 121, 222, 249, 333], [3632, 138, 224, 278, 284],
+      [3731, 137, 214, 286, 282], [3870, 224, 220, 287, 277], [3998, 222, 217, 287, 275],
+      [4138, 222, 224, 283, 277], [4231, 222, 222, 283, 277], [4339, 211, 224, 271, 277],
+      [4466, 206, 224, 266, 276], [4603, 207, 223, 268, 277], [4706, 210, 222, 269, 276],
+      [4837, 207, 218, 266, 276], [4975, 208, 218, 267, 276], [5065, 211, 222, 269, 277],
+      [5170, 211, 214, 279, 277], [5268, 208, 215, 277, 276], [5375, 208, 215, 278, 277],
+      [5506, 212, 225, 271, 279], [5631, 209, 226, 268, 278], [5767, 206, 226, 264, 278],
+      [5868, 195, 226, 268, 278], [6010, 209, 226, 268, 279], [6133, 202, 225, 265, 277],
+      [6277, 196, 231, 266, 298], [6437, 205, 227, 267, 302], [6614, 177, 223, 377, 326],
+      [6737, 494, 167, 640, 346], [6882, 494, 209, 575, 346], [7000, 494, 209, 575, 346],
+      [7103, 508, 208, 575, 345], [7230, 509, 209, 638, 345], [7333, 509, 191, 640, 348],
+      [7502, 509, 191, 640, 348], [7604, 509, 191, 640, 348], [7706, 481, 217, 640, 304],
+      [7871, 481, 217, 640, 304], [8001, 481, 217, 640, 304], [8112, 481, 217, 640, 304],
+      [8264, 430, 227, 517, 273], [8404, 430, 227, 517, 273], [8505, 428, 228, 505, 269],
+      [8636, 428, 229, 503, 269], [8732, 429, 228, 504, 270], [8869, 429, 228, 504, 270],
+      [8999, 427, 228, 537, 284], [9164, 427, 228, 537, 284], [9237, 427, 228, 537, 284],
+      [9398, 427, 228, 537, 284], [9430, 427, 228, 537, 284], [9464, 427, 228, 537, 284],
+      [9498, 427, 228, 537, 284], [9534, 427, 228, 537, 284], [9573, 427, 228, 537, 284],
+      [9604, 427, 228, 537, 284], [9632, 427, 228, 537, 284], [9664, 427, 228, 537, 284],
+      [9699, 427, 228, 537, 284], [9731, 427, 228, 537, 284], [9766, 427, 228, 537, 284],
+    ],
+  },
+  {
+    id: 'finch',
+    species: 'House Finch',
+    note: 'holding at the perch, gentle jitter, ~15 s',
+    events: [
+      [0, 363, 230, 498, 343], [132, 363, 230, 498, 343], [299, 436, 200, 509, 348],
+      [591, 357, 206, 530, 324], [664, 390, 227, 542, 301], [865, 371, 225, 544, 300],
+      [1020, 359, 226, 546, 294], [1251, 357, 228, 542, 298], [1370, 365, 228, 542, 300],
+      [1532, 394, 228, 542, 297], [1670, 393, 227, 544, 303], [1965, 394, 227, 543, 303],
+      [2104, 394, 228, 543, 301], [2331, 385, 229, 543, 304], [2432, 392, 229, 544, 306],
+      [2532, 394, 229, 544, 305], [2698, 381, 229, 543, 303], [2798, 380, 229, 542, 302],
+      [2899, 381, 229, 541, 302], [3062, 384, 229, 541, 302], [3135, 383, 229, 536, 302],
+      [3237, 399, 227, 534, 302], [3370, 402, 227, 537, 303], [3533, 405, 227, 539, 304],
+      [3633, 400, 227, 540, 304], [3800, 396, 227, 544, 305], [3932, 390, 229, 542, 305],
+      [4032, 389, 229, 543, 304], [4133, 395, 227, 545, 305], [4265, 396, 227, 544, 305],
+      [4368, 388, 229, 544, 304], [4466, 387, 229, 544, 305], [4568, 398, 227, 546, 306],
+      [4671, 388, 229, 544, 305], [4801, 383, 229, 543, 305], [4865, 383, 229, 543, 304],
+      [5018, 385, 229, 543, 304], [5102, 408, 227, 546, 305], [5249, 404, 227, 546, 305],
+      [5398, 408, 227, 545, 305], [5533, 403, 227, 545, 305], [5664, 403, 227, 546, 305],
+      [5800, 407, 226, 547, 304], [5898, 409, 226, 547, 304], [6068, 411, 227, 547, 304],
+      [6166, 411, 227, 546, 305], [6354, 407, 226, 547, 305], [6468, 406, 226, 546, 305],
+      [6567, 401, 226, 547, 305], [6698, 403, 227, 544, 305], [6798, 409, 227, 544, 305],
+      [6980, 409, 227, 542, 304], [7065, 409, 227, 544, 304], [7200, 411, 226, 543, 305],
+      [7365, 410, 226, 542, 305], [7431, 408, 225, 536, 305], [7608, 409, 224, 533, 304],
+      [7698, 409, 225, 539, 303], [7802, 406, 224, 538, 304], [7900, 409, 225, 534, 304],
+      [8066, 410, 224, 535, 303], [8164, 408, 225, 530, 304], [8265, 408, 225, 528, 304],
+      [8401, 407, 225, 536, 304], [8503, 407, 225, 535, 304], [8635, 408, 225, 536, 303],
+      [8731, 408, 225, 536, 304], [8831, 407, 225, 537, 304], [9068, 410, 225, 536, 304],
+      [9171, 409, 225, 543, 305], [9299, 409, 225, 539, 305], [9432, 411, 225, 540, 305],
+      [9665, 407, 225, 543, 304], [9865, 407, 225, 542, 303], [10032, 413, 226, 541, 303],
+      [10134, 406, 225, 540, 303], [10265, 405, 226, 539, 303], [10398, 403, 225, 540, 302],
+      [10499, 404, 225, 540, 303], [10631, 406, 225, 532, 305], [10731, 399, 224, 523, 305],
+      [10839, 401, 224, 524, 305], [10997, 401, 224, 528, 304], [11098, 402, 224, 528, 303],
+      [11198, 407, 225, 528, 304], [11301, 401, 224, 529, 304], [11431, 407, 225, 531, 305],
+      [11532, 406, 225, 530, 304], [11599, 406, 225, 530, 304], [11731, 392, 224, 530, 304],
+      [11830, 392, 224, 530, 304], [11931, 392, 224, 530, 304], [12031, 404, 225, 547, 303],
+      [12134, 407, 224, 524, 304], [12231, 398, 224, 538, 304], [12331, 401, 225, 537, 305],
+      [12431, 404, 224, 534, 305], [12565, 402, 224, 536, 305], [12666, 402, 224, 537, 305],
+      [12765, 407, 225, 543, 305], [12867, 407, 225, 536, 304], [12976, 395, 224, 541, 306],
+      [13099, 398, 224, 544, 304], [13214, 392, 224, 550, 305], [13333, 391, 224, 550, 305],
+      [13435, 395, 225, 549, 306], [13537, 406, 225, 546, 305], [13633, 398, 225, 547, 305],
+      [13774, 402, 225, 546, 305], [13832, 403, 225, 546, 305], [13931, 407, 224, 546, 305],
+      [14031, 407, 224, 546, 305], [14131, 410, 225, 542, 305], [14200, 411, 225, 543, 305],
+      [14667, 412, 224, 541, 305], [14901, 407, 224, 540, 304],
+    ],
+  },
+  {
+    id: 'chickadee',
+    species: 'Black-capped Chickadee',
+    note: 'quick hops across and back, ~7 s',
+    events: [
+      [0, 128, 217, 266, 355], [112, 119, 216, 268, 354], [200, 114, 226, 264, 347],
+      [303, 113, 226, 264, 345], [409, 205, 205, 296, 359], [467, 204, 206, 281, 358],
+      [568, 204, 205, 289, 360], [633, 204, 206, 289, 360], [734, 205, 203, 268, 357],
+      [801, 204, 203, 269, 359], [899, 203, 211, 268, 354], [965, 203, 211, 268, 354],
+      [1069, 203, 211, 268, 354], [1165, 203, 211, 268, 354], [1233, 203, 211, 268, 354],
+      [1300, 175, 224, 272, 354], [1416, 172, 224, 274, 349], [1466, 171, 224, 271, 347],
+      [1533, 170, 224, 271, 345], [1632, 189, 224, 287, 293], [1733, 189, 224, 287, 293],
+      [1801, 189, 224, 287, 293], [1901, 243, 230, 297, 346], [2000, 243, 230, 297, 346],
+      [2099, 222, 226, 311, 297], [2174, 215, 216, 342, 338], [2269, 266, 163, 366, 279],
+      [2336, 276, 148, 370, 284], [2401, 272, 151, 373, 287], [2499, 224, 194, 394, 285],
+      [2567, 227, 190, 394, 298], [2635, 227, 191, 393, 296], [2765, 297, 215, 421, 285],
+      [2834, 297, 215, 421, 285], [2944, 297, 215, 421, 285], [3000, 297, 215, 421, 285],
+      [3100, 297, 215, 421, 285], [3169, 387, 228, 504, 333], [3269, 387, 227, 504, 334],
+      [3334, 388, 231, 504, 331], [3403, 388, 231, 504, 331], [3501, 388, 231, 504, 331],
+      [3568, 388, 231, 504, 331], [3669, 387, 180, 640, 349], [3735, 387, 180, 640, 349],
+      [3801, 387, 180, 640, 349], [3834, 387, 180, 640, 349], [3877, 28, 209, 216, 338],
+      [3935, 1, 198, 146, 303], [4006, 1, 188, 121, 324], [4102, 7, 187, 118, 359],
+      [4172, 50, 189, 110, 316], [4267, 52, 193, 116, 349], [4333, 35, 201, 119, 356],
+      [4434, 41, 200, 120, 356], [4500, 28, 201, 137, 349], [4613, 28, 201, 137, 349],
+      [4634, 28, 201, 137, 349], [4674, 28, 201, 137, 349], [4699, 28, 201, 137, 349],
+      [4734, 28, 201, 137, 349], [4801, 28, 201, 137, 349], [4809, 28, 201, 137, 349],
+      [4835, 28, 201, 137, 349], [4866, 28, 201, 137, 349], [4899, 28, 201, 137, 349],
+      [4934, 28, 201, 137, 349], [4967, 30, 195, 124, 357], [5000, 25, 207, 133, 358],
+      [5100, 11, 210, 135, 352], [5177, 9, 211, 135, 351], [5270, 6, 209, 144, 347],
+      [5369, 6, 209, 144, 345], [5435, 2, 218, 165, 340], [5569, 79, 221, 193, 338],
+      [5635, 101, 221, 200, 346], [5736, 55, 219, 214, 309], [5804, 48, 219, 213, 303],
+      [5901, 47, 219, 214, 302], [6000, 45, 219, 202, 302], [6103, 46, 220, 202, 302],
+      [6167, 48, 220, 200, 303], [6268, 61, 219, 199, 304], [6336, 54, 219, 202, 300],
+      [6434, 111, 224, 205, 280], [6499, 111, 224, 205, 280], [6603, 111, 224, 205, 280],
+      [6633, 111, 224, 205, 280], [6666, 111, 224, 205, 280], [6701, 111, 224, 205, 280],
+      [6734, 111, 224, 205, 280], [6767, 111, 224, 205, 280], [6834, 111, 224, 205, 280],
+      [6836, 111, 224, 205, 280], [6866, 111, 224, 205, 280], [6902, 111, 224, 205, 280],
+      [6935, 111, 224, 205, 280], [6967, 111, 224, 205, 280], [7003, 111, 224, 205, 280],
+      [7033, 111, 224, 205, 280],
+    ],
+  },
+  {
+    id: 'woodpecker',
+    species: 'Downy Woodpecker',
+    note: 'short visit with vertical head bobs, ~5 s',
+    events: [
+      [0, 435, 223, 568, 356], [133, 429, 221, 581, 355], [332, 431, 216, 574, 347],
+      [464, 419, 209, 574, 341], [565, 412, 214, 589, 340], [633, 416, 220, 599, 338],
+      [732, 410, 225, 569, 302], [833, 409, 225, 588, 317], [933, 413, 224, 587, 321],
+      [999, 416, 224, 589, 325], [1135, 415, 226, 589, 322], [1230, 444, 196, 592, 323],
+      [1330, 461, 173, 595, 326], [1502, 466, 171, 601, 326], [1575, 466, 171, 602, 327],
+      [1664, 463, 181, 599, 333], [1768, 456, 177, 597, 329], [1869, 455, 178, 599, 328],
+      [1968, 455, 177, 599, 327], [2117, 453, 181, 604, 333], [2365, 472, 161, 604, 332],
+      [2464, 473, 160, 603, 331], [2700, 461, 173, 628, 324], [2868, 445, 186, 589, 334],
+      [3034, 431, 210, 594, 336], [3290, 436, 215, 595, 342], [3364, 439, 220, 596, 342],
+      [3584, 449, 206, 577, 342], [3769, 480, 163, 596, 343], [3931, 482, 162, 593, 347],
+      [4132, 467, 179, 593, 347], [4354, 466, 179, 592, 350], [4463, 463, 228, 600, 333],
+      [4529, 281, 9, 620, 353], [4633, 281, 9, 620, 353], [4665, 281, 9, 620, 353],
+      [4702, 281, 9, 620, 353], [4736, 281, 9, 620, 353], [4767, 281, 9, 620, 353],
+      [4797, 281, 9, 620, 353], [4831, 281, 9, 620, 353], [4864, 281, 9, 620, 353],
+      [4898, 281, 9, 620, 353], [4930, 281, 9, 620, 353], [4966, 281, 9, 620, 353],
+      [4999, 281, 9, 620, 353], [5030, 281, 9, 620, 353], [5065, 281, 9, 620, 353],
+      [5097, 281, 9, 620, 353],
+    ],
+  },
+  {
+    id: 'goldfinch',
+    species: 'American Goldfinch',
+    note: 'hops and vertical bounces, ~13 s',
+    events: [
+      [0, 0, 218, 179, 290], [500, 0, 212, 167, 285], [630, 14, 227, 175, 289],
+      [767, 23, 222, 174, 289], [898, 11, 220, 175, 289], [1031, 0, 219, 177, 291],
+      [1095, 0, 206, 174, 288], [1237, 5, 206, 173, 286], [1298, 0, 213, 177, 286],
+      [1497, 5, 220, 175, 285], [1663, 12, 215, 185, 286], [1801, 95, 215, 192, 293],
+      [1967, 94, 214, 194, 294], [2131, 93, 215, 191, 294], [2267, 95, 215, 193, 295],
+      [2362, 98, 216, 194, 296], [2496, 98, 216, 194, 296], [2597, 98, 216, 194, 296],
+      [2666, 98, 216, 194, 296], [2767, 98, 216, 194, 296], [2863, 110, 215, 194, 296],
+      [2936, 96, 214, 194, 296], [3039, 97, 214, 194, 295], [3161, 101, 214, 195, 297],
+      [3231, 97, 214, 195, 297], [3331, 93, 214, 195, 295], [3399, 94, 215, 195, 294],
+      [3498, 94, 216, 196, 294], [3563, 96, 215, 195, 294], [3661, 95, 216, 195, 293],
+      [3730, 94, 216, 197, 294], [3797, 94, 216, 196, 294], [3898, 93, 216, 197, 294],
+      [3967, 97, 216, 206, 294], [4065, 97, 216, 207, 293], [4198, 98, 215, 199, 292],
+      [4334, 98, 215, 199, 292], [4534, 149, 218, 225, 298], [4670, 132, 217, 235, 298],
+      [4936, 140, 216, 240, 299], [5273, 157, 216, 241, 293], [5431, 156, 215, 242, 292],
+      [5643, 157, 216, 242, 298], [5730, 158, 216, 242, 299], [5762, 158, 217, 242, 299],
+      [5896, 157, 217, 242, 297], [5962, 156, 216, 242, 294], [6063, 156, 216, 242, 294],
+      [6163, 158, 217, 241, 297], [6231, 158, 217, 241, 298], [6330, 158, 217, 241, 298],
+      [6395, 158, 217, 241, 298], [6495, 158, 217, 241, 298], [6568, 158, 217, 241, 298],
+      [6663, 158, 217, 241, 298], [6730, 158, 217, 241, 298], [6794, 168, 220, 238, 290],
+      [6896, 168, 220, 238, 290], [6967, 168, 220, 238, 290], [7080, 168, 220, 238, 290],
+      [7165, 168, 220, 238, 290], [7428, 160, 223, 237, 294], [7796, 157, 223, 237, 301],
+      [7971, 156, 224, 236, 289], [8033, 156, 223, 236, 291], [8145, 152, 222, 236, 288],
+      [8232, 150, 220, 235, 282], [8295, 152, 220, 237, 282], [8395, 155, 218, 236, 297],
+      [8461, 153, 218, 236, 302], [8532, 152, 217, 236, 298], [8629, 154, 219, 236, 287],
+      [8701, 156, 219, 236, 283], [8763, 155, 220, 236, 285], [8861, 165, 218, 236, 305],
+      [8929, 166, 221, 235, 309], [9033, 165, 220, 236, 307], [9183, 127, 89, 387, 354],
+      [9266, 164, 217, 235, 300], [9329, 163, 219, 235, 300], [9433, 164, 219, 236, 306],
+      [9495, 164, 218, 237, 308], [9831, 163, 218, 235, 308], [10100, 160, 217, 234, 306],
+      [10329, 159, 221, 236, 300], [10463, 158, 219, 234, 306], [10597, 156, 219, 235, 310],
+      [10695, 157, 219, 236, 311], [10796, 160, 218, 237, 316], [10861, 158, 219, 236, 316],
+      [10969, 158, 217, 236, 305], [11035, 158, 217, 234, 305], [11131, 158, 218, 234, 306],
+      [11203, 158, 219, 236, 306], [11297, 159, 218, 236, 306], [11431, 158, 217, 236, 306],
+      [11530, 160, 218, 236, 327], [11636, 159, 218, 236, 328], [11765, 158, 219, 236, 322],
+      [11797, 159, 219, 236, 313], [11896, 161, 219, 236, 313], [11998, 160, 220, 237, 315],
+      [12102, 158, 220, 237, 323], [12162, 158, 220, 237, 323], [12262, 158, 218, 237, 326],
+    ],
+  },
+];
+
+const FRAME_W = 640, FRAME_H = 360;
+
+// ── Current-track state ──
+let trackIdx = 0;
+let EVENTS = [];
+let LOOP_MS = 0;
+let SPECIES = '';
+// Toggle: show the raw bbox overlay. Default ON for teaching (shows what
+// the label is smoothing). Flip OFF to preview the end-state experience —
+// labels only, exactly what the user sees in the Live view.
+let SHOW_BBOX = true;
+
+function enrich(track) {
+  return track.events.map(e => ({
+    t: e[0], x1: e[1], y1: e[2], x2: e[3], y2: e[4],
+    cx: (e[1] + e[3]) / 2, top: e[2],
+  }));
+}
+function loadTrack(idx) {
+  const raw = TRACKS[((idx % TRACKS.length) + TRACKS.length) % TRACKS.length];
+  trackIdx = TRACKS.indexOf(raw);
+  EVENTS = enrich(raw);
+  LOOP_MS = EVENTS[EVENTS.length - 1].t + 300;
+  SPECIES = raw.species;
+  // Reset per-renderer state (springs) and strategy caches/EMAs.
+  for (const r of RENDERERS) { r.labelX = null; r.labelY = null; r.vx = 0; r.vy = 0; }
+  _adaptiveAlphaEMA = 0;
+  _kinematicCache = null;
+  _oneEuroCache = null;
+  updateSwitcherUI();
+  // URL hash so dad can link to a specific one
+  try { location.hash = '#' + raw.id; } catch (e) {}
+}
+function updateSwitcherUI() {
+  const cur = TRACKS[trackIdx];
+  document.getElementById('track-name').innerHTML =
+    cur.species + '<span class="meta">' + cur.note + '</span>';
+}
+
+// ── Interpolation / smoothing strategies ──
+function segmentAt(T) {
+  let lo = 0, hi = EVENTS.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (EVENTS[mid].t <= T) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+function catmullRom1D(p0, p1, p2, p3, t0, t1, t2, t3, T) {
+  const dt12 = t2 - t1;
+  if (dt12 <= 0) return p1;
+  let u = (T - t1) / dt12;
+  if (u < 0) u = 0; if (u > 1) u = 1;
+  const u2 = u * u, u3 = u2 * u;
+  const m1 = (p0 != null && (t2 - t0) > 0) ? (p2 - p0) / (t2 - t0) : (p2 - p1) / dt12;
+  const m2 = (p3 != null && (t3 - t1) > 0) ? (p3 - p1) / (t3 - t1) : (p2 - p1) / dt12;
+  const h00 = 2*u3 - 3*u2 + 1, h10 = u3 - 2*u2 + u;
+  const h01 = -2*u3 + 3*u2,    h11 = u3 - u2;
+  return h00*p1 + h10*dt12*m1 + h01*p2 + h11*dt12*m2;
+}
+function organicAt(T) {
+  const i1 = segmentAt(T);
+  const P1 = EVENTS[i1];
+  const P2 = EVENTS[Math.min(i1 + 1, EVENTS.length - 1)];
+  const P0 = i1 > 0 ? EVENTS[i1 - 1] : null;
+  const P3 = i1 + 2 < EVENTS.length ? EVENTS[i1 + 2] : null;
+  return {
+    cx:  catmullRom1D(P0 && P0.cx,  P1.cx,  P2.cx,  P3 && P3.cx,  P0 && P0.t, P1.t, P2.t, P3 && P3.t, T),
+    top: catmullRom1D(P0 && P0.top, P1.top, P2.top, P3 && P3.top, P0 && P0.t, P1.t, P2.t, P3 && P3.t, T),
+  };
+}
+function weightedAt(T, sigma) {
+  const half = sigma * 3.2;
+  let sx = 0, sy = 0, sc = 0, sw = 0;
+  for (const e of EVENTS) {
+    const d = e.t - T;
+    if (Math.abs(d) > half) continue;
+    const w = Math.exp(-(d * d) / (2 * sigma * sigma));
+    const ey_center = (e.y1 + e.y2) / 2;
+    sx += e.cx * w; sy += e.top * w; sc += ey_center * w; sw += w;
+  }
+  if (sw === 0) {
+    const last = EVENTS[segmentAt(T)];
+    return { cx: last.cx, top: last.top, cy: (last.y1 + last.y2) / 2 };
+  }
+  return { cx: sx / sw, top: sy / sw, cy: sc / sw };
+}
+
+// ── Bird silhouette — a real-ish songbird in side profile ──
+// Drawn relative to the bird's smoothed center. Flips horizontally based on
+// recent motion direction so the beak points where the bird is heading.
+function drawBird(ctx, cx, cy, facingRight, scale) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale((facingRight ? 1 : -1) * scale, scale);
+
+  // Tail — fan of feathers pointing back
+  ctx.fillStyle = '#b68840';
+  ctx.beginPath();
+  ctx.moveTo(-14, -3);
+  ctx.lineTo(-26, -5);
+  ctx.lineTo(-27, 0);
+  ctx.lineTo(-26, 5);
+  ctx.lineTo(-14, 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body (teardrop shape, fat at tail-side, narrow toward head)
+  ctx.fillStyle = '#d4a556';
+  ctx.beginPath();
+  ctx.moveTo(-14, -7);
+  ctx.bezierCurveTo(-18, -6, -18, 7, -14, 7);
+  ctx.bezierCurveTo(-2, 10, 10, 6, 13, 2);
+  ctx.bezierCurveTo(15, -1, 13, -5, 10, -6);
+  ctx.bezierCurveTo(2, -10, -8, -9, -14, -7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Head — round cap sitting at the front
+  ctx.beginPath();
+  ctx.arc(12, -3, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wing — darker feather patch on the body
+  ctx.fillStyle = '#a07d3e';
+  ctx.beginPath();
+  ctx.ellipse(-3, 0, 9, 4.5, -0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wing outline detail (a couple of feather strokes)
+  ctx.strokeStyle = 'rgba(80, 55, 20, 0.5)';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(-9, 1); ctx.quadraticCurveTo(-4, 3, 2, 2);
+  ctx.moveTo(-7, 3); ctx.quadraticCurveTo(-2, 5, 3, 4);
+  ctx.stroke();
+
+  // Beak — small triangle pointing forward
+  ctx.fillStyle = '#6d4a12';
+  ctx.beginPath();
+  ctx.moveTo(17, -3.5);
+  ctx.lineTo(22, -2.5);
+  ctx.lineTo(17, -1.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye
+  ctx.fillStyle = '#1a1006';
+  ctx.beginPath();
+  ctx.arc(13, -4.5, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,210,0.8)';
+  ctx.beginPath();
+  ctx.arc(13.4, -4.9, 0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ── Canvas renderers ──
+const RENDERERS = [];
+
+function makeRenderer(canvasId, computeAnchor, opts = {}) {
+  const cv = document.getElementById(canvasId);
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const self = {
+    canvas: cv, ctx, computeAnchor,
+    spring: !!opts.spring,
+    springK: opts.k != null ? opts.k : 0.12,
+    springD: opts.d != null ? opts.d : 0.75,
+    labelX: null, labelY: null, vx: 0, vy: 0,
+  };
+  RENDERERS.push(self);
+
+  function resize() {
+    const rect = cv.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    cv.width = Math.round(rect.width * dpr);
+    cv.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function drawDashedBBox(rect, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(rect.x1, rect.y1, rect.x2 - rect.x1, rect.y2 - rect.y1);
+    ctx.restore();
+  }
+  function drawLabel(x, y, text) {
+    ctx.save();
+    ctx.font = "italic 500 15px 'Playfair Display', Georgia, serif";
+    const tw = ctx.measureText(text).width;
+    const w = tw + 28, h = 30;
+    const rx = x - w / 2, ry = y - h / 2;
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    const r = 13;
+    ctx.beginPath();
+    ctx.moveTo(rx + r, ry);
+    ctx.arcTo(rx + w, ry, rx + w, ry + h, r);
+    ctx.arcTo(rx + w, ry + h, rx, ry + h, r);
+    ctx.arcTo(rx, ry + h, rx, ry, r);
+    ctx.arcTo(rx, ry, rx + w, ry, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#e8ddc9';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  function render() {
+    if (!EVENTS.length) { requestAnimationFrame(render); return; }
+    const rect = cv.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    // Scale substream 640x360 → canvas with letterboxing
+    const s = Math.min(W / FRAME_W, H / FRAME_H);
+    const offsetX = (W - FRAME_W * s) / 2;
+    const offsetY = (H - FRAME_H * s) / 2;
+
+    ctx.clearRect(0, 0, W, H);
+    const g = ctx.createRadialGradient(W/2, H/2, 20, W/2, H/2, Math.max(W, H));
+    g.addColorStop(0, '#1a2230'); g.addColorStop(1, '#0a0e13');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeRect(offsetX + 0.5, offsetY + 0.5, FRAME_W * s - 1, FRAME_H * s - 1);
+
+    const T = performance.now() % LOOP_MS;
+    const i1 = segmentAt(T);
+    const raw = EVENTS[i1];
+    if (SHOW_BBOX) {
+      drawDashedBBox({
+        x1: offsetX + raw.x1 * s, y1: offsetY + raw.y1 * s,
+        x2: offsetX + raw.x2 * s, y2: offsetY + raw.y2 * s,
+      }, 0.85);
+    }
+
+    // Bird silhouette — heavy-Gaussian smoothed center, scales with bbox
+    // size, faces toward the direction of horizontal motion.
+    const birdNow = weightedAt(T, 280);
+    const birdAhead = weightedAt(T + 200, 280);
+    const facingRight = birdAhead.cx - birdNow.cx >= 0;
+    const bboxWidth = raw.x2 - raw.x1;
+    const birdScale = Math.max(0.7, Math.min(2.2, bboxWidth / 140));
+    drawBird(ctx,
+      offsetX + birdNow.cx * s,
+      offsetY + birdNow.cy * s,
+      facingRight, s * birdScale);
+
+    // Strategy-specific label anchor
+    let anchor = self.computeAnchor(T);
+    let lx = offsetX + anchor.cx * s;
+    let ly = offsetY + (anchor.top - 40) * s;
+    if (self.spring) {
+      if (self.labelX == null) { self.labelX = lx; self.labelY = ly; }
+      const k = self.springK, d = self.springD;
+      self.vx = (self.vx + (lx - self.labelX) * k) * d;
+      self.vy = (self.vy + (ly - self.labelY) * k) * d;
+      self.labelX += self.vx;
+      self.labelY += self.vy;
+      lx = self.labelX; ly = self.labelY;
+    }
+    drawLabel(lx, ly, SPECIES);
+
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+}
+
+// Strategy bindings.
+// "Raw" baseline: anchor is literally the most-recent event's bbox. No
+// smoothing, no spring — the label snaps at each event. This is the
+// "before" shown at the top of the page.
+makeRenderer('cv-raw', (T) => {
+  const e = EVENTS[segmentAt(T)];
+  return { cx: e.cx, top: e.top };
+});
+makeRenderer('cv-precision', (T) => weightedAt(T, 450));
+makeRenderer('cv-organic',   (T) => organicAt(T));
+makeRenderer('cv-weighted',  (T) => weightedAt(T, 220));
+makeRenderer('cv-elastic',   (T) => {
+  const e = EVENTS[segmentAt(T)];
+  return { cx: e.cx, top: e.top };
+}, { spring: true, k: 0.12, d: 0.75 });
+// ── Kinematic Lock (α-β filter / fixed-gain Kalman) ──
+// Maintains state (x, v) per axis. Observation update corrects position;
+// between observations, position glides linearly at estimated velocity.
+// Because state depends on the entire past track, we precompute a cache
+// keyed to event index on track load.
+let _kinematicCache = null;
+function buildKinematicCache() {
+  const ALPHA = 0.25, BETA = 0.05;
+  const cache = [];
+  const sx = { x: null, v: 0, lastT: 0 };
+  const sy = { x: null, v: 0, lastT: 0 };
+  for (const e of EVENTS) {
+    if (sx.x == null) {
+      sx.x = e.cx;  sx.lastT = e.t;
+      sy.x = e.top; sy.lastT = e.t;
+    } else {
+      const dt_x = (e.t - sx.lastT) / 1000;
+      if (dt_x > 0) {
+        sx.x += sx.v * dt_x;              // predict
+        const rx = e.cx - sx.x;
+        sx.x += ALPHA * rx;                // update position
+        sx.v += BETA * rx / dt_x;          // update velocity
+        sx.lastT = e.t;
+      }
+      const dt_y = (e.t - sy.lastT) / 1000;
+      if (dt_y > 0) {
+        sy.x += sy.v * dt_y;
+        const ry = e.top - sy.x;
+        sy.x += ALPHA * ry;
+        sy.v += BETA * ry / dt_y;
+        sy.lastT = e.t;
+      }
+    }
+    cache.push({ t: e.t, cx: sx.x, vx: sx.v, top: sy.x, vy: sy.v });
+  }
+  return cache;
+}
+function kinematicAt(T) {
+  if (_kinematicCache == null) _kinematicCache = buildKinematicCache();
+  if (!_kinematicCache.length) return null;
+  const i1 = segmentAt(T);
+  const s = _kinematicCache[i1];
+  const dt = (T - s.t) / 1000;
+  return { cx: s.cx + s.vx * dt, top: s.top + s.vy * dt };
+}
+
+// ── One-Euro filter (Casiez, Roussel, Vogel 2012) ──
+// Per axis: estimate signal derivative, low-pass it, then set the signal's
+// cutoff frequency proportional to |derivative|. Slow signal → low cutoff
+// (heavy smoothing). Fast signal → high cutoff (responsive). One filter,
+// adapts automatically. Cached per-observation; LERP between cached points
+// for sub-observation render time.
+let _oneEuroCache = null;
+function makeOneEuroFilter(minCutoff, beta, dCutoff) {
+  let x = null, dx_lp = 0, lastT = null;
+  return (T, obs) => {
+    if (x == null) { x = obs; lastT = T; return x; }
+    const dt = Math.max(1, T - lastT) / 1000;
+    const rawDx = (obs - x) / dt;
+    const alphaD = 1 / (1 + 1 / (2 * Math.PI * dCutoff * dt));
+    dx_lp = alphaD * rawDx + (1 - alphaD) * dx_lp;
+    const cutoff = minCutoff + beta * Math.abs(dx_lp);
+    const alpha = 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
+    x = alpha * obs + (1 - alpha) * x;
+    lastT = T;
+    return x;
+  };
+}
+function buildOneEuroCache() {
+  const fx = makeOneEuroFilter(1.0, 0.05, 1.0);
+  const fy = makeOneEuroFilter(1.0, 0.05, 1.0);
+  return EVENTS.map(e => ({ t: e.t, cx: fx(e.t, e.cx), top: fy(e.t, e.top) }));
+}
+function oneEuroAt(T) {
+  if (_oneEuroCache == null) _oneEuroCache = buildOneEuroCache();
+  if (!_oneEuroCache.length) return null;
+  const i1 = segmentAt(T);
+  const e1 = _oneEuroCache[i1];
+  const e2 = _oneEuroCache[Math.min(i1 + 1, _oneEuroCache.length - 1)];
+  if (e1 === e2) return { cx: e1.cx, top: e1.top };
+  const u = Math.max(0, Math.min(1, (T - e1.t) / (e2.t - e1.t)));
+  return { cx: e1.cx + (e2.cx - e1.cx) * u, top: e1.top + (e2.top - e1.top) * u };
+}
+
+// ── Local Fit (Savitzky-Golay style) ──
+// Fit a quadratic y = a0 + a1·τ + a2·τ² to samples in a window around T
+// (τ = t − T in seconds), then evaluate at τ=0, which is just a0. The
+// first column of the Cramer's rule solution gives a0 directly.
+function _m3det(m) {
+  return m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+       - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+       + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+}
+function localFitAt(T, halfWindow_ms = 400) {
+  const samples = [];
+  for (const e of EVENTS) if (Math.abs(e.t - T) <= halfWindow_ms) samples.push(e);
+  if (samples.length < 3) {
+    const last = samples[0] || EVENTS[segmentAt(T)];
+    return { cx: last.cx, top: last.top };
+  }
+  let n = 0, Sx = 0, Sxx = 0, Sxxx = 0, Sxxxx = 0;
+  let SyCX = 0, SyxCX = 0, SyxxCX = 0;
+  let SyT = 0,  SyxT = 0,  SyxxT = 0;
+  for (const s of samples) {
+    const tau = (s.t - T) / 1000;
+    const t2 = tau * tau;
+    n++;
+    Sx += tau; Sxx += t2; Sxxx += t2 * tau; Sxxxx += t2 * t2;
+    SyCX += s.cx;  SyxCX += s.cx * tau;  SyxxCX += s.cx * t2;
+    SyT  += s.top; SyxT  += s.top * tau; SyxxT  += s.top * t2;
+  }
+  const M = [[n, Sx, Sxx], [Sx, Sxx, Sxxx], [Sxx, Sxxx, Sxxxx]];
+  const det = _m3det(M);
+  if (Math.abs(det) < 1e-9) return { cx: SyCX / n, top: SyT / n };
+  const MCX = [[SyCX, Sx, Sxx], [SyxCX, Sxx, Sxxx], [SyxxCX, Sxxx, Sxxxx]];
+  const MT  = [[SyT,  Sx, Sxx], [SyxT,  Sxx, Sxxx], [SyxxT,  Sxxx, Sxxxx]];
+  return { cx: _m3det(MCX) / det, top: _m3det(MT) / det };
+}
+
+// Adaptive Lock: blend Precision Lock (σ=450ms) with Weighted Average
+// (σ=220ms) based on the bird's current speed. Slow bird → dominate-wide-kernel
+// for stability; fast bird → dominate-narrow-kernel for responsiveness. The
+// blend α is itself temporally low-passed so it doesn't flicker when speed
+// sits near the transition.
+let _adaptiveAlphaEMA = 0;
+function adaptiveAt(T) {
+  // Use the narrow-kernel output to estimate velocity. Doing it on the
+  // smoothed signal (not raw observations) ensures we're measuring the
+  // bird's motion, not YOLO jitter.
+  const now  = weightedAt(T, 220);
+  const past = weightedAt(T - 150, 220);
+  const dt_s = 0.15;
+  const vel_px_s = Math.hypot(now.cx - past.cx, now.top - past.top) / dt_s;
+
+  // Raw blend weight: 0 below 20 px/s (noise floor), 1 above 80 px/s
+  // (clearly moving). Linear between. These thresholds were picked from
+  // the real tracks — a sitting finch spends most of its time under 15
+  // px/s of smoothed motion; a flying nuthatch hits 300+ px/s.
+  const alphaRaw = Math.max(0, Math.min(1, (vel_px_s - 20) / 60));
+
+  // Temporal smoothing of α — EMA with ~100 ms effective time constant at
+  // 60 Hz. Keeps the blend from oscillating when the bird is on the edge
+  // between still and moving.
+  _adaptiveAlphaEMA += (alphaRaw - _adaptiveAlphaEMA) * 0.1;
+  const alpha = _adaptiveAlphaEMA;
+
+  const wide = weightedAt(T, 450);
+  return {
+    cx:  (1 - alpha) * wide.cx  + alpha * now.cx,
+    top: (1 - alpha) * wide.top + alpha * now.top,
+  };
+}
+makeRenderer('cv-adaptive',  (T) => adaptiveAt(T));
+// Three additional candidates — each brings a distinct new idea vs the core
+// four above: prediction (motion model), adaptive bandwidth (self-tuning
+// low-pass), and local polynomial shape preservation.
+makeRenderer('cv-kinematic', (T) => kinematicAt(T));
+makeRenderer('cv-oneeuro',   (T) => oneEuroAt(T));
+makeRenderer('cv-localfit',  (T) => localFitAt(T));
+
+// Wire up switcher
+document.getElementById('prev-btn').addEventListener('click', () => loadTrack(trackIdx - 1));
+document.getElementById('next-btn').addEventListener('click', () => loadTrack(trackIdx + 1));
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft')  loadTrack(trackIdx - 1);
+  if (e.key === 'ArrowRight') loadTrack(trackIdx + 1);
+});
+// Wire up bbox toggle
+const bboxToggle = document.getElementById('bbox-toggle');
+bboxToggle.addEventListener('change', () => { SHOW_BBOX = bboxToggle.checked; });
+
+// Honor URL hash so links are shareable
+const startId = (location.hash || '').replace(/^#/, '');
+const startIdx = Math.max(0, TRACKS.findIndex(t => t.id === startId));
+loadTrack(startIdx);
+</script>
+</body>
+</html>

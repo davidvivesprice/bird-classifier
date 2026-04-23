@@ -168,6 +168,11 @@ def main():
                 regional_species=regional_species,
                 camera_configs=camera_configs,
             )
+            # Hand the classifier to the snapshot writer so it can re-run
+            # AIY on the 1080p crop at DB-write time. Yard stays the driver
+            # for the live overlay (keeps the fast-feedback UX) but AIY's
+            # 965-species verdict is what lands in classifications.db.
+            snapshot_writer.classifier = classifier
             break
         except Exception as e:
             if attempt < 12:
@@ -248,6 +253,13 @@ def main():
         # show up in the /api/pipeline/health endpoint.
         try:
             health.update_shared("sse", dict(sse_server.stats))
+        except Exception:
+            pass
+        try:
+            # Surface snapshot-writer counters (hires_ok/hires_fail/aiy_relabel/
+            # aiy_none/dropped_full/errors) so dawn verification can confirm
+            # the new high-res + AIY-authority paths are firing end-to-end.
+            health.update_shared("snapshot_writer", dict(snapshot_writer.stats))
         except Exception:
             pass
         time.sleep(10)

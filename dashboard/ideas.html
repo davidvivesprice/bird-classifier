@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Observatory · Ideas</title>
+<meta name="theme-color" content="#0b0d11">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d11;
+    --bg-elev: #141820;
+    --bg-card: #1b1f28;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #ebe7dc;
+    --text-muted: #9ea3ad;
+    --text-dim: #6b7079;
+    --gold: #e2b358;
+    --gold-glow: rgba(226,179,88,0.22);
+    --emerald: #58c48a;
+    --emerald-glow: rgba(88,196,138,0.22);
+    --cardinal: #d05a5a;
+    --dusk: #f4a261;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Outfit', system-ui, sans-serif; font-size: 16px; line-height: 1.6; min-height: 100%; }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background: radial-gradient(ellipse 60% 50% at 20% 0%, rgba(226,179,88,0.06), transparent 60%),
+                radial-gradient(ellipse 60% 60% at 100% 30%, rgba(88,196,138,0.04), transparent 60%);
+    pointer-events: none;
+  }
+  a { color: var(--gold); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 48px; border-bottom: 1px solid var(--border);
+    background: rgba(11,13,17,0.85); backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar .brand {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 18px;
+    letter-spacing: -0.01em; color: var(--text);
+  }
+  .topbar .brand span { color: var(--gold); }
+  .topbar .backlink {
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.04em;
+    text-transform: uppercase; font-weight: 500;
+  }
+
+  /* Layout */
+  .shell { display: grid; grid-template-columns: 240px 1fr; gap: 48px; max-width: 1240px; margin: 0 auto; padding: 48px; }
+  @media (max-width: 900px) { .shell { grid-template-columns: 1fr; padding: 24px; } .sidenav { position: static; } }
+
+  .sidenav {
+    position: sticky; top: 100px; align-self: start;
+    border-left: 1px solid var(--border); padding-left: 20px;
+    font-size: 13px;
+  }
+  .sidenav .label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+  .sidenav ol { list-style: none; counter-reset: navnum; }
+  .sidenav ol li { counter-increment: navnum; margin-bottom: 10px; color: var(--text-muted); }
+  .sidenav ol li a { color: inherit; }
+  .sidenav ol li::before {
+    content: counter(navnum, decimal-leading-zero);
+    font-family: 'Fraunces', serif; font-size: 10px; font-weight: 500;
+    color: var(--text-dim); margin-right: 10px;
+  }
+
+  /* Hero */
+  .hero { margin-bottom: 56px; }
+  .hero h1 {
+    font-family: 'Playfair Display', serif; font-weight: 800; font-size: 68px;
+    line-height: 1.0; letter-spacing: -0.02em; margin-bottom: 16px;
+  }
+  .hero h1 em {
+    font-style: italic; font-weight: 500;
+    background: linear-gradient(135deg, var(--gold), #f5d88e);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .sub {
+    font-size: 18px; color: var(--text-muted); max-width: 560px; line-height: 1.5;
+  }
+  .hero .meta {
+    margin-top: 20px; font-size: 12px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .hero .meta .dot { color: var(--gold); }
+
+  /* Idea block */
+  .idea {
+    margin-bottom: 96px; scroll-margin-top: 100px;
+  }
+  .idea-head {
+    display: grid; grid-template-columns: 60px 1fr auto; align-items: baseline;
+    gap: 20px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 16px;
+  }
+  .idea-num {
+    font-family: 'Playfair Display', serif; font-weight: 500; font-size: 36px;
+    color: var(--text-dim); font-feature-settings: 'tnum';
+  }
+  .idea-title {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 32px;
+    line-height: 1.15; letter-spacing: -0.01em; color: var(--text);
+  }
+  .idea-title em { font-style: italic; font-weight: 500; color: var(--gold); }
+  .idea-badges { display: flex; gap: 8px; }
+  .badge {
+    font-size: 10px; padding: 4px 10px; border-radius: 999px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid var(--border-strong); color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .badge.small { border-color: rgba(88,196,138,0.5); color: var(--emerald); }
+  .badge.medium { border-color: rgba(226,179,88,0.5); color: var(--gold); }
+  .badge.large { border-color: rgba(208,90,90,0.5); color: var(--cardinal); }
+
+  .idea-tagline { font-family: 'Playfair Display', serif; font-style: italic; font-size: 18px; color: var(--text-muted); margin-bottom: 24px; }
+  .idea-prose { font-size: 16px; line-height: 1.65; color: var(--text); max-width: 680px; margin-bottom: 28px; }
+  .idea-prose p + p { margin-top: 12px; }
+  .idea-prose em { color: var(--text); font-style: italic; }
+
+  /* Mockup frame */
+  .mockup-frame {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    padding: 32px; margin: 24px 0; position: relative; overflow: hidden;
+  }
+  .mockup-frame::before {
+    content: "MOCKUP"; position: absolute; top: 12px; right: 16px;
+    font-size: 9px; letter-spacing: 0.16em; color: var(--text-dim);
+  }
+
+  /* ---- MOCKUP 1: STORY STRIP ---- */
+  .story-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 720px) { .story-strip { grid-template-columns: 1fr; } }
+  .story-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
+    border: 1px solid var(--border); border-radius: 12px; padding: 20px; min-height: 180px;
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .story-card::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at 85% 20%, var(--gold-glow), transparent 55%);
+    pointer-events: none; opacity: 0.4;
+  }
+  .story-card > * { position: relative; z-index: 1; }
+  .story-card .tag {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--gold); font-weight: 600;
+  }
+  .story-card .body {
+    font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 500;
+    line-height: 1.35; color: var(--text);
+    flex: 1;
+  }
+  .story-card .body b { font-weight: 700; font-style: italic; }
+  .story-card .meta {
+    margin-top: 8px; padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    font-size: 11px; color: var(--text-dim);
+    display: flex; justify-content: space-between;
+  }
+  .story-card.gold::before { background: radial-gradient(circle at 85% 20%, var(--gold-glow), transparent 55%); opacity: 0.7; }
+  .story-card.emerald::before { background: radial-gradient(circle at 85% 20%, var(--emerald-glow), transparent 55%); opacity: 0.5; }
+
+  /* ---- MOCKUP 2: AMBIENT LIVE ---- */
+  .live-demo { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; background: #000; }
+  .live-demo .bg-video {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 45% 62%, #5c5d50 0%, #3a3b32 40%, #1a1b16 100%);
+  }
+  .live-demo .bg-video::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(168,180,190,0.15) 0%, transparent 40%);
+  }
+  .bird-silhouette {
+    position: absolute; left: 42%; top: 48%; width: 54px; height: 46px;
+    background: rgba(0,0,0,0.75); border-radius: 50% 60% 50% 50%;
+    box-shadow: 0 0 24px rgba(0,0,0,0.4);
+  }
+  .bird-silhouette::before {
+    content: ""; position: absolute; right: -10px; top: 20%;
+    width: 16px; height: 8px; background: inherit; border-radius: 50% 50% 0 50%;
+  }
+  .live-bracket {
+    position: absolute; left: 38%; top: 42%; width: 80px; height: 70px;
+    animation: arrivalGlow 3s ease-in-out infinite;
+  }
+  @keyframes arrivalGlow {
+    0%, 60%, 100% { box-shadow: 0 0 0 rgba(226,179,88,0); }
+    15%, 35% { box-shadow: 0 0 30px var(--gold-glow); }
+  }
+  .live-bracket::before, .live-bracket::after,
+  .live-bracket > span::before, .live-bracket > span::after {
+    content: ""; position: absolute; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.92);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+  }
+  .live-bracket::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  .live-bracket::after { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+  .live-bracket > span { position: absolute; inset: 0; display: block; }
+  .live-bracket > span::before { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+  .live-bracket > span::after { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+  .live-label {
+    position: absolute; left: 50%; top: 36%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); padding: 5px 12px; border-radius: 14px;
+    font-size: 13px; color: white; font-weight: 500;
+  }
+
+  /* Recently seen rail */
+  .rail {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    display: flex; gap: 10px; align-items: center;
+    padding: 10px 12px; background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(8px); border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .rail .label { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); font-weight: 600; margin-right: 4px; white-space: nowrap; }
+  .rail-card {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px;
+    background: rgba(255,255,255,0.06); border-radius: 24px;
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: transform .15s, background .15s;
+  }
+  .rail-card:hover { transform: translateY(-1px); background: rgba(255,255,255,0.1); }
+  .rail-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #8d6d3a, #5e4820);
+    flex-shrink: 0;
+  }
+  .rail-card.r-finch .rail-avatar { background: linear-gradient(135deg, #b8534b, #702e28); }
+  .rail-card.r-chickadee .rail-avatar { background: linear-gradient(135deg, #5a5a5a, #2b2b2b); }
+  .rail-card.r-junco .rail-avatar { background: linear-gradient(135deg, #6b7074, #383a3c); }
+  .rail-card.r-titmouse .rail-avatar { background: linear-gradient(135deg, #a3a7ae, #6a6e75); }
+  .rail-card.r-cardinal .rail-avatar { background: linear-gradient(135deg, #d15656, #8e2e2e); }
+  .rail-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .rail-species { font-size: 11px; font-weight: 500; color: var(--text); }
+  .rail-time { font-size: 9px; color: var(--text-dim); }
+  .rail-card.fresh { border-color: var(--gold); box-shadow: 0 0 12px var(--gold-glow); }
+  .rail-card.fresh .rail-species { color: var(--gold); }
+  .rail-card.dim { opacity: 0.55; }
+  .rail-card.dimmer { opacity: 0.4; }
+
+  /* ---- MOCKUP 3: HONEST TYPOGRAPHY ---- */
+  .typo-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 720px) { .typo-compare { grid-template-columns: 1fr; } }
+  .typo-col {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px;
+  }
+  .typo-col .hdr { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 18px; }
+  .typo-col h4 { font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 14px; }
+  .typo-ex { padding: 10px 0; font-size: 18px; border-top: 1px dashed var(--border); }
+  .typo-ex:first-of-type { border-top: none; padding-top: 6px; }
+  .typo-ex .conf { font-size: 12px; color: var(--text-muted); margin-left: 8px; font-feature-settings: 'tnum'; }
+  .before .typo-ex, .before b { font-family: 'Outfit', sans-serif; font-weight: 600; color: var(--text); }
+  .before .typo-ex .conf { color: var(--emerald); }
+  .after .tx-locked { font-family: 'Playfair Display', serif; font-weight: 700; }
+  .after .tx-voting { font-family: 'Outfit', sans-serif; font-style: italic; font-weight: 400; color: var(--text-muted); }
+  .after .tx-voting::before { content: "likely "; font-style: normal; color: var(--text-dim); }
+  .after .tx-unsure { font-family: 'Outfit', sans-serif; color: var(--text-dim); }
+  .after .tx-unsure::after { content: " — sorting it out"; font-size: 13px; opacity: 0.6; }
+  .after .reason { display: block; font-size: 12px; color: var(--text-dim); font-style: italic; margin-top: 4px; font-family: 'Outfit', sans-serif; }
+
+  /* ---- MOCKUP 4: FIELD GUIDE ---- */
+  .poster-wall { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 720px) { .poster-wall { grid-template-columns: repeat(2, 1fr); } }
+  .poster {
+    border-radius: 10px; overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+    border: 1px solid var(--border);
+    position: relative; cursor: pointer; transition: transform .2s;
+    display: flex; flex-direction: column;
+  }
+  .poster:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+  .poster-hero { aspect-ratio: 1; background-size: cover; background-position: center; flex-shrink: 0; }
+  .poster-cardinal .poster-hero { background: radial-gradient(circle at 55% 35%, #d15656 0%, #8e2e2e 60%, #3a1515 100%); }
+  .poster-chickadee .poster-hero { background: radial-gradient(circle at 55% 35%, #8a8d91 0%, #3a3d41 60%, #15161a 100%); }
+  .poster-finch .poster-hero { background: radial-gradient(circle at 55% 35%, #c97248 0%, #7e3e20 60%, #2a1410 100%); }
+  .poster-goldfinch .poster-hero { background: radial-gradient(circle at 55% 35%, #e2c14c 0%, #8a6a1e 60%, #2a1f05 100%); }
+  .poster-titmouse .poster-hero { background: radial-gradient(circle at 55% 35%, #a5a9ad 0%, #5d6167 60%, #1f2125 100%); }
+  .poster-junco .poster-hero { background: radial-gradient(circle at 55% 35%, #6a6e76 0%, #3a3d42 60%, #15161a 100%); }
+  .poster-wren .poster-hero { background: radial-gradient(circle at 55% 35%, #8a6539 0%, #503a1f 60%, #1a130a 100%); }
+  .poster-woodpecker .poster-hero { background: radial-gradient(circle at 55% 35%, #c74c4c 0%, #5c3838 60%, #15161a 100%); }
+  .poster-meta { padding: 10px 12px 14px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+  .poster-meta .sp { font-family: 'Playfair Display', serif; font-weight: 500; font-size: 14px; color: var(--text); line-height: 1.2; margin-bottom: 6px; }
+  .poster-meta .ago { font-size: 11px; color: var(--text-muted); margin-top: auto; }
+  .poster .flag {
+    position: absolute; top: 8px; right: 8px; font-size: 8px; padding: 3px 7px;
+    border-radius: 3px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
+    background: var(--gold); color: #231808;
+  }
+
+  /* Species room preview */
+  .room {
+    margin-top: 20px; display: grid; grid-template-columns: 280px 1fr; gap: 24px;
+    padding: 24px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  }
+  @media (max-width: 720px) { .room { grid-template-columns: 1fr; } }
+  .room-hero {
+    aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden;
+    background: radial-gradient(circle at 55% 35%, #d15656 0%, #8e2e2e 60%, #3a1515 100%);
+    position: relative;
+  }
+  .room-hero::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 65%, rgba(0,0,0,0.7) 100%);
+  }
+  .room-hero .cap { position: absolute; bottom: 10px; left: 12px; font-size: 10px; color: var(--text-muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .room-body h3 { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 28px; color: var(--text); margin-bottom: 2px; }
+  .room-body .sci { font-style: italic; color: var(--text-muted); font-size: 14px; margin-bottom: 16px; }
+  .room-body .in-yard {
+    font-family: 'Playfair Display', serif; font-style: italic; font-size: 15px; line-height: 1.5;
+    color: var(--text); padding: 12px 0; border-top: 1px dashed var(--border);
+    border-bottom: 1px dashed var(--border); margin-bottom: 16px;
+  }
+  .room-timeline {
+    display: flex; gap: 2px; height: 36px; align-items: flex-end; margin-bottom: 14px;
+  }
+  .room-timeline .bar { flex: 1; background: var(--cardinal); border-radius: 1px 1px 0 0; opacity: 0.75; }
+  .room-timeline .bar.q { opacity: 0.2; }
+  .room-timeline-label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* ---- MOCKUP 5: ARRIVAL MOMENT ---- */
+  .arrival-demo {
+    position: relative; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; min-height: 180px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px;
+  }
+  .arrival-card {
+    position: absolute; top: -24px; left: 50%; transform: translateX(-50%) translateY(-12px);
+    opacity: 0;
+    background: linear-gradient(180deg, rgba(20,24,32,0.95), rgba(20,24,32,0.8));
+    border: 1px solid var(--gold); border-radius: 10px; padding: 14px 24px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4), 0 0 24px var(--gold-glow);
+    white-space: nowrap;
+  }
+  .arrival-card .icon { width: 18px; height: 18px; border-radius: 50%; background: var(--gold); }
+  .arrival-card .sp { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 16px; color: var(--text); }
+  .arrival-card .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+  .arrival-demo:hover .arrival-card {
+    animation: arriveIn 2s cubic-bezier(.3,.9,.3,1) forwards;
+  }
+  @keyframes arriveIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(8px); }
+    75% { opacity: 1; transform: translateX(-50%) translateY(8px); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  }
+  .arrival-btn {
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); border: 1px dashed var(--border-strong);
+    padding: 8px 16px; border-radius: 20px;
+  }
+  .arrival-hint { font-size: 12px; color: var(--text-dim); }
+
+  /* ---- MOCKUP 6: KITCHEN VIEW MOBILE ---- */
+  .phone-frame {
+    width: 280px; margin: 0 auto; aspect-ratio: 9 / 18; border-radius: 28px;
+    background: #1a1c21; border: 2px solid #2a2d34; padding: 8px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+  }
+  .phone-screen {
+    width: 100%; height: 100%; background: var(--bg); border-radius: 22px;
+    display: flex; flex-direction: column; overflow: hidden; position: relative;
+  }
+  .phone-topbar {
+    padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 9px; color: var(--text-muted);
+  }
+  .phone-topbar .title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 12px; color: var(--text); letter-spacing: -0.01em; }
+  .phone-topbar .status { color: var(--emerald); font-size: 8px; }
+  .phone-video {
+    background: radial-gradient(ellipse at 50% 55%, #5c5d50 0%, #1a1b16 100%);
+    height: 45%; position: relative;
+    border-radius: 8px; margin: 0 10px;
+  }
+  .phone-video::after {
+    content: ""; position: absolute; left: 45%; top: 50%; width: 28px; height: 22px;
+    background: rgba(0,0,0,0.75); border-radius: 50% 60% 50% 50%;
+  }
+  .phone-deck {
+    flex: 1; margin: 12px 10px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; overflow: hidden;
+  }
+  .phone-deck .dh { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+  .phone-deck .row { display: flex; justify-content: space-between; font-size: 10px; padding: 4px 0; }
+  .phone-deck .row .sp { font-family: 'Playfair Display', serif; color: var(--text); }
+  .phone-deck .row .t { color: var(--text-dim); }
+  .phone-deck .dots { text-align: center; margin-top: 12px; font-size: 6px; letter-spacing: 6px; color: var(--text-dim); }
+  .phone-bottomnav {
+    display: flex; justify-content: space-around; padding: 10px 12px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .phone-nav-item {
+    width: 20px; height: 20px; border-radius: 4px; background: var(--text-dim); opacity: 0.4;
+    display: flex; align-items: center; justify-content: center; font-size: 7px; color: var(--bg);
+  }
+  .phone-nav-item.active { background: var(--gold); opacity: 1; color: #231808; font-weight: 700; }
+
+  /* ---- MOCKUP 7: SILENCE / AMBIENT ---- */
+  .ambient-panel {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 28px 32px; position: relative; overflow: hidden;
+  }
+  .ambient-panel::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 80% 100%, rgba(244,162,97,0.08), transparent 60%);
+  }
+  .ambient-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dusk); margin-bottom: 14px; font-weight: 600; }
+  .ambient-body { font-family: 'Playfair Display', serif; font-size: 22px; line-height: 1.45; font-weight: 500; color: var(--text); position: relative; z-index: 1; }
+  .ambient-body b { font-weight: 700; }
+  .ambient-body em { font-style: italic; color: var(--gold); }
+  .ambient-trivia { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); font-style: italic; color: var(--text-muted); font-size: 14px; line-height: 1.5; position: relative; z-index: 1; }
+  .ambient-trivia .from { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-right: 6px; font-style: normal; }
+
+  /* ============ ACTIVITY TAB MOCKUPS ============ */
+
+  /* ---- MOCKUP 9: DAILY RHYTHM ---- */
+  .rhythm { display: grid; gap: 6px; }
+  .rhythm-scale {
+    display: grid;
+    grid-template-columns: 140px repeat(24, 1fr);
+    font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim);
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .rhythm-scale > span { text-align: center; }
+  .rhythm-scale > span.anchor { grid-column: span 6; text-align: left; }
+  .rhythm-row {
+    display: grid;
+    grid-template-columns: 140px repeat(24, 1fr);
+    align-items: center; gap: 2px;
+  }
+  .rhythm-row .sp {
+    font-family: 'Playfair Display', serif; font-size: 13px; color: var(--text); padding-right: 10px;
+  }
+  .rhythm-row .cell {
+    height: 14px; border-radius: 2px; background: rgba(255,255,255,0.04);
+  }
+  .rhythm-row .cell.a1 { background: rgba(88,196,138,0.18); }
+  .rhythm-row .cell.a2 { background: rgba(88,196,138,0.35); }
+  .rhythm-row .cell.a3 { background: rgba(88,196,138,0.55); }
+  .rhythm-row .cell.a4 { background: rgba(226,179,88,0.75); }
+  .rhythm-row .cell.a5 { background: var(--gold); box-shadow: 0 0 8px var(--gold-glow); }
+  .rhythm-night {
+    grid-column: 1 / -1;
+    height: 6px; background: linear-gradient(90deg, rgba(29,37,60,0.35) 0%, rgba(29,37,60,0.0) 25%, rgba(29,37,60,0.0) 75%, rgba(29,37,60,0.35) 100%);
+    border-radius: 3px; margin-top: 6px; position: relative;
+  }
+  .rhythm-night::before, .rhythm-night::after {
+    content: ""; position: absolute; top: -3px; width: 1px; height: 12px;
+    background: var(--dusk); opacity: 0.4;
+  }
+  .rhythm-night::before { left: 25%; }
+  .rhythm-night::after { right: 25%; }
+  .rhythm-night-label {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between;
+    font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); text-transform: uppercase;
+    padding: 2px 2px 0;
+  }
+
+  /* ---- MOCKUP 10: SEASON STREAM (phenology) ---- */
+  .phenology { display: grid; gap: 6px; }
+  .pheno-months {
+    display: grid; grid-template-columns: 140px repeat(12, 1fr);
+    font-size: 10px; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .pheno-months > span { text-align: center; }
+  .pheno-months > span:first-child { text-align: left; text-transform: uppercase; letter-spacing: 0.1em; font-size: 9px; }
+  .pheno-row {
+    display: grid;
+    grid-template-columns: 140px repeat(52, 1fr);
+    align-items: center; gap: 1px;
+  }
+  .pheno-row .sp {
+    font-family: 'Playfair Display', serif; font-size: 13px; color: var(--text); padding-right: 10px; grid-column: 1;
+  }
+  .pheno-row .strip {
+    grid-column: 2 / -1; height: 12px; display: grid;
+    grid-template-columns: repeat(52, 1fr); gap: 1px;
+  }
+  .pheno-row .w { background: rgba(255,255,255,0.04); border-radius: 2px; }
+  .pheno-row .w.pres { background: rgba(88,196,138,0.55); }
+  .pheno-row .w.pres.peak { background: var(--gold); box-shadow: 0 0 6px var(--gold-glow); }
+  .pheno-row .w.pres.low { background: rgba(88,196,138,0.25); }
+
+  /* ---- MOCKUP 11: WHO FLOCKS (co-occurrence) ---- */
+  .flocks {
+    height: 320px; position: relative;
+    background: radial-gradient(circle at 50% 50%, rgba(88,196,138,0.04), transparent 70%);
+    border-radius: 12px;
+  }
+  .flock-node {
+    position: absolute; transform: translate(-50%, -50%);
+    background: rgba(20,24,32,0.92);
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    padding: 6px 14px;
+    font-family: 'Playfair Display', serif; font-size: 13px; color: var(--text);
+    white-space: nowrap; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .flock-node .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .flock-node.hub { border-color: var(--gold); box-shadow: 0 0 18px var(--gold-glow); }
+  .flock-node.hub .dot { background: var(--gold); }
+  .flock-node.orbit { opacity: 0.92; }
+  .flock-node.orbit .dot { background: var(--emerald); }
+  .flock-node.distant .dot { background: var(--text-dim); }
+  .flock-node.distant { opacity: 0.7; }
+  .flock-edges { position: absolute; inset: 0; z-index: 1; }
+  .flock-legend { position: absolute; bottom: 10px; right: 14px; font-size: 11px; color: var(--text-dim); font-style: italic; }
+
+  /* ---- MOCKUP 12: HEARD vs SEEN (Venn) ---- */
+  .venn {
+    position: relative; height: 280px;
+    display: grid; grid-template-rows: 1fr auto; gap: 18px;
+  }
+  .venn-stage { position: relative; height: 240px; }
+  .venn-circle {
+    position: absolute; width: 240px; height: 240px; border-radius: 50%;
+    top: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .venn-circle.heard {
+    left: 50%; margin-left: -230px;
+    background: radial-gradient(circle at 50% 50%, rgba(244,162,97,0.22), rgba(244,162,97,0.06) 75%);
+    border: 1px solid rgba(244,162,97,0.35);
+  }
+  .venn-circle.seen {
+    left: 50%; margin-left: -10px;
+    background: radial-gradient(circle at 50% 50%, rgba(88,196,138,0.22), rgba(88,196,138,0.06) 75%);
+    border: 1px solid rgba(88,196,138,0.35);
+  }
+  .venn-label {
+    position: absolute; top: 12px;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600;
+    z-index: 2;
+  }
+  .venn-label.heard { left: 30px; color: var(--dusk); }
+  .venn-label.seen { right: 30px; color: var(--emerald); }
+  .venn-sp {
+    position: absolute; font-family: 'Playfair Display', serif; font-size: 13px;
+    color: var(--text); white-space: nowrap; z-index: 2;
+  }
+  .venn-sp.faint { color: var(--text-muted); font-style: italic; font-size: 12px; }
+  .venn-counts {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+    padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .venn-count {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim);
+    text-align: center;
+  }
+  .venn-count.heard-only { text-align: left; padding-left: 30px; }
+  .venn-count.seen-only { text-align: right; padding-right: 30px; }
+  .venn-count b { color: var(--text); font-size: 20px; font-weight: 700; display: block; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+
+  /* ---- MOCKUP 13: FIRST ARRIVALS ---- */
+  .arrivals { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  @media (max-width: 720px) { .arrivals { grid-template-columns: 1fr; } }
+  .arr-col { }
+  .arr-year {
+    font-family: 'Playfair Display', serif; font-weight: 800; font-size: 22px;
+    color: var(--text); margin-bottom: 14px; letter-spacing: -0.01em;
+  }
+  .arr-year span { color: var(--gold); font-style: italic; font-weight: 500; }
+  .arr-entry {
+    display: grid; grid-template-columns: 80px 1fr; align-items: baseline; gap: 14px;
+    padding: 10px 0; border-top: 1px dashed var(--border);
+  }
+  .arr-entry:first-of-type { border-top: none; }
+  .arr-date {
+    font-family: 'Fraunces', serif; font-weight: 500; font-size: 13px; color: var(--text-dim);
+    font-feature-settings: 'tnum'; letter-spacing: 0.02em;
+  }
+  .arr-sp { font-family: 'Playfair Display', serif; font-size: 16px; color: var(--text); font-weight: 500; }
+  .arr-sp .new { color: var(--gold); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; margin-left: 10px; vertical-align: middle; font-family: 'Outfit', sans-serif; font-weight: 600; }
+
+  /* ---- MOCKUP 14: RECORD BOOK ---- */
+  .records { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 720px) { .records { grid-template-columns: 1fr; } }
+  .record-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; position: relative; overflow: hidden;
+  }
+  .record-card::before {
+    content: ""; position: absolute; top: -40px; right: -40px; width: 120px; height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--gold-glow), transparent 70%);
+    pointer-events: none; opacity: 0.5;
+  }
+  .record-card.cold::before { background: radial-gradient(circle, rgba(116,168,200,0.22), transparent 70%); }
+  .record-card.rare::before { background: radial-gradient(circle, rgba(208,90,90,0.25), transparent 70%); }
+  .record-label {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 8px; font-weight: 600;
+    position: relative; z-index: 1;
+  }
+  .record-card.cold .record-label { color: #9dc6e0; }
+  .record-card.rare .record-label { color: var(--cardinal); }
+  .record-value {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 26px;
+    color: var(--text); line-height: 1.2; margin-bottom: 8px;
+    position: relative; z-index: 1;
+  }
+  .record-detail {
+    font-size: 13px; color: var(--text-muted); line-height: 1.4;
+    font-style: italic; font-family: 'Playfair Display', serif;
+    position: relative; z-index: 1;
+  }
+  .record-detail .t { font-family: 'Outfit', sans-serif; font-variant-numeric: tabular-nums; font-style: normal; color: var(--text-dim); }
+
+  /* ---- MOCKUP 15: THE REVIEWER'S DUEL ---- */
+  .duel {
+    background: linear-gradient(180deg, var(--bg-card) 0%, #0e1219 100%);
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+  }
+  .duel-header {
+    padding: 16px 24px; display: grid; grid-template-columns: 1fr auto; gap: 20px;
+    align-items: baseline; border-bottom: 1px solid var(--border);
+  }
+  .duel-header .title {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em;
+  }
+  .duel-header .stats { display: flex; gap: 22px; font-size: 12px; color: var(--text-muted); font-family: 'Outfit', sans-serif; }
+  .duel-header .stats b {
+    color: var(--gold); font-weight: 700; font-size: 16px; font-family: 'Fraunces', serif;
+    font-feature-settings: 'tnum'; margin-right: 4px;
+  }
+  .duel-header .stats .streak b { color: var(--cardinal); }
+  .duel-progress { height: 3px; background: rgba(255,255,255,0.05); }
+  .duel-progress .bar {
+    height: 100%; width: 60%;
+    background: linear-gradient(90deg, var(--emerald), var(--gold));
+    border-radius: 0 2px 2px 0;
+    box-shadow: 0 0 8px rgba(226,179,88,0.35);
+  }
+  .duel-filmstrip { display: flex; gap: 4px; padding: 14px 24px 0; }
+  .duel-filmcell {
+    flex: 1; aspect-ratio: 4/3; max-width: 60px;
+    border-radius: 5px;
+    background: radial-gradient(ellipse at 45% 55%, #3a3b32 0%, #1a1b16 100%);
+    opacity: 0.45;
+  }
+  .duel-filmcell.current { opacity: 1; border: 2px solid var(--gold); box-shadow: 0 0 14px var(--gold-glow); }
+
+  .duel-body {
+    padding: 20px 24px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; align-items: start;
+  }
+  @media (max-width: 720px) { .duel-body { grid-template-columns: 1fr; } }
+  .duel-frame {
+    aspect-ratio: 4/3; border-radius: 10px;
+    background: radial-gradient(ellipse at 50% 60%, #5a5b4e 0%, #1a1b16 100%);
+    position: relative; overflow: hidden;
+  }
+  .duel-frame::after {
+    content: ""; position: absolute; left: 42%; top: 48%; width: 70px; height: 54px;
+    background: rgba(0,0,0,0.82); border-radius: 50% 60% 50% 50%;
+    box-shadow: 0 0 24px rgba(0,0,0,0.4);
+  }
+  .duel-frame::before {
+    content: ""; position: absolute; left: 34%; top: 38%; width: 100px; height: 82px;
+    border: 2px solid rgba(255,255,255,0.85);
+    border-radius: 6px;
+    clip-path: polygon(0 0, 16px 0, 16px 2px, 2px 2px, 2px 16px, 0 16px, 0 0,
+                      100% 0, 100% 16px, calc(100% - 2px) 16px, calc(100% - 2px) 2px, calc(100% - 16px) 2px, calc(100% - 16px) 0,
+                      100% 100%, calc(100% - 16px) 100%, calc(100% - 16px) calc(100% - 2px), calc(100% - 2px) calc(100% - 2px), calc(100% - 2px) calc(100% - 16px), 100% calc(100% - 16px),
+                      0 100%, 0 calc(100% - 16px), 2px calc(100% - 16px), 2px calc(100% - 2px), 16px calc(100% - 2px), 16px 100%);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7));
+  }
+
+  .duel-verdict { display: flex; flex-direction: column; gap: 14px; }
+  .duel-model {
+    background: rgba(255,255,255,0.04); border-left: 3px solid var(--gold);
+    padding: 14px 18px; border-radius: 0 10px 10px 0; position: relative;
+  }
+  .duel-model .tag {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold);
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .duel-model .guess {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 24px;
+    color: var(--text); line-height: 1.1;
+  }
+  .duel-model .conf {
+    margin-top: 4px; font-family: 'Outfit', sans-serif; font-size: 12px; color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .duel-model .conf b { color: var(--gold); font-weight: 600; }
+
+  .duel-warning {
+    background: linear-gradient(180deg, rgba(208,90,90,0.12), rgba(208,90,90,0.05));
+    border-left: 3px solid var(--cardinal);
+    padding: 12px 16px; border-radius: 0 8px 8px 0;
+    font-size: 13px; color: var(--text); line-height: 1.5;
+  }
+  .duel-warning .prefix {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-style: italic;
+    color: var(--cardinal); font-size: 14px; margin-right: 6px;
+  }
+
+  .duel-context {
+    padding: 10px 24px; font-family: 'Playfair Display', serif; font-style: italic;
+    font-size: 13px; color: var(--text-muted); border-top: 1px dashed var(--border); line-height: 1.5;
+  }
+  .duel-context .t { font-variant-numeric: tabular-nums; color: var(--text); font-style: normal; font-family: 'Outfit', sans-serif; font-size: 12px; }
+
+  .duel-actions { padding: 6px 24px 16px; display: grid; gap: 8px; }
+  .duel-btn {
+    display: grid; grid-template-columns: 32px 1fr auto; gap: 14px; align-items: center;
+    padding: 12px 16px; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: rgba(255,255,255,0.025);
+    cursor: pointer; transition: transform .15s, background .15s;
+  }
+  .duel-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.05); }
+  .duel-btn .key {
+    font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 13px;
+    padding: 4px 0; text-align: center; border-radius: 4px;
+    background: rgba(255,255,255,0.08); color: var(--text-dim);
+  }
+  .duel-btn .label {
+    font-family: 'Outfit', sans-serif; font-size: 15px; color: var(--text); font-weight: 500;
+  }
+  .duel-btn .reward {
+    font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em; font-family: 'Outfit', sans-serif;
+  }
+  .duel-btn.confirm { border-color: rgba(88,196,138,0.45); }
+  .duel-btn.confirm .key { background: rgba(88,196,138,0.22); color: var(--emerald); }
+  .duel-btn.reject { border-color: rgba(226,179,88,0.45); background: rgba(226,179,88,0.035); }
+  .duel-btn.reject .key { background: rgba(226,179,88,0.22); color: var(--gold); }
+  .duel-btn.reject .reward { color: var(--gold); font-weight: 600; }
+  .duel-btn.trash { border-color: rgba(208,90,90,0.3); }
+  .duel-btn.trash .key { background: rgba(208,90,90,0.22); color: var(--cardinal); }
+
+  .duel-kbd-hint {
+    padding: 0 24px 14px; font-size: 11px; color: var(--text-dim); text-align: center;
+    letter-spacing: 0.06em; font-family: 'Outfit', sans-serif;
+  }
+  .duel-kbd-hint .k {
+    display: inline-block; padding: 2px 6px; margin: 0 2px; border-radius: 3px;
+    background: rgba(255,255,255,0.06); color: var(--text-muted); font-weight: 600;
+  }
+
+  .duel-foot {
+    padding: 14px 24px; display: flex; justify-content: space-between; gap: 20px;
+    border-top: 1px solid var(--border); background: rgba(0,0,0,0.3);
+    font-family: 'Playfair Display', serif; font-style: italic; font-size: 13px;
+  }
+  .duel-foot .streak {
+    color: var(--gold); font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .duel-foot .streak .flame { filter: drop-shadow(0 0 8px var(--gold-glow)); }
+  .duel-foot .last-correction { color: var(--text-muted); }
+  .duel-foot .last-correction b { color: var(--text); font-style: normal; font-family: 'Outfit', sans-serif; font-weight: 500; }
+  .duel-foot .last-correction .pts { color: var(--gold); font-style: normal; font-family: 'Fraunces', serif; font-weight: 600; margin-left: 4px; }
+
+  /* A tiny "session complete" mini-mockup */
+  .session-summary {
+    margin-top: 24px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
+  @media (max-width: 720px) { .session-summary { grid-template-columns: 1fr; } }
+  .summary-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; text-align: center;
+  }
+  .summary-card .lbl { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
+  .summary-card .val {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 28px; color: var(--text); line-height: 1.1;
+  }
+  .summary-card.win .val { color: var(--gold); }
+  .summary-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; font-style: italic; font-family: 'Playfair Display', serif; }
+
+  /* Section divider */
+  .section-divider {
+    margin: 88px 0 40px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .section-divider h2 {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 26px;
+    letter-spacing: -0.01em; color: var(--text);
+  }
+  .section-divider h2 em { font-style: italic; color: var(--gold); }
+  .section-divider .tagline {
+    font-family: 'Playfair Display', serif; font-style: italic;
+    font-size: 15px; color: var(--text-muted);
+  }
+  @media (max-width: 720px) { .section-divider { flex-direction: column; gap: 6px; } }
+
+  /* ---- MOCKUP 8: CLASSIFY CAPSULE ---- */
+  .capsule {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; display: grid; gap: 16px;
+  }
+  .filmstrip { display: flex; gap: 6px; }
+  .filmstrip-cell {
+    flex: 1; aspect-ratio: 4 / 3; border-radius: 6px;
+    background: radial-gradient(ellipse at 45% 55%, #3a3b32 0%, #1a1b16 100%);
+    opacity: 0.45; position: relative;
+  }
+  .filmstrip-cell.current { opacity: 1; border: 2px solid var(--gold); box-shadow: 0 0 14px var(--gold-glow); }
+  .capsule-hero {
+    aspect-ratio: 16 / 10; border-radius: 10px;
+    background: radial-gradient(ellipse at 50% 60%, #5a5b4e 0%, #1a1b16 100%);
+    position: relative;
+  }
+  .capsule-hero::after {
+    content: ""; position: absolute; left: 42%; top: 48%; width: 56px; height: 46px;
+    background: rgba(0,0,0,0.75); border-radius: 50% 60% 50% 50%;
+  }
+  .capsule-context {
+    font-family: 'Playfair Display', serif; font-style: italic; font-size: 14px; color: var(--text-muted);
+    padding: 10px 0; border-top: 1px dashed var(--border); line-height: 1.5;
+  }
+  .capsule-context .t { font-variant-numeric: tabular-nums; color: var(--text); font-style: normal; }
+  .capsule-actions { display: flex; gap: 8px; }
+  .capsule-actions .btn {
+    flex: 1; padding: 10px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    border-radius: 8px; font-weight: 600; text-align: center;
+    border: 1px solid var(--border-strong); color: var(--text-muted);
+  }
+  .capsule-actions .btn.confirm { background: var(--emerald); color: #08140c; border-color: var(--emerald); }
+  .capsule-actions .btn.wrong { background: var(--cardinal); color: #1a0707; border-color: var(--cardinal); }
+
+  /* Footer */
+  .footer {
+    margin-top: 80px; padding-top: 32px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--text-dim); line-height: 1.6;
+  }
+  .footer p + p { margin-top: 8px; }
+  .footer em { color: var(--text-muted); font-style: italic; }
+
+  /* ---- Fact Whisper (floating trivia card) ---- */
+  .fact-whisper {
+    position: fixed; bottom: 24px; right: 24px; z-index: 50;
+    width: 340px; max-width: calc(100vw - 32px);
+    background: linear-gradient(180deg, rgba(20,24,32,0.98), rgba(14,18,26,0.98));
+    border: 1px solid var(--border-strong);
+    border-radius: 14px; padding: 18px 20px 20px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.45), 0 0 24px var(--gold-glow);
+    backdrop-filter: blur(12px);
+    opacity: 0; transform: translateY(16px);
+    transition: opacity .5s ease, transform .5s cubic-bezier(.3,.9,.3,1);
+    font-family: 'Outfit', sans-serif;
+    pointer-events: none;
+  }
+  .fact-whisper.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .fact-whisper::before {
+    content: ""; position: absolute; inset: -1px; border-radius: 14px; padding: 1px;
+    background: linear-gradient(135deg, var(--gold), transparent 40%, transparent 60%, rgba(88,196,138,0.4));
+    -webkit-mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none; opacity: 0.5;
+  }
+  .fact-tag {
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--gold); font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .fact-tag .feather { font-size: 13px; filter: drop-shadow(0 0 6px var(--gold-glow)); }
+  .fact-species {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-style: italic;
+    font-size: 17px; color: var(--text); line-height: 1.2; margin-bottom: 10px;
+  }
+  .fact-body {
+    font-size: 14px; line-height: 1.55; color: var(--text); margin-bottom: 14px;
+    font-family: 'Playfair Display', serif;
+  }
+  .fact-controls {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; letter-spacing: 0.08em; color: var(--text-dim);
+  }
+  .fact-controls .progress {
+    font-variant-numeric: tabular-nums; font-family: 'Fraunces', serif;
+  }
+  .fact-controls .actions { display: flex; gap: 14px; }
+  .fact-controls button {
+    background: transparent; border: none; color: var(--text-muted);
+    font-family: 'Outfit', sans-serif; font-size: 12px; letter-spacing: 0.08em;
+    cursor: pointer; padding: 4px 0;
+    transition: color .15s;
+  }
+  .fact-controls button:hover { color: var(--gold); }
+  .fact-controls .next { color: var(--text); }
+  .fact-close {
+    position: absolute; top: 10px; right: 12px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-dim); font-size: 14px; padding: 4px; line-height: 1;
+    transition: color .15s;
+  }
+  .fact-close:hover { color: var(--text); }
+
+  /* Toggle pill in topbar */
+  .fact-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted); background: transparent;
+    cursor: pointer; transition: all .15s;
+    margin-right: 12px; font-family: 'Outfit', sans-serif; font-weight: 600;
+  }
+  .fact-toggle:hover { border-color: var(--gold); color: var(--gold); }
+  .fact-toggle.active { border-color: var(--gold); color: var(--gold); background: rgba(226,179,88,0.06); }
+  .fact-toggle .feather { filter: drop-shadow(0 0 6px var(--gold-glow)); }
+
+  /* Small helpers */
+  .note { font-size: 12px; color: var(--text-dim); margin-top: 14px; font-style: italic; }
+  .kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); font-weight: 600; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">Observatory <span>·</span> Ideas</div>
+  <div style="display:flex;align-items:center">
+    <button class="fact-toggle" id="fact-toggle" title="Toggle fact whispers">
+      <span class="feather">🪶</span><span id="fact-count">facts</span>
+    </button>
+    <a class="backlink" href="/">← dashboard</a>
+  </div>
+</div>
+
+<div class="shell">
+
+  <aside class="sidenav">
+    <div class="label">Proposals</div>
+    <ol>
+      <li><a href="#i1">Story Strip</a></li>
+      <li><a href="#i2">Ambient Live Page</a></li>
+      <li><a href="#i3">Honest Uncertainty</a></li>
+      <li><a href="#i4">Field Guide Room</a></li>
+      <li><a href="#i5">Arrival Moment</a></li>
+      <li><a href="#i6">Kitchen View</a></li>
+      <li><a href="#i7">Silence Has A Voice</a></li>
+      <li><a href="#i8">Classify As Journal</a></li>
+    </ol>
+    <div class="label" style="margin-top:24px">For the Activity Tab</div>
+    <ol style="counter-reset: navnum 8;">
+      <li><a href="#i9">Daily Rhythm</a></li>
+      <li><a href="#i10">The Season Stream</a></li>
+      <li><a href="#i11">Who Flocks With Whom</a></li>
+      <li><a href="#i12">Heard vs Seen</a></li>
+      <li><a href="#i13">First Arrivals</a></li>
+      <li><a href="#i14">The Record Book</a></li>
+    </ol>
+    <div class="label" style="margin-top:24px">Classify, rethought</div>
+    <ol style="counter-reset: navnum 14;">
+      <li><a href="#i15">The Reviewer's Duel</a></li>
+    </ol>
+    <div class="label" style="margin-top:28px">Also</div>
+    <ul style="list-style:none;padding:0;margin:0;font-size:13px;">
+      <li style="margin-bottom:10px;color:var(--text-dim);padding-left:24px;"><a href="#credits" style="color:inherit">Where these came from</a></li>
+    </ul>
+  </aside>
+
+  <main>
+
+    <header class="hero">
+      <h1>Eight<br><em>small observatories</em><br>we could become.</h1>
+      <p class="sub">Proposals from today's review of the system. Each one is a specific, buildable idea — not a rewrite. Mockups below are rendered with real typography and motion, not screenshots.</p>
+      <p class="meta">April 17 2026 <span class="dot">·</span> 8 proposals <span class="dot">·</span> Reviewed against the mission</p>
+    </header>
+
+    <!-- ============ IDEA 1: STORY STRIP ============ -->
+    <section class="idea" id="i1">
+      <div class="idea-head">
+        <div class="idea-num">01</div>
+        <div class="idea-title">A <em>Story Strip</em> on the Live tab</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">"49 species" is a scorecard. A sentence is a story.</p>
+      <div class="idea-prose">
+        <p>The API already emits the raw material for stories — first-sighting flags, hourly visit consensus, BirdNET audio-only detections, trust levels. The dashboard reduces it to counts and grids. This strip lives above Recently Seen; cards rotate every 20 seconds, each generated from existing endpoints. Taps link into the rigorous view.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="story-strip">
+          <div class="story-card gold">
+            <div class="tag">First of the season</div>
+            <div class="body">A <b>Chipping Sparrow</b> just arrived — three minutes ago, the first we've seen this year.</div>
+            <div class="meta"><span>just now</span><span>tap to watch →</span></div>
+          </div>
+          <div class="story-card emerald">
+            <div class="tag">Morning flurry</div>
+            <div class="body">A <b>Chickadee</b> family visited <b>11 times</b> this morning. Peak at 7:42.</div>
+            <div class="meta"><span>this hour</span><span>full pattern →</span></div>
+          </div>
+          <div class="story-card">
+            <div class="tag">Heard, not seen</div>
+            <div class="body">BirdNET heard a <b>Wood Thrush</b> at 6:14 that no camera has ever seen.</div>
+            <div class="meta"><span>audio clip</span><span>listen →</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Every sentence above is a direct template fill against fields already in classifications.db + birdnet_local.db + the visits table. No new data. Just editorial decisions.</p>
+    </section>
+
+    <!-- ============ IDEA 2: AMBIENT LIVE ============ -->
+    <section class="idea" id="i2">
+      <div class="idea-head">
+        <div class="idea-num">02</div>
+        <div class="idea-title">The Live page should feel <em>alive</em>, not just play video</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">A kid walks past, sees a bird for three seconds, and then... a backyard.</p>
+      <div class="idea-prose">
+        <p>Two small things overlaid on the video. A <em>Recently Seen rail</em> across the bottom — last six birds as color-fading cards; tap one to scrub the HLS buffer back to that moment (the killer feature of having a 10-second delayed playback). And an <em>arrival burst</em>: when a track locks, a 1.5-second gold rim flash around the bird + species card. The overlay below is animated — hover the bird to see the rim pulse.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="live-demo">
+          <div class="bg-video"></div>
+          <div class="bird-silhouette"></div>
+          <div class="live-bracket"><span></span></div>
+          <div class="live-label">Chipping Sparrow</div>
+          <div class="rail">
+            <span class="label">Recent</span>
+            <div class="rail-card r-finch fresh"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Chipping Sparrow</span><span class="rail-time">just now</span></div></div>
+            <div class="rail-card r-chickadee"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Chickadee</span><span class="rail-time">2m ago</span></div></div>
+            <div class="rail-card r-titmouse"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Titmouse</span><span class="rail-time">5m ago</span></div></div>
+            <div class="rail-card r-cardinal dim"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Cardinal</span><span class="rail-time">12m ago</span></div></div>
+            <div class="rail-card r-junco dim"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Junco</span><span class="rail-time">28m ago</span></div></div>
+            <div class="rail-card dimmer"><div class="rail-avatar"></div><div class="rail-text"><span class="rail-species">Finch</span><span class="rail-time">41m</span></div></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">The rim glow pulses here because this is a mockup. In the real thing it fires once on vote-lock, then holds for 1.5s.</p>
+    </section>
+
+    <!-- ============ IDEA 3: HONEST UNCERTAINTY ============ -->
+    <section class="idea" id="i3">
+      <div class="idea-head">
+        <div class="idea-num">03</div>
+        <div class="idea-title"><em>Honest</em> typography for what the system isn't sure about</div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">The model is lying, and right now the UI amplifies the lie.</p>
+      <div class="idea-prose">
+        <p>Every sighting currently reads "Northern Cardinal 100% ✓" — even when the same bird got called three different species across three frames. We already compute <code>trust_level</code> and <code>prior_reason</code>. This treats different confidence tiers with different typographic weight. Italic for <em>likely</em>, grey dim for <em>sorting it out</em>, full weight only for truly-locked. Hover reveals the reason: "Time implausible: American Goldfinch seen 7:00–15:00."</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="typo-compare">
+          <div class="typo-col before">
+            <div class="hdr">Before · Every sighting looks certain</div>
+            <div class="typo-ex"><b>Northern Cardinal</b> <span class="conf">100% ✓</span></div>
+            <div class="typo-ex"><b>Song Sparrow</b> <span class="conf">100% ✓</span></div>
+            <div class="typo-ex"><b>House Finch</b> <span class="conf">100% ✓</span></div>
+            <div class="typo-ex"><b>Black-capped Chickadee</b> <span class="conf">100% ✓</span></div>
+            <p class="note">All four are the same bird, seconds apart. The UI doesn't say so.</p>
+          </div>
+          <div class="typo-col after">
+            <div class="hdr">After · The system shows its thinking</div>
+            <div class="typo-ex"><span class="tx-locked">Northern Cardinal</span>
+              <span class="reason">3 frames in agreement · high confidence</span></div>
+            <div class="typo-ex"><span class="tx-voting">American Goldfinch</span>
+              <span class="reason">Time implausible — goldfinches seen 7–15h, not 6pm</span></div>
+            <div class="typo-ex"><span class="tx-unsure">small brown bird</span>
+              <span class="reason">2 of 3 frames disagreed — waiting for vote lock</span></div>
+            <div class="typo-ex"><span class="tx-locked">Tufted Titmouse</span>
+              <span class="reason">5 frames · audio corroborated 12s earlier</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Smallest fix in this document. Pure display logic over fields the API already returns. Biggest trust payoff.</p>
+    </section>
+
+    <!-- ============ IDEA 4: FIELD GUIDE ============ -->
+    <section class="idea" id="i4">
+      <div class="idea-head">
+        <div class="idea-num">04</div>
+        <div class="idea-title">A <em>Field Guide</em> — its own destination</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">Right now "Species" means "a Classify filter." Nobody learns in a filter.</p>
+      <div class="idea-prose">
+        <p>Carve it out. The Field Guide tab opens to a <em>poster wall</em> — one card per species seen, sorted "today / this week / month / ever," with a real portrait photo. Click any → the <em>Species Room</em>: hero photo, Cornell/Merlin audio, the birds-in-your-yard biography, 12 best shots of that species in <em>your</em> feeder, a 30-day visit timeline. Casual and obsessive converge here — kid gets eye candy, birder gets co-occurrence data.</p>
+      </div>
+      <div class="mockup-frame">
+        <p class="kicker">Poster wall — sorted by "seen today"</p>
+        <div class="poster-wall">
+          <div class="poster poster-cardinal"><div class="flag">Today</div><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Northern Cardinal</div><div class="ago">12 visits today</div></div></div>
+          <div class="poster poster-chickadee"><div class="flag">Today</div><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Black-capped Chickadee</div><div class="ago">38 visits today</div></div></div>
+          <div class="poster poster-finch"><div class="flag">Today</div><div class="poster-hero"></div><div class="poster-meta"><div class="sp">House Finch</div><div class="ago">21 visits today</div></div></div>
+          <div class="poster poster-goldfinch"><div class="poster-hero"></div><div class="poster-meta"><div class="sp">American Goldfinch</div><div class="ago">last seen 4m ago</div></div></div>
+          <div class="poster poster-titmouse"><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Tufted Titmouse</div><div class="ago">last seen 28m ago</div></div></div>
+          <div class="poster poster-junco"><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Dark-eyed Junco</div><div class="ago">yesterday</div></div></div>
+          <div class="poster poster-wren"><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Carolina Wren</div><div class="ago">2 days ago</div></div></div>
+          <div class="poster poster-woodpecker"><div class="poster-hero"></div><div class="poster-meta"><div class="sp">Hairy Woodpecker</div><div class="ago">4 days ago</div></div></div>
+        </div>
+
+        <p class="kicker" style="margin-top:28px">Tap a species → the Species Room</p>
+        <div class="room">
+          <div class="room-hero"><div class="cap">Northern Cardinal</div></div>
+          <div class="room-body">
+            <h3>Northern Cardinal</h3>
+            <div class="sci">Cardinalis cardinalis</div>
+            <div class="in-yard">
+              In your yard: first seen <b>March 8</b>, last seen <b>4 minutes ago</b>. <b>87 visits</b>, peak hour <b>7am</b>. Usually appears with Black-capped Chickadees and Tufted Titmice.
+            </div>
+            <div class="room-timeline">
+              <div class="bar q" style="height:12%"></div>
+              <div class="bar q" style="height:20%"></div>
+              <div class="bar" style="height:35%"></div>
+              <div class="bar" style="height:55%"></div>
+              <div class="bar q" style="height:22%"></div>
+              <div class="bar" style="height:70%"></div>
+              <div class="bar" style="height:85%"></div>
+              <div class="bar" style="height:100%"></div>
+              <div class="bar" style="height:60%"></div>
+              <div class="bar q" style="height:30%"></div>
+              <div class="bar" style="height:44%"></div>
+              <div class="bar" style="height:65%"></div>
+            </div>
+            <div class="room-timeline-label">Visits, last 12 days</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Most of this already exists in the species popup — but buried. The Field Guide tab is largely a routing + landing-page change, plus promoting the popup's content into a real room layout.</p>
+    </section>
+
+    <!-- ============ IDEA 5: ARRIVAL MOMENT ============ -->
+    <section class="idea" id="i5">
+      <div class="idea-head">
+        <div class="idea-num">05</div>
+        <div class="idea-title">When a bird arrives, <em>something should happen</em></div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">A kitchen-wall observatory should make somebody gasp once every ten minutes.</p>
+      <div class="idea-prose">
+        <p>Not alarm fatigue — acknowledgment. On vote-lock, a 600ms gold glow travels across the Recently Seen rail, and if the species is new-this-week, a small ribbon clips on. Hover the panel below to see the arrival card slide in and fade.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="arrival-demo">
+          <div class="arrival-card"><div class="icon"></div><div><div class="sp">Chipping Sparrow</div><div class="sub">New this week · arrived 3s ago</div></div></div>
+          <div class="arrival-btn">hover me to replay</div>
+          <div class="arrival-hint">Arrival animation · fires on vote-lock, ~2s total</div>
+        </div>
+      </div>
+      <p class="note">Optional soft chime per species, off by default. The pipeline already has an audio subsystem — this is a ~50-line wiring job, not a new feature.</p>
+    </section>
+
+    <!-- ============ IDEA 6: KITCHEN VIEW ============ -->
+    <section class="idea" id="i6">
+      <div class="idea-head">
+        <div class="idea-num">06</div>
+        <div class="idea-title">A real <em>phone layout</em>, not a flat port</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">Phone is where casual curiosity happens. Someone on the couch, not in the lab.</p>
+      <div class="idea-prose">
+        <p>Under 800px, shift to a second layout. Video anchored at 50vh, full-bleed. Below it: ONE swipeable deck (Recent · Yard now · Today's story · Field Guide). Tab nav becomes an iOS-app-style bottom bar. Topbar collapses to title + single status dot. Video IS the first thing on the first scroll, every time.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="phone-topbar">
+              <div class="title">Observatory</div>
+              <div class="status">● LIVE</div>
+            </div>
+            <div class="phone-video"></div>
+            <div class="phone-deck">
+              <div class="dh">Recently seen</div>
+              <div class="row"><span class="sp">Chipping Sparrow</span><span class="t">just now</span></div>
+              <div class="row"><span class="sp">Chickadee</span><span class="t">2m</span></div>
+              <div class="row"><span class="sp">Titmouse</span><span class="t">5m</span></div>
+              <div class="row"><span class="sp">Cardinal</span><span class="t">12m</span></div>
+              <div class="dots">· · · ·</div>
+            </div>
+            <div class="phone-bottomnav">
+              <div class="phone-nav-item active">L</div>
+              <div class="phone-nav-item">A</div>
+              <div class="phone-nav-item">F</div>
+              <div class="phone-nav-item">C</div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="text-align:center;margin-top:20px">Same HTML. One @media block under 800px. A small swipe controller for the deck. iOS-style bottom nav.</p>
+      </div>
+    </section>
+
+    <!-- ============ IDEA 7: SILENCE ============ -->
+    <section class="idea" id="i7">
+      <div class="idea-head">
+        <div class="idea-num">07</div>
+        <div class="idea-title">Give <em>silence</em> a voice</div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">An observatory on a kitchen wall is observed in glances. It must be interesting in the silences, or it becomes wallpaper nobody looks at.</p>
+      <div class="idea-prose">
+        <p>When no detections for &gt;5 minutes, the yard panel shifts into ambient mode. Current hour's typical activity based on historical data, plus one trivia line from the species-info library for a recently-seen bird. The dashboard starts having an editorial voice, not just a pulse.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="ambient-panel">
+          <div class="ambient-label">The yard is quiet</div>
+          <div class="ambient-body">
+            Usually <b>8 visits</b> this hour in mid-April. Today: <b>2 so far</b>. The last visitor was a <em>Tufted Titmouse</em>, 14 minutes ago.
+          </div>
+          <div class="ambient-trivia">
+            <span class="from">Did you know</span>
+            Tufted Titmice hoard seeds one at a time, flying back and forth from feeder to a cache tree — often the same tree for years.
+          </div>
+        </div>
+      </div>
+      <p class="note">"8 visits this hour in mid-April" is a one-line SQL aggregation precomputed nightly. Trivia comes from species_info.json which we already have (230 species covered).</p>
+    </section>
+
+    <!-- ============ IDEA 8: CLASSIFY AS JOURNAL ============ -->
+    <section class="idea" id="i8">
+      <div class="idea-head">
+        <div class="idea-num">08</div>
+        <div class="idea-title">Classify as a <em>field journal</em>, not a triage queue</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">The fastest path to deadly accurate is a reviewer who enjoys reviewing.</p>
+      <div class="idea-prose">
+        <p>Right now each review card is a frame + buttons. The context — what the track looked like across its five detection frames, what else was audible that minute — exists in the data but isn't on the card. This makes the review a <em>moment</em>: frame at center, a filmstrip above showing the bird's other frames from the same visit, and one sentence below giving temporal context. The reviewer is editing a field-journal entry, not triaging a queue.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="capsule">
+          <div class="filmstrip">
+            <div class="filmstrip-cell"></div>
+            <div class="filmstrip-cell"></div>
+            <div class="filmstrip-cell current"></div>
+            <div class="filmstrip-cell"></div>
+            <div class="filmstrip-cell"></div>
+          </div>
+          <div class="capsule-hero"></div>
+          <div class="capsule-context">
+            <span class="t">6:14am</span>, after a Tufted Titmouse visit. Heard in the same minute: Wood Thrush 82%, Song Sparrow 71%.
+          </div>
+          <div class="capsule-actions">
+            <div class="btn confirm">Confirm · Chickadee</div>
+            <div class="btn wrong">Wrong species</div>
+            <div class="btn">Not a bird</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">The filmstrip groups by track_id (already in pipeline.db). The context line is one API call that joins classifications + birdnet_local by timestamp window. Keyboard shortcuts preserved — but the card becomes something you'd want to sit with.</p>
+    </section>
+
+    <!-- ============ ACTIVITY TAB DIVIDER ============ -->
+    <div class="section-divider">
+      <h2>For the <em>Activity</em> tab</h2>
+      <div class="tagline">The data-deep side. Six ways to make 142,000 sightings feel like a story.</div>
+    </div>
+
+    <!-- ============ IDEA 9: DAILY RHYTHM ============ -->
+    <section class="idea" id="i9">
+      <div class="idea-head">
+        <div class="idea-num">09</div>
+        <div class="idea-title">The yard has a <em>heartbeat</em></div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">Every species has an hour it prefers. Together they make a day.</p>
+      <div class="idea-prose">
+        <p>A single horizontal block that answers "when does which bird show up?" in one glance. Each row is a species; each cell is an hour of the day, colored by that species' visit density at that hour over the last 30 days. Sorted by peak hour — early birds float to the top, dusk feeders to the bottom. Dawn and dusk bands softly tinted. This is the simplest possible visualization that turns a query result into a piece of music.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="rhythm">
+          <div class="rhythm-scale">
+            <span class="anchor">Hour of day</span>
+            <span style="grid-column: span 4">6 am</span>
+            <span style="grid-column: span 4">noon</span>
+            <span style="grid-column: span 4">6 pm</span>
+            <span style="grid-column: span 4">midnight</span>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">Northern Cardinal</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell a2"></div><div class="cell a5"></div><div class="cell a4"></div><div class="cell a2"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell"></div><div class="cell"></div><div class="cell a1"></div><div class="cell a2"></div><div class="cell a3"></div><div class="cell a4"></div>
+            <div class="cell a2"></div><div class="cell a1"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">Chickadee</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell a1"></div>
+            <div class="cell a3"></div><div class="cell a4"></div><div class="cell a5"></div><div class="cell a4"></div><div class="cell a3"></div><div class="cell a3"></div>
+            <div class="cell a2"></div><div class="cell a2"></div><div class="cell a3"></div><div class="cell a3"></div><div class="cell a2"></div><div class="cell a2"></div>
+            <div class="cell a1"></div><div class="cell a1"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">Tufted Titmouse</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell a2"></div><div class="cell a4"></div><div class="cell a4"></div><div class="cell a3"></div><div class="cell a2"></div><div class="cell a2"></div>
+            <div class="cell a2"></div><div class="cell a3"></div><div class="cell a3"></div><div class="cell a2"></div><div class="cell a2"></div><div class="cell a1"></div>
+            <div class="cell a1"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">House Finch</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell"></div><div class="cell a1"></div><div class="cell a2"></div><div class="cell a3"></div><div class="cell a4"></div><div class="cell a5"></div>
+            <div class="cell a4"></div><div class="cell a3"></div><div class="cell a3"></div><div class="cell a2"></div><div class="cell a2"></div><div class="cell a1"></div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">American Goldfinch</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell"></div><div class="cell"></div><div class="cell a2"></div><div class="cell a3"></div><div class="cell a4"></div><div class="cell a4"></div>
+            <div class="cell a5"></div><div class="cell a4"></div><div class="cell a3"></div><div class="cell a2"></div><div class="cell a1"></div><div class="cell"></div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-row">
+            <div class="sp">Dark-eyed Junco</div>
+            <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+            <div class="cell"></div><div class="cell a1"></div><div class="cell a1"></div><div class="cell a1"></div><div class="cell a2"></div><div class="cell a2"></div>
+            <div class="cell a3"></div><div class="cell a4"></div><div class="cell a5"></div><div class="cell a4"></div><div class="cell a3"></div><div class="cell a2"></div>
+            <div class="cell a1"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          </div>
+          <div class="rhythm-night"></div>
+          <div class="rhythm-night-label"><span>dusk</span><span>dawn &nbsp;&nbsp; · &nbsp;&nbsp; day &nbsp;&nbsp; · &nbsp;&nbsp; dusk</span><span>night</span></div>
+        </div>
+      </div>
+      <p class="note">One SQL aggregation: <code>SELECT hour, species, COUNT(*) FROM classifications GROUP BY hour, species</code>. The rest is CSS grid. Updates nightly.</p>
+    </section>
+
+    <!-- ============ IDEA 10: SEASON STREAM ============ -->
+    <section class="idea" id="i10">
+      <div class="idea-head">
+        <div class="idea-num">10</div>
+        <div class="idea-title">The <em>Season Stream</em></div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">When birds arrive. When they leave. Who stays all year.</p>
+      <div class="idea-prose">
+        <p>A year as 52 weekly columns, species as rows. Dots where the bird was present that week, bright gold for peak weeks. Year-round residents run as continuous ribbons. Seasonal migrants appear as bands that shrink and grow. Rare visitors show up as lonely specks. This visualization gets <em>more</em> beautiful every year you run the system — multi-year overlays show which winters had the goldfinches and which springs had the warblers. Our 142K row database is already the skeleton.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="phenology">
+          <div class="pheno-months"><span>2026</span><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span></div>
+          <div class="pheno-row">
+            <div class="sp">Northern Cardinal</div>
+            <div class="strip">
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres peak"></div>
+              <div class="w pres peak"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres low"></div>
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres low"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+            </div>
+          </div>
+          <div class="pheno-row">
+            <div class="sp">Dark-eyed Junco</div>
+            <div class="strip">
+              <div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres peak"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+            </div>
+          </div>
+          <div class="pheno-row">
+            <div class="sp">Chipping Sparrow</div>
+            <div class="strip">
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w pres low"></div><div class="w pres"></div><div class="w pres peak"></div>
+              <div class="w pres peak"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres low"></div><div class="w pres low"></div>
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+            </div>
+          </div>
+          <div class="pheno-row">
+            <div class="sp">Brown Creeper</div>
+            <div class="strip">
+              <div class="w pres low"></div><div class="w pres low"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w"></div><div class="w"></div>
+              <div class="w"></div><div class="w"></div><div class="w pres low"></div><div class="w pres low"></div>
+              <div class="w pres"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div>
+            </div>
+          </div>
+          <div class="pheno-row">
+            <div class="sp">House Finch</div>
+            <div class="strip">
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres peak"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres low"></div><div class="w pres low"></div><div class="w pres low"></div>
+              <div class="w pres low"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres peak"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+              <div class="w pres"></div><div class="w pres"></div><div class="w pres"></div><div class="w pres"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Gold = peak weeks. Green = present. Dim green = just a few sightings that week. Gaps = not seen. Second year of data doubles as an overlay; third year starts to reveal true rhythms.</p>
+    </section>
+
+    <!-- ============ IDEA 11: WHO FLOCKS ============ -->
+    <section class="idea" id="i11">
+      <div class="idea-head">
+        <div class="idea-num">11</div>
+        <div class="idea-title">Who <em>flocks</em> with whom</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">Every yard has a social network. Ours has 142,000 data points of it.</p>
+      <div class="idea-prose">
+        <p>A graph showing which species tend to visit within 5 minutes of each other. Thicker edges = more co-occurrences. Hubs float to the center. The classic Chickadee–Titmouse–Nuthatch mixed-flock should emerge on its own — and so should surprises. "Juncos and Song Sparrows ride together, but Cardinals come alone." Nodes are clickable, revealing who-with-whom over time. This is ecology you can <em>see</em>, pulled straight out of the timestamps.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="flocks">
+          <svg class="flock-edges" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <line x1="50" y1="50" x2="32" y2="28" stroke="rgba(226,179,88,0.55)" stroke-width="1.4"/>
+            <line x1="50" y1="50" x2="68" y2="30" stroke="rgba(226,179,88,0.5)" stroke-width="1.2"/>
+            <line x1="50" y1="50" x2="75" y2="62" stroke="rgba(88,196,138,0.5)" stroke-width="1"/>
+            <line x1="32" y1="28" x2="68" y2="30" stroke="rgba(88,196,138,0.4)" stroke-width="0.8"/>
+            <line x1="50" y1="50" x2="25" y2="70" stroke="rgba(88,196,138,0.3)" stroke-width="0.7"/>
+            <line x1="25" y1="70" x2="40" y2="82" stroke="rgba(88,196,138,0.35)" stroke-width="0.9"/>
+            <line x1="50" y1="50" x2="82" y2="82" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+            <line x1="50" y1="50" x2="15" y2="45" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          </svg>
+          <div class="flock-node hub" style="left:50%; top:50%"><div class="dot"></div>Black-capped Chickadee</div>
+          <div class="flock-node orbit" style="left:32%; top:28%"><div class="dot"></div>Tufted Titmouse</div>
+          <div class="flock-node orbit" style="left:68%; top:30%"><div class="dot"></div>White-breasted Nuthatch</div>
+          <div class="flock-node orbit" style="left:75%; top:62%"><div class="dot"></div>Downy Woodpecker</div>
+          <div class="flock-node orbit" style="left:25%; top:70%"><div class="dot"></div>Dark-eyed Junco</div>
+          <div class="flock-node" style="left:40%; top:82%"><div class="dot" style="background:var(--emerald);opacity:0.7"></div>Song Sparrow</div>
+          <div class="flock-node distant" style="left:82%; top:82%"><div class="dot"></div>Northern Cardinal</div>
+          <div class="flock-node distant" style="left:15%; top:45%"><div class="dot"></div>House Finch</div>
+          <div class="flock-legend">Edge weight = visits within 5 minutes</div>
+        </div>
+      </div>
+      <p class="note">Cardinal as a "distant node" is the insight — they come to feed, but not in the mixed flocks. Surfacing that from data alone is the joy of the view. One SQL query (self-join on visits within a time window), D3 or a lightweight force-directed layout for the graph.</p>
+    </section>
+
+    <!-- ============ IDEA 12: HEARD vs SEEN ============ -->
+    <section class="idea" id="i12">
+      <div class="idea-head">
+        <div class="idea-num">12</div>
+        <div class="idea-title"><em>Heard</em> vs <em>seen</em></div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">The birds the cameras miss. The birds the mics miss. The birds we know beyond doubt.</p>
+      <div class="idea-prose">
+        <p>The observatory has two sensory systems — cameras and BirdNET audio — and most dashboards would treat one of them as primary. This view makes the gap between them the subject. A Venn diagram of heard-only, seen-only, and both. Heard-only species are usually canopy birds that never land: Wood Thrush, Veery, Great Crested Flycatcher. Seen-only species are often quiet at the feeder: Juncos, Titmice. Both is the confidently-present core. The shape of the Venn tells you what kind of yard you have.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="venn">
+          <div class="venn-stage">
+            <div class="venn-label heard">Heard · BirdNET</div>
+            <div class="venn-label seen">Seen · cameras</div>
+            <div class="venn-circle heard"></div>
+            <div class="venn-circle seen"></div>
+            <div class="venn-sp faint" style="left:10%; top:35%;">Wood Thrush</div>
+            <div class="venn-sp faint" style="left:14%; top:52%;">Veery</div>
+            <div class="venn-sp faint" style="left:8%; top:68%;">Red-eyed Vireo</div>
+            <div class="venn-sp" style="left:43%; top:32%;">Northern Cardinal</div>
+            <div class="venn-sp" style="left:46%; top:49%;">Chickadee</div>
+            <div class="venn-sp" style="left:43%; top:66%;">House Finch</div>
+            <div class="venn-sp faint" style="right:10%; top:35%;">Tufted Titmouse</div>
+            <div class="venn-sp faint" style="right:13%; top:52%;">Dark-eyed Junco</div>
+            <div class="venn-sp faint" style="right:9%; top:68%;">Downy Woodpecker</div>
+          </div>
+          <div class="venn-counts">
+            <div class="venn-count heard-only"><b>11</b>heard only</div>
+            <div class="venn-count both"><b>27</b>both</div>
+            <div class="venn-count seen-only"><b>8</b>seen only</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">The "heard only" column is where the truly wild yard lives — the birds that travel through without ever visiting. Tapping a name in heard-only could offer a "go listen to the clip at the moment of detection" link straight into BirdNET's audio.</p>
+    </section>
+
+    <!-- ============ IDEA 13: FIRST ARRIVALS ============ -->
+    <section class="idea" id="i13">
+      <div class="idea-head">
+        <div class="idea-num">13</div>
+        <div class="idea-title">The <em>First Arrivals</em> archive</div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">Every year, a new first. And after three years, a ritual.</p>
+      <div class="idea-prose">
+        <p>A ship's log, typographically rendered. Each year gets a column. Each entry is a species and the date it first appeared that year. Species tagged "new this year" when they've never been recorded before — those become heirloom moments. After three or four years, the comparisons start to tell stories: "The goldfinches arrived two weeks earlier this year." "The Chipping Sparrow hasn't come back yet." This is the page David will quietly refresh on March mornings.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="arrivals">
+          <div class="arr-col">
+            <div class="arr-year">2026 <span>so far</span></div>
+            <div class="arr-entry"><div class="arr-date">Jan 3</div><div class="arr-sp">Dark-eyed Junco</div></div>
+            <div class="arr-entry"><div class="arr-date">Jan 4</div><div class="arr-sp">Northern Cardinal</div></div>
+            <div class="arr-entry"><div class="arr-date">Jan 7</div><div class="arr-sp">Black-capped Chickadee</div></div>
+            <div class="arr-entry"><div class="arr-date">Feb 12</div><div class="arr-sp">Red-breasted Nuthatch</div></div>
+            <div class="arr-entry"><div class="arr-date">Mar 4</div><div class="arr-sp">Red-winged Blackbird<span class="new">Never before</span></div></div>
+            <div class="arr-entry"><div class="arr-date">Mar 19</div><div class="arr-sp">American Goldfinch</div></div>
+            <div class="arr-entry"><div class="arr-date">Apr 2</div><div class="arr-sp">Eastern Phoebe</div></div>
+            <div class="arr-entry"><div class="arr-date">Apr 14</div><div class="arr-sp">Yellow-bellied Flycatcher<span class="new">Never before</span></div></div>
+            <div class="arr-entry"><div class="arr-date">Apr 17</div><div class="arr-sp">Chipping Sparrow</div></div>
+          </div>
+          <div class="arr-col">
+            <div class="arr-year">2025 <span>the year of the Thrush</span></div>
+            <div class="arr-entry"><div class="arr-date">Jan 1</div><div class="arr-sp">Dark-eyed Junco</div></div>
+            <div class="arr-entry"><div class="arr-date">Jan 5</div><div class="arr-sp">Northern Cardinal</div></div>
+            <div class="arr-entry"><div class="arr-date">Feb 28</div><div class="arr-sp">Brown Creeper</div></div>
+            <div class="arr-entry"><div class="arr-date">Mar 12</div><div class="arr-sp">American Goldfinch</div></div>
+            <div class="arr-entry"><div class="arr-date">Apr 3</div><div class="arr-sp">Wood Thrush <span class="new">First year</span></div></div>
+            <div class="arr-entry"><div class="arr-date">Apr 22</div><div class="arr-sp">Chipping Sparrow</div></div>
+            <div class="arr-entry"><div class="arr-date">May 5</div><div class="arr-sp">Baltimore Oriole</div></div>
+            <div class="arr-entry"><div class="arr-date">May 18</div><div class="arr-sp">Scarlet Tanager <span class="new">First year</span></div></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">One <code>MIN(timestamp) GROUP BY species, year</code> query. The ribbon tag "Never before" compares against all-prior-years. When 2027 shows up as a third column, this page becomes the observatory's memory.</p>
+    </section>
+
+    <!-- ============ IDEA 14: RECORD BOOK ============ -->
+    <section class="idea" id="i14">
+      <div class="idea-head">
+        <div class="idea-num">14</div>
+        <div class="idea-title">The <em>Record Book</em></div>
+        <div class="idea-badges"><span class="badge small">Small</span></div>
+      </div>
+      <p class="idea-tagline">Sports needs box scores. An observatory needs records.</p>
+      <div class="idea-prose">
+        <p>A grid of small cards — each one a superlative, auto-updated nightly. Biggest day. Quietest morning. The rarest visitor. The bird that flew solo. The most dawn arrivals. These are the stats that make a kid run over to check if today beat yesterday. They take one SQL query each, render as trading cards, and make the system feel like it's keeping score for you.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="records">
+          <div class="record-card">
+            <div class="record-label">Loudest day</div>
+            <div class="record-value">387 visits</div>
+            <div class="record-detail">April 14 · <span class="t">19 species</span>. Five Chickadees held the feeder from dawn.</div>
+          </div>
+          <div class="record-card cold">
+            <div class="record-label">Quietest morning</div>
+            <div class="record-value">2 visits</div>
+            <div class="record-detail">February 9 · <span class="t">6:00–9:00am</span>. The day after the ice storm.</div>
+          </div>
+          <div class="record-card rare">
+            <div class="record-label">Rarest this year</div>
+            <div class="record-value">Yellow-bellied Flycatcher</div>
+            <div class="record-detail">Seen once, <span class="t">April 14 · 2:37pm</span>. Gone in 11 seconds.</div>
+          </div>
+          <div class="record-card">
+            <div class="record-label">Most species in a day</div>
+            <div class="record-value">22</div>
+            <div class="record-detail">April 9 · a day of migration, with <span class="t">three firsts of the year</span>.</div>
+          </div>
+          <div class="record-card cold">
+            <div class="record-label">Longest visit</div>
+            <div class="record-value">41 min</div>
+            <div class="record-detail">A single Tufted Titmouse · <span class="t">March 8, 7:02am</span>.</div>
+          </div>
+          <div class="record-card">
+            <div class="record-label">Earliest riser</div>
+            <div class="record-value">5:41am</div>
+            <div class="record-detail">Northern Cardinal · <span class="t">May 3, 2025</span>. Before civil twilight.</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Each card is one SQL query + a template string. Cards rotate occasionally so you see different records. "All-time" and "This season" toggles. A few of these become your screensaver.</p>
+    </section>
+
+    <!-- ============ CLASSIFY RETHINK DIVIDER ============ -->
+    <div class="section-divider">
+      <h2>Classify, <em>rethought</em></h2>
+      <div class="tagline">Building on idea 08 with game-mode instinct. The model is a player. You're the ref.</div>
+    </div>
+
+    <!-- ============ IDEA 15: THE REVIEWER'S DUEL ============ -->
+    <section class="idea" id="i15">
+      <div class="idea-head">
+        <div class="idea-num">15</div>
+        <div class="idea-title">The Reviewer's <em>Duel</em></div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">Catching the model's mistakes is the game. The more confident it was, the sweeter the catch.</p>
+      <div class="idea-prose">
+        <p>Every bird is a matchup: the model made a guess, you're the ref. Each card shows the model's claim with its (almost always) 100% confidence, flags when the bird was a within-track flipper (four species guessed across five frames = <em>suspicious</em>), and invites you to call it. Correct confirms move the streak. Corrections of overconfident-wrongs get gold. Streaks compound. At 20 reviews you're done for the day — summary card with stats, maybe a badge, back to your life.</p>
+        <p>The difference from idea 08 isn't the card layout — it's the <em>stance</em>. 08 is a field journal: you're a naturalist entering observations. 15 is a sport: the model is on the field, you're the ref with a whistle. Same data, same review, very different feel. Both are compatible — the Duel could be the default mode with an "editorial mode" toggle for when you want to take your time.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="duel">
+          <div class="duel-header">
+            <div class="title">Today's Review</div>
+            <div class="stats">
+              <span><b>94%</b>accurate</span>
+              <span><b>12</b>of 20 today</span>
+              <span class="streak"><b>7</b>in a row</span>
+            </div>
+          </div>
+          <div class="duel-progress"><div class="bar"></div></div>
+          <div class="duel-filmstrip">
+            <div class="duel-filmcell"></div>
+            <div class="duel-filmcell"></div>
+            <div class="duel-filmcell current"></div>
+            <div class="duel-filmcell"></div>
+            <div class="duel-filmcell"></div>
+          </div>
+          <div class="duel-body">
+            <div class="duel-frame"></div>
+            <div class="duel-verdict">
+              <div class="duel-model">
+                <div class="tag">Your model says</div>
+                <div class="guess">House Finch</div>
+                <div class="conf"><b>100%</b> confident · yard model</div>
+              </div>
+              <div class="duel-warning">
+                <span class="prefix">But.</span>It guessed <b>4 different species</b> across the 5 frames of this visit. Don't trust the number.
+              </div>
+            </div>
+          </div>
+          <div class="duel-context">
+            <span class="t">6:14am</span> · after a Tufted Titmouse visit · heard in the same minute: <em>Wood Thrush 82%, Song Sparrow 71%</em>.
+          </div>
+          <div class="duel-actions">
+            <div class="duel-btn confirm"><div class="key">Y</div><div class="label">Yes — it is a House Finch</div><div class="reward">+10 pts</div></div>
+            <div class="duel-btn reject"><div class="key">N</div><div class="label">Not House Finch — pick the real one</div><div class="reward">+20 pts · gotcha</div></div>
+            <div class="duel-btn trash"><div class="key">T</div><div class="label">Not a bird at all</div><div class="reward">+5 pts</div></div>
+          </div>
+          <div class="duel-kbd-hint">
+            <span class="k">Y</span> yes · <span class="k">N</span> no · <span class="k">T</span> trash · <span class="k">Space</span> skip · <span class="k">←</span> <span class="k">→</span> navigate
+          </div>
+          <div class="duel-foot">
+            <div class="streak"><span class="flame">🔥</span> 4-corrections in a row</div>
+            <div class="last-correction">Last: Song Sparrow → <b>Chipping Sparrow</b><span class="pts">+20</span></div>
+          </div>
+        </div>
+
+        <div class="session-summary">
+          <div class="summary-card">
+            <div class="lbl">After 20 reviews</div>
+            <div class="val">94%</div>
+            <div class="sub">agreement with the model</div>
+          </div>
+          <div class="summary-card win">
+            <div class="lbl">Caught</div>
+            <div class="val">6</div>
+            <div class="sub">overconfident mistakes</div>
+          </div>
+          <div class="summary-card">
+            <div class="lbl">Streak best</div>
+            <div class="val">11</div>
+            <div class="sub">in a row, today</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Game mechanics: streaks, accuracy, daily cap, scoring. But scoring is <em>internal motivation</em>, never a public leaderboard that makes someone else's opinion part of the ritual. A daily badge. A streak counter you see only when you log in. Nothing shareable by default. The ambient goal is cleaner training data; the felt experience is playing, which is why you keep coming back.</p>
+      <p class="note">The same data powers both this and idea 08 (Field Journal). Toggle between "Duel" and "Journal" modes on the Classify tab — or have the mode follow the content (fast for confident-but-wrong frames, slow for ambiguous multi-birds). Keyboard shortcuts from 08 preserved exactly so muscle memory carries over.</p>
+    </section>
+
+    <footer class="footer" id="credits">
+      <p><em>Where these came from:</em> Three reviewers were dispatched on April 17 2026 after a long session rebuilding the overlay, AOI, and snapshot pipeline. One audited every doc for truth drift; one looked for performance and data-integrity bugs; one reviewed the experience against the mission of <em>delightful + deadly accurate + beautiful stories</em>.</p>
+      <p>The critical bugs they found — a 10-line <code>softmax_top3</code> math error that explains the yard model's 100%-everything behavior, a non-transactional <code>apply_verdict</code> that is almost certainly the "data drift" David suspected, species-directory names that disagree across three consumers — are being tracked separately as fixes. This page is the creative half: the proposals that are less about fixing and more about becoming.</p>
+      <p style="margin-top:20px"><em>Each mockup above uses real typography (Playfair Display + Outfit + Fraunces), real motion where applicable, and real proportions. None of them are screenshots. Every one is a building block for something the observatory could actually be, this month.</em></p>
+    </footer>
+
+  </main>
+</div>
+
+<!-- ============ FACT WHISPER ============ -->
+<div class="fact-whisper" id="fact-whisper" role="dialog" aria-label="Species fact">
+  <button class="fact-close" id="fact-close" aria-label="Dismiss">✕</button>
+  <div class="fact-tag"><span class="feather">🪶</span>Did you know</div>
+  <div class="fact-species" id="fact-species">…</div>
+  <div class="fact-body" id="fact-body">…</div>
+  <div class="fact-controls">
+    <div class="progress" id="fact-progress">· · ·</div>
+    <div class="actions">
+      <button class="next" id="fact-next">next →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const whisper = document.getElementById('fact-whisper');
+  const spEl    = document.getElementById('fact-species');
+  const bodyEl  = document.getElementById('fact-body');
+  const progEl  = document.getElementById('fact-progress');
+  const toggle  = document.getElementById('fact-toggle');
+  const countEl = document.getElementById('fact-count');
+  const closeBtn = document.getElementById('fact-close');
+  const nextBtn = document.getElementById('fact-next');
+
+  const INITIAL_DELAY = 3500;   // ms before the first whisper appears on load
+  const ROTATE_DELAY  = 22000;  // ms between auto-rotations
+  const STORAGE_KEY   = 'observatory.facts.enabled';
+
+  let facts = [];      // flat list of {species, fact}
+  let idx   = 0;
+  let enabled = (localStorage.getItem(STORAGE_KEY) !== 'false');
+  let rotateTimer = null;
+  let shownCount = 0;
+
+  function render() {
+    if (!facts.length) return;
+    const f = facts[idx];
+    spEl.textContent   = f.species;
+    bodyEl.textContent = f.fact;
+    progEl.textContent = `${idx + 1} / ${facts.length}`;
+  }
+
+  function show() {
+    if (!enabled) return;
+    whisper.classList.add('visible');
+    shownCount++;
+  }
+  function hide() {
+    whisper.classList.remove('visible');
+  }
+
+  function next() {
+    idx = (idx + 1) % facts.length;
+    render();
+    show();
+  }
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function scheduleNext() {
+    if (rotateTimer) clearTimeout(rotateTimer);
+    if (!enabled) return;
+    rotateTimer = setTimeout(() => { next(); scheduleNext(); }, ROTATE_DELAY);
+  }
+
+  function applyEnabled() {
+    toggle.classList.toggle('active', enabled);
+    countEl.textContent = enabled
+      ? `${facts.length} facts`
+      : 'facts off';
+    if (!enabled) {
+      hide();
+      if (rotateTimer) { clearTimeout(rotateTimer); rotateTimer = null; }
+    }
+  }
+
+  toggle.addEventListener('click', () => {
+    enabled = !enabled;
+    localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false');
+    applyEnabled();
+    if (enabled && facts.length) {
+      // give a single fact immediately when re-enabled
+      setTimeout(() => { next(); scheduleNext(); }, 400);
+    }
+  });
+
+  closeBtn.addEventListener('click', () => {
+    hide();
+    // Brief cooldown after manual dismiss — 45s — then resume rotating
+    if (rotateTimer) clearTimeout(rotateTimer);
+    if (enabled) {
+      rotateTimer = setTimeout(() => { next(); scheduleNext(); }, 45000);
+    }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    next();
+    scheduleNext();
+  });
+
+  // Hover pauses rotation; leaving resumes
+  whisper.addEventListener('mouseenter', () => { if (rotateTimer) clearTimeout(rotateTimer); });
+  whisper.addEventListener('mouseleave', () => { if (enabled) scheduleNext(); });
+
+  // Load facts and begin
+  fetch('/api/species-facts')
+    .then(r => r.json())
+    .then(data => {
+      const flat = [];
+      Object.keys(data).forEach(species => {
+        if (species.startsWith('_')) return; // skip _meta
+        (data[species] || []).forEach(fact => flat.push({ species, fact }));
+      });
+      facts = shuffle(flat);
+      applyEnabled();
+      if (enabled && facts.length) {
+        setTimeout(() => {
+          render();
+          show();
+          scheduleNext();
+        }, INITIAL_DELAY);
+      }
+    })
+    .catch(err => {
+      console.warn('[facts] fetch failed:', err);
+      countEl.textContent = 'facts unavailable';
+    });
+})();
+</script>
+
+</body>
+</html>

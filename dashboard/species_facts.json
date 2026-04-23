@@ -1,0 +1,646 @@
+{
+  "_meta": {
+    "description": "Cool facts per species for use in Story Strip trivia, Silence mode, and Species Room side-content.",
+    "source": "Hand-curated from natural history references. Short, punchy, <25 words each. Intended for casual reading.",
+    "format": "One array of strings per species. Rotation-friendly.",
+    "created": "2026-04-17",
+    "species_count": 49
+  },
+
+  "Mourning Dove": [
+    "They can drink by suction — one of the very few birds that don't need to tip their head back.",
+    "Parents feed chicks 'crop milk,' a curdled secretion from the adult's esophagus lining.",
+    "That mournful cooing you mistake for an owl is how they got their name.",
+    "Their whistling takeoff is made by their wings, not their voice.",
+    "They mate for life and can raise up to six broods per year in the south.",
+    "One bird can store up to 17,200 bluegrass seeds in its crop before digesting.",
+    "They pick grit constantly — up to 50 pebbles a day to grind their food.",
+    "Despite being hunted heavily, populations hold steady above 400 million.",
+    "They fly with explosive bursts up to 55 mph to escape predators.",
+    "Indigenous Mesoamerican peoples considered them messengers between the living and the dead."
+  ],
+
+  "House Finch": [
+    "Eastern populations descend from a few dozen birds released in New York in 1940 by pet dealers.",
+    "A male's red color comes entirely from his diet — poorly fed males are yellow or orange.",
+    "Females prefer the reddest males: bright red signals he's a good forager.",
+    "They readily nest in hanging flower baskets — a behavior unknown in their native western range.",
+    "Their song has regional dialects, like human accents, shaped by who they grow up around.",
+    "They were the first wild songbird documented catching a domestic poultry disease.",
+    "They can drink salt water, a rare trait among songbirds.",
+    "A single feeder can host over 1,000 House Finch visits per winter day.",
+    "Their scientific name translates roughly to 'Mexican red-blood.'",
+    "Flocks travel in tight formations with constant chirping contact calls."
+  ],
+
+  "Song Sparrow": [
+    "Every male has a unique repertoire of 5–20 songs — essentially a personal signature.",
+    "Males learn their songs by listening to neighbors, not their fathers.",
+    "There are over 30 recognized subspecies across North America — enormous variation in one species.",
+    "They sing year-round, even in deep winter, unlike most songbirds.",
+    "A male can sing over 2,000 songs in a single day during territory disputes.",
+    "They prefer to nest on the ground despite the predation risk.",
+    "The 'song' in Song Sparrow is official — they were named for how much they sing.",
+    "They're one of the most widely distributed songbirds in the Americas.",
+    "Pacific coast Song Sparrows are dark and large; desert ones are pale and small.",
+    "They were the subject of the first modern scientific study of a wild songbird (1930s)."
+  ],
+
+  "Black-capped Chickadee": [
+    "They grow new neurons every fall to remember thousands of seed cache locations.",
+    "A single bird can stash seeds in thousands of different spots and recover them months later.",
+    "Their classic 'chick-a-dee' call has meaning — more 'dees' signals more danger.",
+    "Other species eavesdrop on chickadee alarm calls to know when hawks are around.",
+    "They can drop their body temperature 20°F overnight to survive winter.",
+    "Each chickadee's song has a distinct two-note 'hey-sweetie' pitch it can transpose at will.",
+    "Males aggressively defend a 2-acre territory but join mixed flocks outside breeding season.",
+    "They're the state or provincial bird of Massachusetts, Maine, and New Brunswick.",
+    "Despite being tiny, they outcompete larger birds for cached food through sheer memory.",
+    "They form hierarchies within flocks — top birds eat first and sleep in the warmest spots."
+  ],
+
+  "Dark-eyed Junco": [
+    "They're sometimes called 'snowbirds' because they appear at feeders with the first snow.",
+    "There are six distinct color morphs once classified as separate species.",
+    "Most eastern Juncos breed in Canadian boreal forests and only visit us in winter.",
+    "They prefer to forage on the ground — you'll almost never see them at a hanging feeder.",
+    "White outer tail feathers flash during flight as a signal to flock-mates.",
+    "They form strict winter pecking orders — subordinate birds eat leftovers.",
+    "Their spring migration is triggered by day length, not temperature.",
+    "A flock can contain 15–30 birds, often returning to the same yard year after year.",
+    "They're one of the most abundant forest birds in North America — 630 million strong.",
+    "Males arrive on breeding grounds two weeks before females to claim territory."
+  ],
+
+  "Northern Cardinal": [
+    "They don't migrate — the same birds live in your yard year-round for their whole lives.",
+    "Males and females both sing, unusual among North American songbirds.",
+    "Their red pigment comes from carotenoids in berries and seeds they eat.",
+    "They're the state bird of seven US states, more than any other species.",
+    "Pairs often duet, with the female's song subtly different from the male's.",
+    "A male will feed his mate beak-to-beak during courtship — looks like kissing.",
+    "Some cardinals are yellow instead of red due to a rare genetic mutation that blocks red pigments.",
+    "They can live over 15 years in the wild — remarkably long for a songbird their size.",
+    "Their crest raises when they're excited or agitated, like a mood indicator.",
+    "They were named for Catholic cardinals' scarlet robes, not the other way around."
+  ],
+
+  "Tufted Titmouse": [
+    "They hoard seeds one at a time, flying back and forth to a cache tree — often the same tree for years.",
+    "They pull fur from living mammals — including sleeping dogs and humans — to line their nests.",
+    "Despite tiny size, their call 'peter-peter-peter' is audible for hundreds of yards.",
+    "They travel in winter mixed flocks with Chickadees and Nuthatches, sharing predator alerts.",
+    "Their range has expanded dramatically north over the last century, likely due to bird feeders.",
+    "They can grip seeds in their feet while hammering them open like a woodpecker.",
+    "They were formerly called 'Tomtits' in older American field guides.",
+    "Young stay with parents for weeks longer than most songbirds, sometimes helping at the next nest.",
+    "The tuft isn't decorative — it raises and lowers as a mood signal to flock-mates.",
+    "They'll mob owls and hawks as a group, driving them out of the territory."
+  ],
+
+  "Downy Woodpecker": [
+    "They're the smallest woodpecker in North America — barely larger than a sparrow.",
+    "Their tongue wraps around the inside of their skull when retracted — works as a shock absorber.",
+    "They drum on hollow branches to communicate, not to find food — it's their version of a song.",
+    "Males have a red patch on the nape; females don't — easiest way to tell them apart.",
+    "They can hammer up to 20 times per second without giving themselves a headache.",
+    "They're nearly identical to Hairy Woodpeckers except in size — a common ID challenge.",
+    "Their stiff tail feathers act as a third leg while climbing vertical bark.",
+    "They sleep in cavities they excavate themselves, often a different one each night.",
+    "Pairs stay bonded year-round, foraging in loose association outside nesting season.",
+    "They'll take peanut butter, suet, and sunflower seeds — one of the easiest woodpeckers to attract."
+  ],
+
+  "White-throated Sparrow": [
+    "There are two color morphs — white-striped and tan-striped — and they almost always mate with the opposite morph.",
+    "Their song sounds like 'Oh sweet Canada Canada Canada' — or 'Old Sam Peabody,' depending who you ask.",
+    "White-striped birds are more aggressive; tan-striped birds are more nurturing parents.",
+    "Canadian researchers recently discovered their song has been shifting pitch over decades.",
+    "They migrate at night, navigating by the stars.",
+    "They scratch through leaf litter with both feet at once, a hop-and-kick move.",
+    "Each fall they put on 40% of their body weight in fat to fuel migration.",
+    "They roost communally in winter in dense thickets, up to 50 birds together.",
+    "Males arrive at breeding grounds a full two weeks before females.",
+    "Their distinctive yellow 'eyebrow' between bill and eye is often missed on quick looks."
+  ],
+
+  "Northern Mockingbird": [
+    "A single male's repertoire can include over 200 distinct songs, many stolen from other species.",
+    "They learn new songs throughout their entire lives, unlike most songbirds.",
+    "They sing at night under streetlights — unmated males most of all.",
+    "They mimic not just birds but also car alarms, cell phone ringtones, and dog barks.",
+    "Their scientific name, Mimus polyglottos, means 'many-tongued mimic.'",
+    "They aggressively attack hawks, cats, and humans who come near their nests.",
+    "They remember individual human faces and will target people who've bothered their nest before.",
+    "They're the state bird of five US states.",
+    "A male that can't find a mate will sing through the entire night for weeks.",
+    "Their population has expanded northward with urbanization — they love suburban yards."
+  ],
+
+  "Brown-headed Cowbird": [
+    "They're brood parasites — they never build nests, instead laying eggs in other species' nests.",
+    "A single female can lay up to 40 eggs per year, spread across dozens of host nests.",
+    "Their eggs often hatch earlier than the host's, giving the cowbird chick a fatal size advantage.",
+    "They originally followed bison herds across the Great Plains, eating insects the herds stirred up.",
+    "Modern cattle replaced the bison, letting cowbirds expand across the entire continent.",
+    "They've been documented parasitizing over 220 different host species.",
+    "Some host species now recognize and reject cowbird eggs — a visible evolutionary arms race.",
+    "Adult cowbirds have no instinct for how to raise young — they learn species identity from foster parents.",
+    "Despite that, young cowbirds still grow up to find and mate with other cowbirds.",
+    "They're a leading cause of decline for some songbird species they parasitize."
+  ],
+
+  "White-breasted Nuthatch": [
+    "They're one of the only birds that regularly walks DOWN tree trunks head-first.",
+    "They cache seeds in bark crevices, often wedging a shell between two pieces of bark to hammer open.",
+    "Their name 'nuthatch' comes from 'nut-hacker' — how they open hard seeds.",
+    "Males feed females during courtship as a display of foraging skill.",
+    "They mate for life and defend the same territory year after year.",
+    "Their nasal 'yank-yank' call sounds like a tiny tin horn.",
+    "They join winter mixed flocks but always assert dominance over smaller Chickadees.",
+    "Their long hind toe helps them grip bark from any angle.",
+    "They line their nest cavity with animal fur, often from roadkill they find.",
+    "They've been observed 'bill-sweeping' insects around the nest entrance, possibly to repel predators."
+  ],
+
+  "House Sparrow": [
+    "They're not sparrows in the American sense — they're Old World weaver finches introduced in 1851.",
+    "They're one of the most widely distributed wild bird species on Earth.",
+    "They were released in Brooklyn to control caterpillars; they didn't, but they spread anyway.",
+    "They nest in almost any cavity, including streetlight housings and store signage.",
+    "Males sport a black throat 'bib' — the bigger the bib, the higher his status.",
+    "They can digest grain too tough for most songbirds thanks to a muscular gizzard.",
+    "In urban areas, they've evolved slightly paler plumage to match concrete habitats.",
+    "They bathe in dust as well as water to control feather mites.",
+    "Their populations have declined sharply in parts of Europe for unknown reasons.",
+    "They take milk bottle caps as nest lining when available."
+  ],
+
+  "American Robin": [
+    "They're not actually robins — English settlers named them after the unrelated European Robin.",
+    "They hear earthworms underground through substrate vibrations, not sight alone.",
+    "Their bright red breast comes from carotenoids, like cardinals and flamingos.",
+    "They were nearly wiped out in the DDT era — a poster species for environmental recovery.",
+    "They can produce up to three broods in a single breeding season.",
+    "In winter, flocks can number in the hundreds of thousands feeding on fruit.",
+    "Their nests often include mud collected from puddles, molded with their breasts.",
+    "Young robins have speckled breasts — the solid red appears after their first molt.",
+    "They're the state bird of Connecticut, Michigan, and Wisconsin.",
+    "A robin can live over 13 years in the wild if it survives its first dangerous year."
+  ],
+
+  "White-crowned Sparrow": [
+    "Their striking black-and-white head stripes don't appear until their second year.",
+    "They migrate up to 2,600 miles between Alaskan breeding grounds and Mexican wintering sites.",
+    "Each dialect region has its own song — Pacific coast birds can't understand Rocky Mountain birds.",
+    "They were used in a famous experiment that discovered how migratory birds navigate by stars.",
+    "Some populations can go without sleep for two weeks during migration.",
+    "Males learn their song in the first 100 days of life and never change it.",
+    "They favor hedge rows and brushy edges — tidy suburbs are poor habitat.",
+    "Their winter flocks have strict pecking orders based on age and sex.",
+    "Their genome has helped scientists understand how jet lag affects the human body.",
+    "They're one of the most studied songbirds in neuroscience due to their predictable song learning."
+  ],
+
+  "Red-winged Blackbird": [
+    "Males defend territories so vigorously they attack hawks, crows, and occasionally humans.",
+    "A single marsh can hold thousands of males during breeding season, each defending a territory.",
+    "Females are brown and streaked — often mistaken for a completely different species.",
+    "Males display their scarlet shoulder patches to claim territory and hide them to avoid attack.",
+    "A successful male mates with up to 15 females in a single breeding season.",
+    "Winter flocks can number in the millions, creating black clouds visible from miles away.",
+    "They roost communally in winter with grackles, starlings, and cowbirds — flocks of 40+ million.",
+    "Their 'conk-la-ree' call is considered the classic springtime marsh sound in eastern North America.",
+    "They're one of the most abundant land birds in North America, with ~150 million individuals.",
+    "Their shoulder patches are covered by dark feathers when threatened — a visual 'dimmer switch.'"
+  ],
+
+  "Hairy Woodpecker": [
+    "They look nearly identical to Downy Woodpeckers, just larger — a classic ID challenge.",
+    "The easiest tell: a Hairy's bill is as long as its head, a Downy's is much shorter.",
+    "They tunnel deeper than Downies to extract carpenter ant larvae from wood.",
+    "Their tongue can extend 2 inches past the tip of the beak to pull insects from holes.",
+    "They drum slower and louder than Downies — like a big drummer in a small band.",
+    "They'll drum on metal — gutters, stop signs, chimney caps — to advertise farther.",
+    "They excavate a new nest cavity every spring, leaving old ones for other species.",
+    "They favor larger trees than Downies, which lets the two species coexist without competing.",
+    "They can live 14+ years in the wild if they survive their first winter.",
+    "Their red nape patch on males actually varies in size based on hormone levels."
+  ],
+
+  "Rock Pigeon": [
+    "Every feral pigeon is descended from wild Rock Doves domesticated ~5,000 years ago.",
+    "They were brought to North America by French settlers in the 1600s.",
+    "They can find their way home from hundreds of miles away — mechanism still not fully understood.",
+    "Their milk production (crop milk) is hormonally identical to mammalian lactation.",
+    "They were used to deliver messages in both World Wars — some earned military medals.",
+    "They see ultraviolet light humans can't perceive, giving them a richer color world.",
+    "They've been trained to distinguish Monet from Picasso paintings in studies.",
+    "Their iridescent neck plumage works through microscopic feather structure, not pigment.",
+    "A single pair can produce up to 12 offspring per year in warm climates.",
+    "Charles Darwin kept pigeons and used them as his main breeding study for 'On the Origin of Species.'"
+  ],
+
+  "Chipping Sparrow": [
+    "Their name comes from the mechanical, sewing-machine-like 'chip' song that fills spring mornings.",
+    "They're one of the earliest-breeding songbirds to return north in spring.",
+    "They often line their nests with horsehair — giving them the old name 'hair bird.'",
+    "Their rust-colored cap and black eye-line are only present in breeding plumage.",
+    "Winter-plumaged birds look completely different and confuse many birders.",
+    "They prefer open grassy edges — manicured suburban lawns are surprisingly good habitat.",
+    "They feed almost exclusively on grass seeds outside the breeding season.",
+    "Males sing up to 300 times per hour during peak courtship.",
+    "Their song has been documented to speed up over the course of a single morning.",
+    "They migrate in loose flocks with Dark-eyed Juncos and occasionally other sparrow species."
+  ],
+
+  "Lincoln's Sparrow": [
+    "Named for Thomas Lincoln, who collected the first specimen for Audubon in 1833 — no relation to the President.",
+    "They're notoriously shy — more often heard than seen.",
+    "Their buffy breast band and fine streaking distinguish them from Song and Swamp Sparrows.",
+    "They breed mostly in Canadian bog habitats and only pass through suburbs in migration.",
+    "Their song is one of the richest and most complex of any sparrow.",
+    "They're one of the most difficult birds for machine learning models to classify correctly.",
+    "They typically forage on the ground under dense cover, almost never visiting feeders.",
+    "When they do visit a feeder, they prefer millet to sunflower.",
+    "Their migration path funnels through the central US, making them rare in the far east.",
+    "Thomas Lincoln was only 21 years old when he collected the first specimen on Audubon's expedition."
+  ],
+
+  "Gray Catbird": [
+    "They mimic over 100 other bird songs, car alarms, and frog calls — but always in a raspy 'catbird voice.'",
+    "Their signature 'mew' call sounds uncannily like a housecat.",
+    "They're related to mockingbirds and share the mimicry trait — all are in the family Mimidae.",
+    "They winter as far south as Panama but return to the same backyard patch year after year.",
+    "They cache food in bark crevices, marking spots with specific mimicked calls.",
+    "Males sing from dense cover, making them hard to spot despite being vocal.",
+    "They'll aggressively mob predators, including Cooper's Hawks and domestic cats.",
+    "They recognize and reject Brown-headed Cowbird eggs, unlike many host species.",
+    "Both parents feed young, and broods fledge in just 10–11 days.",
+    "Their skulking behavior in brush earned them the informal nickname 'black hermit.'"
+  ],
+
+  "Carolina Wren": [
+    "They're loud for their size — a single wren can fill an entire backyard with 'tea-kettle tea-kettle tea-kettle.'",
+    "Pairs mate for life and stay on their territory year-round, never migrating.",
+    "Harsh winters can devastate local populations, sometimes taking decades to recover.",
+    "They've been steadily expanding their range northward with milder winters.",
+    "Only the male sings, but both members of the pair call back and forth constantly.",
+    "They nest in almost anything — hanging baskets, mailboxes, discarded boots, rolled-up newspapers.",
+    "They pump their tail up and down while foraging, as if counting rhythm.",
+    "Their song's rolling 'tea-kettle' pattern can be delivered over 3,000 times in a single day.",
+    "They glean insects from bark using their slightly down-curved bill.",
+    "They're the official state bird of South Carolina."
+  ],
+
+  "European Starling": [
+    "All 200+ million North American Starlings descend from about 60 birds released in Central Park in 1890.",
+    "They were released by a Shakespeare enthusiast who wanted all the birds in his plays to live in America.",
+    "They're extraordinary mimics — they can imitate car alarms, human speech, and other birds.",
+    "Large flocks — called murmurations — move in hypnotic synchronized patterns against the sky.",
+    "Each bird in a murmuration tracks only its seven nearest neighbors to stay coordinated.",
+    "They compete aggressively with native cavity-nesters like Bluebirds and Woodpeckers.",
+    "Their plumage appears black but is actually iridescent green and purple in direct light.",
+    "Winter plumage is heavily spotted; breeding plumage is glossy black with a yellow bill.",
+    "They've learned to steal milk from cows when farmers aren't looking.",
+    "Mozart kept a pet Starling that could sing portions of his compositions."
+  ],
+
+  "American Goldfinch": [
+    "They're one of the strictest vegetarians among North American birds — almost purely seed-eaters.",
+    "Their bright yellow breeding plumage is replaced by drab olive in winter.",
+    "They're one of the latest nesters in North America — often not until late July.",
+    "They time breeding for thistle seed abundance, which they feed to chicks.",
+    "Because of their late nesting, Cowbirds rarely parasitize them — the cowbird chicks starve on the seed diet.",
+    "Their bounding, roller-coaster flight pattern is accompanied by 'per-chick-o-ree' calls.",
+    "Males perform looping aerial displays to impress females.",
+    "They'll gather in 'winter finch irruptions' if their food crop fails up north.",
+    "They drink and bathe extensively — more water-dependent than most seed-eating songbirds.",
+    "They're the state bird of New Jersey, Iowa, and Washington."
+  ],
+
+  "Blue Jay": [
+    "Their 'blue' color is an optical illusion — feather structure scatters blue light, the pigments are brown.",
+    "They plant oak forests: they carry acorns miles and cache more than they ever retrieve.",
+    "They're one of the few birds that actively mob Red-tailed Hawks.",
+    "They can perfectly mimic Red-shouldered and Red-tailed Hawk calls, scaring away smaller birds.",
+    "A jay can hold 2–3 acorns in its expandable throat and one more in its bill.",
+    "Family groups stay together for up to two years, with older siblings helping raise younger ones.",
+    "They have complex social hierarchies and recognize each other as individuals.",
+    "They 'anting' behavior — rubbing ants on their feathers — may help deter parasites.",
+    "Their crest position signals mood: raised for excitement or aggression, flat for calm.",
+    "Their scientific name Cyanocitta cristata means 'crested blue chatterer.'"
+  ],
+
+  "American Crow": [
+    "They can recognize individual human faces and pass grudges down through generations.",
+    "Scientists in Seattle documented crows targeting specific people years after a single bad encounter.",
+    "They use tools — bending twigs into hooks, dropping walnuts on roads for cars to crack.",
+    "Family groups stay together up to five years, with siblings helping raise the next brood.",
+    "A 'roost' of crows in winter can number in the tens of thousands.",
+    "They hold what look like 'funerals' around dead flock members — likely learning about threats.",
+    "Their intelligence rivals that of great apes in many problem-solving tests.",
+    "They've learned to drop hard-shelled food onto asphalt to crack it using human cars.",
+    "They can count to at least four and distinguish quantities reliably.",
+    "Their population in North America has climbed past 30 million despite historic persecution."
+  ],
+
+  "Pine Warbler": [
+    "They're the only warbler whose diet is primarily seeds — most warblers eat insects exclusively.",
+    "They'll readily visit feeders for suet and sunflower chips, unlike any other warbler.",
+    "They breed almost exclusively in pine forests — one of the few habitat-specific warblers.",
+    "Their trilled song is easily confused with Chipping Sparrow and Dark-eyed Junco.",
+    "They're one of the earliest warblers to return in spring, often arriving in March.",
+    "They're one of the few warblers that winter north of the Gulf states.",
+    "Their yellow undertail coverts (unlike Yellow-rumped's) help separate them from other species.",
+    "They creep on tree trunks like small woodpeckers, probing bark crevices.",
+    "Males sing from the tops of mature pines, their songs audible a quarter mile away.",
+    "Their population has grown along with pine plantation expansion in the Southeast."
+  ],
+
+  "Red-bellied Woodpecker": [
+    "Despite their name, the 'red belly' is barely visible — a subtle pink wash on the lower belly.",
+    "Their striking zebra-striped back and crimson cap are their real field marks.",
+    "They can extend their tongue nearly 2 inches beyond their bill to extract insects.",
+    "They've been expanding their range steadily north over the last century.",
+    "Their 'churr' call is one of the most distinctive sounds of eastern woodlands.",
+    "They cache acorns and nuts in bark crevices like Nuthatches do.",
+    "Pairs drum to each other in duets during courtship.",
+    "They occasionally catch small reptiles and tree frogs — not just insects.",
+    "They'll visit suet feeders year-round, one of the most reliable woodpecker visitors.",
+    "Young birds lack the red cap and can look like entirely different species."
+  ],
+
+  "Hermit Thrush": [
+    "Their flute-like song is considered one of the most beautiful of any North American bird.",
+    "They're one of the few thrushes that winter in the US rather than migrating to the tropics.",
+    "They flick their wings and slowly raise their tail — a behavioral signature.",
+    "They're the state bird of Vermont.",
+    "Their song has inspired composers including Amy Beach and John Luther Adams.",
+    "They breed in deep conifer forests, often at high elevations.",
+    "They eat mostly insects in summer and fruit in winter — a big dietary shift.",
+    "They forage on the ground, flipping leaves with their bill.",
+    "Their reddish tail (contrasting with brown body) is the easiest ID feature.",
+    "They're one of the latest songbirds to leave the breeding grounds in fall."
+  ],
+
+  "Common Grackle": [
+    "Their 'song' is often compared to a rusty gate — mechanical and grating.",
+    "They've been expanding their range northward, reaching much of Canada.",
+    "They're highly gregarious in winter — flocks can number in the millions.",
+    "Their long tail has a distinctive keel shape when flying, unlike any other backyard blackbird.",
+    "Their iridescent plumage shifts from bronze to purple depending on the angle.",
+    "They'll soak hard bread in water before eating it — a form of simple tool use.",
+    "They're omnivorous: seeds, insects, eggs of other birds, small fish, even mice.",
+    "Their bright yellow eye is unusual in North American blackbirds.",
+    "They've been seen sunbathing with wings spread, possibly to control feather parasites.",
+    "They form mass roosts with starlings, red-wings, and cowbirds — up to 40 million birds in winter."
+  ],
+
+  "Fox Sparrow": [
+    "They're the heaviest North American sparrow — nearly twice the weight of a Song Sparrow.",
+    "Their rusty-red color gave them their 'fox' name.",
+    "They scratch through leaf litter with both feet in a distinctive hop-kick motion.",
+    "There are four regional color morphs once considered separate species.",
+    "They favor dense brush and rarely come into open feeders.",
+    "Their song is considered one of the finest of any sparrow — rich, whistled phrases.",
+    "They winter in thickets and often travel alone rather than in flocks.",
+    "They're an elusive migrant through much of the US — passing through quickly.",
+    "Their color varies by region: Eastern ones rusty, Alaskan ones nearly black.",
+    "They're named for the reddish chestnut color of foxes — not because they act foxy."
+  ],
+
+  "Eastern Phoebe": [
+    "They return to breeding grounds earlier than any other flycatcher — sometimes in February.",
+    "They often build nests on human structures — eaves, bridges, barn beams.",
+    "Their tail-pumping habit is a key ID feature — they can't sit still.",
+    "They were the first banded bird in North America — John James Audubon banded one in 1804.",
+    "They return to the same nest site year after year, sometimes for decades.",
+    "Their simple 'fee-bee' song is onomatopoeic — their name comes from the song.",
+    "They eat almost exclusively flying insects, catching them in mid-air.",
+    "A single phoebe can eat hundreds of mosquitoes per day.",
+    "They build mud-and-moss nests with elaborate lichen camouflage on the outside.",
+    "They're one of the few flycatchers that will visit a cup feeder for mealworms."
+  ],
+
+  "Brown Thrasher": [
+    "Their song repertoire is the largest of any North American bird — over 1,000 distinct phrases.",
+    "They're related to mockingbirds and catbirds — all mimics in family Mimidae.",
+    "Their long curved bill is used for sweeping leaf litter aside, not for probing.",
+    "They mimic other birds but with less faithful reproduction than mockingbirds.",
+    "They're shy despite being large, usually hiding in thick cover.",
+    "They're aggressive nest defenders — they'll attack snakes, raccoons, and occasionally humans.",
+    "They're the state bird of Georgia.",
+    "Their yellow eye is a distinctive feature, separating them from the similar Wood Thrush.",
+    "Young birds have gray eyes that turn yellow as they mature.",
+    "Like other thrashers, they're mostly ground-dwellers despite being songbirds."
+  ],
+
+  "Cedar Waxwing": [
+    "Their crest and black mask make them one of the most distinctive-looking backyard birds.",
+    "Their yellow tail tips come from pigments in the fruit they eat — natural tattoos.",
+    "Some tails now appear orange instead of yellow due to pigments from introduced honeysuckle.",
+    "They pass berries to each other in line — a courtship behavior unique to waxwings.",
+    "They can become intoxicated eating fermented berries and crash into windows.",
+    "They have almost no song — only high, thin whistles.",
+    "They breed later than almost any other songbird — timed to summer fruit.",
+    "They're highly social — always seen in flocks, never alone.",
+    "The red 'wax' spots on their wings are pigmented keratin extensions of the feathers.",
+    "Their flocks can strip an entire crabapple tree of fruit in minutes."
+  ],
+
+  "Field Sparrow": [
+    "Their song accelerates like a bouncing ball settling — one of the most distinctive sparrow songs.",
+    "They favor shrubby old fields — mature forests and manicured lawns both drive them out.",
+    "They're declining across much of their range as farmland is abandoned or developed.",
+    "Their pink bill is a key field mark — most other sparrows have dark bills.",
+    "They're among the earliest songbirds to begin singing in spring.",
+    "Their nests are often in thorny bushes, offering natural protection from predators.",
+    "They'll raise 2–3 broods per summer if conditions are good.",
+    "They're one of the sparrows most affected by agricultural intensification.",
+    "They often occur alongside Savannah Sparrows but prefer slightly brushier habitat.",
+    "Their song is used by many bird-song learning apps as a reference trainer."
+  ],
+
+  "Ruby-crowned Kinglet": [
+    "They're one of North America's smallest birds — lighter than a quarter.",
+    "The male's ruby crown only shows when he's excited or displaying.",
+    "They feed almost constantly, consuming insects equivalent to many times their body weight daily.",
+    "They hover-glean insects from branch tips, wings beating almost hummingbird-fast.",
+    "They breed far north in boreal forests and only pass through most of the US on migration.",
+    "They can survive temperatures down to -40°F by fluffing and roosting communally.",
+    "Their song is astonishing for such a tiny bird — loud, rich, and varied.",
+    "They often travel with Golden-crowned Kinglets in mixed migration flocks.",
+    "Their tiny legs are so weak they can't walk — they can only hop.",
+    "They constantly flick their wings while foraging — a restless, distinctive behavior."
+  ],
+
+  "Savannah Sparrow": [
+    "Named for Savannah, Georgia, where the first specimen was collected — not for its habitat.",
+    "They're one of the most abundant grassland sparrows in North America.",
+    "Their insect-like 'tsip-tsip-tsip-seeeee' song is easily missed or confused with crickets.",
+    "They show a yellow wash in front of the eye — a subtle but reliable ID mark.",
+    "There are over a dozen regional subspecies, including the endangered 'Ipswich' Sparrow.",
+    "They migrate at night, using the stars for navigation.",
+    "They favor open fields and almost never come to backyard feeders.",
+    "A single male's song can be delivered up to 600 times per hour during peak breeding.",
+    "They run along the ground rather than hopping — unusual for a sparrow.",
+    "Their populations have declined as grasslands have been converted to suburbs."
+  ],
+
+  "Rose-breasted Grosbeak": [
+    "Their massive pink beak is adapted for crushing large seeds and fruit.",
+    "Males sing from inside the nest while incubating — rare behavior among songbirds.",
+    "Their song sounds like 'a robin that has taken singing lessons.'",
+    "Males have a striking rose-red triangle on the breast; females are streaky brown.",
+    "They migrate up to 3,000 miles each spring to breed in deciduous forests.",
+    "They winter in Central and South America, often visiting coffee plantations.",
+    "They hybridize with Black-headed Grosbeaks where their ranges overlap in the Great Plains.",
+    "Their scientific name is Pheucticus ludovicianus — 'Louisiana painter.'",
+    "They'll readily visit sunflower feeders during spring migration.",
+    "Males can live over 12 years in the wild — long for a migratory songbird."
+  ],
+
+  "unidentified": [
+    "This entry holds detections that didn't lock onto a species — small mysteries awaiting review.",
+    "Often these are partial views, distant birds, or birds the classifier hadn't seen enough of to guess.",
+    "Sometimes clicking through them reveals first-of-year sightings hidden in plain sight.",
+    "They represent the frontier of the observatory — the unknown still in the yard.",
+    "Reviewing them is one of the most valuable ways to improve the model.",
+    "Some will be genuinely unidentifiable even to experts — blurry, too distant, partially hidden.",
+    "Others are species the model has never seen and can't name yet.",
+    "A high unidentified count after a storm often means migrants are passing through.",
+    "Flagging these for manual review is how rare species get added to the yard list.",
+    "The more species the model learns, the fewer unidentifieds it produces."
+  ],
+
+  "American Tree Sparrow": [
+    "Despite the name, they rarely nest in trees — they breed on the Arctic tundra.",
+    "They winter as far south as the northern US and head back north to breed.",
+    "They can eat snow as their only water source in winter.",
+    "Their central breast spot distinguishes them from similar-looking Chipping Sparrows.",
+    "They form winter flocks of 30–50 birds, often mixed with juncos.",
+    "They need to eat approximately 30% of their body weight in food per day in winter.",
+    "Their bicolored bill — dark upper, yellow lower — is a reliable field mark.",
+    "They arrive at winter feeders in waves, often synchronized with cold fronts.",
+    "They breed within the Arctic Circle, where daylight continues nearly 24 hours a day.",
+    "Their population has declined by about 50% since 1966, possibly due to climate shifts in the tundra."
+  ],
+
+  "Northern Flicker": [
+    "They're one of the few woodpeckers that feeds on the ground — ants are their favorite food.",
+    "A single flicker can eat over 5,000 ants in a day.",
+    "Eastern birds have yellow wing and tail linings; Western birds have red — once considered separate species.",
+    "Their 'wicka-wicka-wicka' call carries for hundreds of yards.",
+    "They drum on metal objects to advertise — gutters, chimney caps, aluminum siding.",
+    "They're one of the largest woodpeckers to visit feeders, especially in winter.",
+    "Their stiff tail feathers brace them against trees while excavating.",
+    "Males have a black 'mustache' mark; females lack it.",
+    "They're cavity nesters and often reuse old nest holes for multiple years.",
+    "Their population has declined steadily, possibly due to competition from European Starlings."
+  ],
+
+  "Red-breasted Nuthatch": [
+    "They smear pine pitch around their nest entrance, possibly to deter predators.",
+    "They're smaller and more boldly marked than White-breasted Nuthatches.",
+    "Their call sounds like a tin horn or a toy trumpet — much higher than White-breasteds.",
+    "They breed in conifer forests — suburbs only see them during irruption years.",
+    "Irruption years occur when cone crops fail in the far north, pushing birds south.",
+    "They cache seeds but often forget them — helping reforest pine habitats.",
+    "They walk down tree trunks headfirst, like White-breasted Nuthatches.",
+    "Their black eye-line makes them look permanently serious.",
+    "They'll readily visit feeders during irruptions and become unusually tame.",
+    "Their tongue can extend beyond the bill to extract insects from bark."
+  ],
+
+  "Pileated Woodpecker": [
+    "They're the largest woodpecker in North America, crow-sized with a flaming red crest.",
+    "Their rectangular excavations in trees are unmistakable — often a foot deep.",
+    "Woody Woodpecker was inspired by them, though with an Acorn Woodpecker's call.",
+    "They favor large mature forests with plenty of dead wood for foraging.",
+    "Their deep, ringing call — 'wuk-wuk-wuk' — carries up to half a mile through forest.",
+    "They eat carpenter ants almost exclusively, which they extract with their long barbed tongue.",
+    "They're a 'keystone' species — their abandoned cavities shelter many other animals.",
+    "They were nearly extirpated in the early 1900s but have recovered remarkably.",
+    "A pair defends up to 200 acres as territory — enormous for a bird.",
+    "They can drum louder than any other North American woodpecker, audible a mile away."
+  ],
+
+  "Pine Siskin": [
+    "They're nomads — winter ranges shift dramatically based on conifer seed crops.",
+    "In irruption years, they may appear far south in huge flocks.",
+    "Their streaky brown plumage has subtle yellow wing flashes.",
+    "They cling to feeders upside down, especially for nyjer seed.",
+    "They're highly social — always in flocks, often mixed with goldfinches.",
+    "Their flight call is a rising 'zzreeeeee' that sounds like electrical static.",
+    "They can handle the cold thanks to a high resting metabolism.",
+    "They can pack seeds into their esophagus to digest overnight when roosting.",
+    "Their populations have declined sharply in the last 50 years, reason unclear.",
+    "They occasionally hybridize with American Goldfinches where the two overlap."
+  ],
+
+  "Yellow-bellied Sapsucker": [
+    "They drill orderly rows of small holes in tree bark to drink sap — their 'wells.'",
+    "Other species including hummingbirds and warblers visit sapsucker wells.",
+    "Their drumming pattern is irregular — a few quick taps, a pause, then more.",
+    "They migrate through most of the US to breed in Canada.",
+    "Their 'yellow belly' is subtle and often missed in field views.",
+    "They're the only truly migratory woodpecker in North America.",
+    "Males have a red throat; females have white.",
+    "Their feeding wells can seriously stress or kill young trees if too numerous.",
+    "They eat insects too — especially ants attracted to the oozing sap.",
+    "Their scientific name, Sphyrapicus varius, means 'varied hammer-striker.'"
+  ],
+
+  "Brown Creeper": [
+    "They spiral up tree trunks, always heading up — when they reach the top, they fly to the base of the next tree.",
+    "Their camouflage is so good they're often missed even when close.",
+    "They nest behind loose bark slabs — one of only a handful of songbirds that do.",
+    "Their thin curved bill probes bark crevices for insects and spider eggs.",
+    "Their song is so high-pitched many older birders can no longer hear it.",
+    "They're often the first bird other species follow in winter mixed flocks.",
+    "Their stiff pointed tail feathers prop them against the tree like a woodpecker's.",
+    "They're one of the few songbirds that hasn't been found to sing dialects.",
+    "They're secretive enough that many yard birders have them pass through unnoticed.",
+    "The European Treecreeper is their nearly identical Old World counterpart."
+  ],
+
+  "Yellow-rumped Warbler": [
+    "They're one of the most abundant warblers in North America, with ~130 million individuals.",
+    "Their yellow rump patch — called the 'butter butt' — is diagnostic.",
+    "They're the only warbler that can digest the waxy berries of bayberry and wax myrtle.",
+    "This lets them winter much farther north than most other warblers.",
+    "They were formerly split into two species: Audubon's (west) and Myrtle (east).",
+    "In fall, breeding plumage is replaced by drab brown with yellow rump still visible.",
+    "They migrate in huge flocks, sometimes hundreds in a single tree.",
+    "They'll visit suet feeders in winter — one of the few warblers that will.",
+    "Males arrive on breeding territories two weeks before females.",
+    "Their 'chip' call is one of the most common sounds of fall migration."
+  ],
+
+  "Purple Finch": [
+    "They're not actually purple — males are a raspberry-red, females streaky brown.",
+    "They look similar to House Finches but with cleaner markings and bulkier bill.",
+    "Roger Tory Peterson called a male 'a sparrow dipped in raspberry juice.'",
+    "Their population has declined sharply since House Finches spread east in the 1940s.",
+    "They breed in northern conifer forests and only visit most yards during winter irruptions.",
+    "They're the state bird of New Hampshire.",
+    "Their song is a liquid warble, different from House Finch's more halting song.",
+    "Their undertail coverts are unmarked — a way to separate them from House Finches.",
+    "They eat tree buds, seeds, and some fruit — less feeder-dependent than House Finches.",
+    "Females have a strong face pattern with a white eyebrow — House Finch females don't."
+  ],
+
+  "Eastern Bluebird": [
+    "Their brilliant blue comes from feather structure, not pigment — they're actually brown underneath.",
+    "They were near extinction in the mid-1900s due to House Sparrow competition for nest cavities.",
+    "A dedicated nest-box campaign starting in the 1970s has brought them roaring back.",
+    "They're the state bird of Missouri and New York.",
+    "Pairs often raise three broods per summer if conditions are good.",
+    "Males arrive early in spring and claim nest cavities before females arrive.",
+    "They eat mostly insects in summer and fruit in winter — a big dietary shift.",
+    "They drop from perches to catch insects on the ground — a distinctive foraging style.",
+    "Young birds lack the blue color until their first molt.",
+    "They have been shown to track insect abundance and move nests mid-season if needed."
+  ]
+}

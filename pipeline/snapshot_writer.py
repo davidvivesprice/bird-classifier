@@ -15,8 +15,10 @@ here: the plumbing must keep flowing so reviewers can correct labels.
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -117,16 +119,36 @@ class SnapshotWriter:
         writer.submit(camera, frame_bgr, wall_time_ms, track)
     """
 
-    def __init__(self, maxsize: int = 32):
+    def __init__(self, maxsize: int = 32, classifier=None,
+                 go2rtc_url: str = "http://localhost:1984"):
+        """
+        Args:
+            maxsize: max queued snapshots before oldest is dropped
+            classifier: SmartClassifier instance — if provided, the snapshot
+                writer re-runs AIY on the hi-res crop at write time and uses
+                AIY's species (not the track's live yard label) for the
+                classifications.db row. This is how the review queue gets
+                AIY's 965-species authority while yard still drives the fast
+                live overlay.
+            go2rtc_url: base URL for go2rtc. Used to fetch 1080p frames via
+                `/api/frame.mp4?src=<camera>-main` so the saved JPG is
+                full-res rather than the 640x360 detector frame.
+        """
         import queue as _q
         self._q: "_q.Queue" = _q.Queue(maxsize=maxsize)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.classifier = classifier
+        self.go2rtc_url = go2rtc_url.rstrip("/")
         self.stats = {
             "submitted": 0,
             "written": 0,
             "dropped_full": 0,
             "errors": 0,
+            "hires_ok": 0,
+            "hires_fail": 0,
+            "aiy_relabel": 0,
+            "aiy_none": 0,
         }
 
     def start(self):
@@ -175,7 +197,133 @@ class SnapshotWriter:
                 self.stats["errors"] += 1
                 log.exception("snapshot write failed: %s", e)
 
+    def _fetch_hires_frame(self, camera: str, timeout_s: float = 10.0) -> Optional[np.ndarray]:
+        """Fetch a single 1080p BGR frame from go2rtc for `{camera}-main`.
+
+        Pipeline detection runs on the 640x360 substream for CPU reasons, so
+        `p["frame"]` in the snapshot queue is always low-res. For the review
+        queue we want the full resolution. go2rtc exposes a single-frame MP4
+        at `/api/frame.mp4?src=<stream>` — we fetch it over HTTP, pipe the
+        bytes through ffmpeg to produce a JPEG, then decode back to BGR.
+
+        Timeout is 10s by default — go2rtc has to wait for the next H.264
+        keyframe in the main stream before it can emit the MP4, which is
+        measured at 2–5s in practice. Tighter timeouts fail on cold streams.
+
+        Runs only in the background snapshot worker thread, so the ~3–5 s
+        wait doesn't block detection. Returns None on any failure (bad HTTP
+        status, ffmpeg error, short timeout), letting the caller fall back
+        to the low-res detector frame with a counter bump.
+        """
+        url = f"{self.go2rtc_url}/api/frame.mp4?src={camera}-main"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout_s) as resp:
+                if resp.status != 200:
+                    return None
+                mp4_bytes = resp.read()
+        except Exception as e:
+            log.debug("hires fetch failed for %s: %s", camera, e)
+            return None
+        if not mp4_bytes:
+            return None
+        try:
+            proc = subprocess.run(
+                ["/usr/local/bin/ffmpeg",
+                 "-hide_banner", "-loglevel", "error",
+                 "-f", "mp4", "-i", "pipe:0",
+                 "-frames:v", "1",
+                 "-vcodec", "mjpeg",
+                 "-f", "image2", "pipe:1"],
+                input=mp4_bytes,
+                capture_output=True,
+                timeout=timeout_s,
+                check=False,
+            )
+        except Exception as e:
+            log.debug("hires ffmpeg spawn failed for %s: %s", camera, e)
+            return None
+        if proc.returncode != 0 or not proc.stdout:
+            err_preview = (proc.stderr or b"")[:200].decode("utf-8", errors="replace")
+            log.debug("hires ffmpeg decode failed for %s: rc=%d err=%s",
+                      camera, proc.returncode, err_preview)
+            return None
+        try:
+            arr = np.frombuffer(proc.stdout, dtype=np.uint8)
+            bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if bgr is None or bgr.size == 0:
+                return None
+            return bgr
+        except Exception as e:
+            log.debug("hires jpeg decode failed for %s: %s", camera, e)
+            return None
+
+    def _authoritative_species(self, frame_bgr: np.ndarray, bbox) -> Optional[dict]:
+        """Run AIY on the given frame+bbox crop, return {species, confidence,
+        model_source} or None. Used by `_write_one` to override the track's
+        live (yard-biased) label with AIY's 965-species verdict for the
+        classifications.db row.
+        """
+        if self.classifier is None:
+            return None
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        x1 = max(0, x1); y1 = max(0, y1)
+        x2 = min(frame_bgr.shape[1], x2); y2 = min(frame_bgr.shape[0], y2)
+        if x2 - x1 < 5 or y2 - y1 < 5:
+            return None
+        crop_bgr = frame_bgr[y1:y2, x1:x2]
+        if crop_bgr.size == 0:
+            return None
+        try:
+            from PIL import Image as _PILImage
+            crop_pil = _PILImage.fromarray(crop_bgr[:, :, ::-1])  # BGR→RGB
+            result = self.classifier.authoritative_classify(crop_pil)
+        except Exception as e:
+            log.debug("authoritative_classify threw: %s", e)
+            return None
+        if result is None or not result.species:
+            return None
+        return {
+            "species": result.species,
+            "confidence": float(result.confidence or 0.0),
+            "model_source": result.model_source or "aiy",
+        }
+
     def _write_one(self, p: dict):
+        # Try to swap in a 1080p frame from go2rtc's feeder-main stream. The
+        # detector's 640x360 substream frame is otherwise all the reviewer
+        # ever sees — this lifts the review queue to proper resolution AND
+        # gives the AIY re-classification a much larger crop to work with
+        # (AIY's "don't know" rate on small crops is the reason yard was
+        # kept live — a fresh 1080p crop fixes that systemically for the
+        # DB-write path without changing the live overlay).
+        hires = self._fetch_hires_frame(p["camera"])
+        if hires is not None:
+            low_w = p["frame"].shape[1] or 1
+            low_h = p["frame"].shape[0] or 1
+            sx = hires.shape[1] / low_w
+            sy = hires.shape[0] / low_h
+            p["bbox"] = [p["bbox"][0] * sx, p["bbox"][1] * sy,
+                         p["bbox"][2] * sx, p["bbox"][3] * sy]
+            p["frame"] = hires
+            self.stats["hires_ok"] += 1
+        else:
+            self.stats["hires_fail"] += 1
+
+        # Re-classify with AIY on the (now hi-res, ideally) crop. This is the
+        # authority for classifications.db — yard's 12-species label set is
+        # not durable enough for the review queue.
+        auth = self._authoritative_species(p["frame"], p["bbox"])
+        if auth is not None:
+            p["species"] = auth["species"]
+            p["species_confidence"] = auth["confidence"]
+            p["model_source"] = auth["model_source"]
+            self.stats["aiy_relabel"] += 1
+        else:
+            # Keep track's live (yard) label as a fallback. In practice
+            # reviewers correct it anyway; the important thing is the JPG
+            # is preserved and the row goes into the queue.
+            self.stats["aiy_none"] += 1
+
         wall_time_ms = p["wall_time_ms"]
         camera = p["camera"]
         species = p["species"]

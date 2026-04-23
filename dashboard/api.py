@@ -52,20 +52,37 @@ app = FastAPI(title="Bird Dashboard API", version="1.0")
 
 
 # ── URL rewrite middleware: /bird-api/* → /api/* for direct access ──
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 
 
-class BirdAPIRewriteMiddleware(BaseHTTPMiddleware):
-    """Rewrite /bird-api/ paths to /api/ so the dashboard works
-    both through Cloudflare routing and via direct Tailscale access."""
+class BirdAPIRewriteMiddleware:
+    """Rewrite `/bird-api/*` paths to `/api/*` so the dashboard works both
+    through Cloudflare routing (which prefixes `/bird-api/`) and via direct
+    LAN / Tailscale access.
 
-    async def dispatch(self, request: StarletteRequest, call_next):
-        if request.url.path.startswith("/bird-api/"):
-            # Rewrite the path
-            new_path = "/api/" + request.url.path[len("/bird-api/"):]
-            request.scope["path"] = new_path
-        return await call_next(request)
+    Pure ASGI implementation — does NOT extend `BaseHTTPMiddleware`. That
+    base class buffers every response body into memory in order to compute
+    `Content-Length`, which breaks all streaming responses: SSE endpoints
+    (/api/pipeline/events/sse, /api/audio-detections), HLS proxies,
+    video/MP4 fallback, JPEG frame serves, and more. When the buffered
+    body size doesn't match the declared `Content-Length`, h11 raises
+    `LocalProtocolError: Too much/Too little data for declared Content-Length`.
+    Pure ASGI is transparent — it just rewrites the scope and delegates.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path", "")
+            if path.startswith("/bird-api/"):
+                scope = dict(scope)  # don't mutate caller's scope
+                scope["path"] = "/api/" + path[len("/bird-api/"):]
+                raw = scope.get("raw_path")
+                if isinstance(raw, (bytes, bytearray)) and raw.startswith(b"/bird-api/"):
+                    scope["raw_path"] = b"/api/" + bytes(raw)[len(b"/bird-api/"):]
+        await self.app(scope, receive, send)
 
 
 app.add_middleware(BirdAPIRewriteMiddleware)
@@ -151,6 +168,27 @@ def serve_hls_test():
 def serve_sync_test():
     """Serve the overlay-sync diagnostic page (main + sub streams side-by-side)."""
     return FileResponse(str(DASHBOARD_DIR / "sync-test.html"), media_type="text/html")
+
+
+@app.get("/ideas")
+def serve_ideas():
+    """Serve the Ideas page — mockups of pending UX proposals."""
+    return FileResponse(str(DASHBOARD_DIR / "ideas.html"), media_type="text/html")
+
+
+@app.get("/motion-sandbox")
+def serve_motion_sandbox():
+    """Label motion sandbox — real track replayed through four smoothing strategies.
+    Used for brainstorming the label-on-bird interpolation design."""
+    return FileResponse(str(DASHBOARD_DIR / "motion-sandbox.html"), media_type="text/html")
+
+
+@app.get("/api/species-facts")
+def serve_species_facts():
+    """Serve the hand-curated species facts library."""
+    return FileResponse(str(DASHBOARD_DIR / "species_facts.json"),
+                        media_type="application/json",
+                        headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/tmp-preview/{name}")
@@ -459,72 +497,18 @@ def _validate_date(date_str: str | None) -> str | None:
 
 
 
-# ── Camera Auto-Focus (UniFi Protect) ──
-
-_PROTECT_HOST = "192.168.4.9"
-_PROTECT_CAMERA_IDS = {
-    "feeder": "690e999401027503e400043b",
-    "ground": "690e999400887503e4000439",
-}
-
-@app.post("/api/camera/autofocus")
-async def camera_autofocus(camera: str = "feeder"):
-    """Trigger one-shot auto-focus on a UniFi Protect camera."""
-    import asyncio
-    camera_id = _PROTECT_CAMERA_IDS.get(camera)
-    if not camera_id:
-        raise HTTPException(status_code=400, detail=f"Unknown camera: {camera}")
-
-    username = os.environ.get("PROTECT_USERNAME", "")
-    password = os.environ.get("PROTECT_PASSWORD", "")
-    if not username or not password:
-        raise HTTPException(status_code=500, detail="Protect credentials not configured")
-
-    import base64
-
-    def _do_autofocus():
-        import subprocess, base64
-        # Login via curl (reliable — avoids Python networking issues)
-        login = subprocess.run([
-            'curl', '-sk', '-c', '/tmp/protect-cookies.txt',
-            '-X', 'POST', f'https://{_PROTECT_HOST}/api/auth/login',
-            '-H', 'Content-Type: application/json',
-            '-d', json.dumps({"username": username, "password": password}),
-            '-o', '/dev/null', '-w', '%{http_code}',
-        ], capture_output=True, text=True, timeout=10)
-        if login.stdout.strip() != '200':
-            return {"error": f"login failed: {login.stdout.strip()}"}
-
-        # Extract CSRF from cookie file
-        cookie_data = open('/tmp/protect-cookies.txt').read()
-        token = ''
-        for line in cookie_data.splitlines():
-            parts = line.split('\t')
-            if len(parts) >= 7 and parts[5] == 'TOKEN':
-                token = parts[6]
-        if not token:
-            return {"error": "no TOKEN cookie"}
-        payload = json.loads(base64.b64decode(token.split('.')[1] + '=='))
-        csrf = payload['csrfToken']
-
-        # Trigger auto-focus via curl
-        focus = subprocess.run([
-            'curl', '-sk', '-b', '/tmp/protect-cookies.txt',
-            '-X', 'PATCH', f'https://{_PROTECT_HOST}/proxy/protect/api/cameras/{camera_id}',
-            '-H', 'Content-Type: application/json',
-            '-H', f'X-CSRF-Token: {csrf}',
-            '-d', json.dumps({"ispSettings": {"focusMode": "ztrig"}}),
-            '-o', '/dev/null', '-w', '%{http_code}',
-        ], capture_output=True, text=True, timeout=10)
-        if focus.stdout.strip() != '200':
-            return {"error": f"focus failed: {focus.stdout.strip()}"}
-        return {"ok": True}
-
-    result = await asyncio.get_event_loop().run_in_executor(None, _do_autofocus)
-    if "error" in result:
-        raise HTTPException(status_code=502, detail=result["error"])
-
-    return {"ok": True, "camera": camera}
+# ── Camera Auto-Focus (REMOVED 2026-04-20) ──
+#
+# The G3 Dome cameras on this install have fixed-focus lenses (canTouchFocus
+# reports false), so triggering auto-focus was always a no-op. The UI button
+# was already removed earlier. The backend endpoint itself was removed here
+# in favour of a future Protect API surface that uses the single
+# `UNIFI_API_KEY` bearer token (public v1 API at
+# /proxy/protect/integration/v1/), not a separate PROTECT_USERNAME/PASSWORD
+# local account with cookie+CSRF gymnastics. One credential is enough for
+# everything Protect-related and keeps future setup simple: create an API
+# Key in Settings → Control Plane → Integrations, drop it in
+# ~/.bird-observatory-env, done.
 
 
 @app.get("/api/health")
@@ -1287,6 +1271,412 @@ async def batch_reject(request: StarletteRequest):
     if count:
         invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
     return {"rejected": count, "correct_species": correct}
+
+
+@app.get("/api/activity/daily-rhythm")
+def daily_rhythm(window_days: int = Query(30, ge=1, le=365),
+                 top_n: int = Query(12, ge=1, le=50),
+                 camera: Optional[str] = Query(None)):
+    """Daily-rhythm data: per-species visit counts bucketed by hour-of-day.
+
+    Returns up to `top_n` species ranked by total activity in the window,
+    each with a 24-length array of counts (one per hour, 00–23 local time).
+    Frontend can normalize per-species and sort by peak hour for display.
+    """
+    from datetime import datetime, timedelta
+    import sqlite3
+
+    def _compute():
+        end = datetime.now().date()
+        start = end - timedelta(days=window_days)
+        start_str = start.strftime("%Y-%m-%d")
+
+        cam_clause = ""
+        params = [start_str]
+        if camera and camera != "all":
+            cam_clause = " AND camera = ?"
+            params.append(camera)
+
+        conn = cdb.get_conn(readonly=True)
+        rows = conn.execute(
+            f"""
+            SELECT common_name,
+                   CAST(strftime('%H', source_timestamp) AS INTEGER) AS hour,
+                   COUNT(*) AS n
+            FROM classifications
+            WHERE action = 'classified'
+              AND source_date >= ?
+              AND common_name IS NOT NULL AND common_name != ''
+              {cam_clause}
+            GROUP BY common_name, hour
+            """,
+            params,
+        ).fetchall()
+
+        # Pivot: species → [24 hourly counts]
+        hours_by_species: dict = {}
+        totals: dict = {}
+        for common_name, hour, n in rows:
+            if hour is None:
+                continue
+            arr = hours_by_species.setdefault(common_name, [0] * 24)
+            arr[int(hour)] = int(n)
+            totals[common_name] = totals.get(common_name, 0) + int(n)
+
+        # Top-N by total activity
+        top_species = sorted(totals, key=totals.get, reverse=True)[:top_n]
+
+        species_out = []
+        for name in top_species:
+            arr = hours_by_species[name]
+            peak_hour = max(range(24), key=lambda h: arr[h])
+            species_out.append({
+                "name": name,
+                "hours": arr,
+                "peak_hour": peak_hour,
+                "total": totals[name],
+            })
+
+        return {
+            "window_days": window_days,
+            "window_start": start_str,
+            "window_end": end.strftime("%Y-%m-%d"),
+            "species": species_out,
+        }
+
+    cache_key = f"daily-rhythm:{window_days}:{top_n}:{camera}"
+    return cached_result(cache_key, 300, _compute)
+
+
+@app.get("/api/activity/season-stream")
+def activity_season_stream(year: Optional[int] = Query(None)):
+    """Season Stream — per-species weekly visit counts for a full year.
+
+    Returns 52 weeks × N species, with each species' hottest weeks flagged.
+    Species ordered by when they first appear in the year.
+    """
+    from datetime import datetime
+
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+        target_year = year if year else datetime.now().year
+        y_str = str(target_year)
+
+        rows = conn.execute("""
+            SELECT common_name,
+                   CAST(strftime('%W', source_timestamp) AS INTEGER) AS week,
+                   COUNT(*) AS n,
+                   MIN(source_timestamp) AS first_ts
+            FROM classifications
+            WHERE action = 'classified'
+              AND common_name IS NOT NULL AND common_name != ''
+              AND strftime('%Y', source_timestamp) = ?
+            GROUP BY common_name, week
+            ORDER BY common_name, week
+        """, (y_str,)).fetchall()
+
+        # Pivot: species → 52 weekly counts
+        by_species: dict = {}
+        first_by_species: dict = {}
+        for common_name, week, n, first_ts in rows:
+            if week is None:
+                continue
+            arr = by_species.setdefault(common_name, [0] * 53)  # 0-52 weeks
+            arr[int(week)] = int(n)
+            # Track the species' first seen across all weeks for sort order
+            prev = first_by_species.get(common_name)
+            if prev is None or first_ts < prev:
+                first_by_species[common_name] = first_ts
+
+        # Sort species by their first appearance in the year (migrants last)
+        species_sorted = sorted(by_species.keys(), key=lambda s: first_by_species.get(s, ""))
+
+        species_out = []
+        for name in species_sorted:
+            hist = by_species[name]
+            peak = max(hist) or 1
+            total = sum(hist)
+            species_out.append({
+                "name": name,
+                "weeks": hist[:52],  # trim to 52 (week 52 sometimes empty)
+                "peak_week": max(range(52), key=lambda w: hist[w]),
+                "first_seen": first_by_species.get(name),
+                "total": total,
+                "peak_count": peak,
+            })
+
+        return {
+            "year": target_year,
+            "species": species_out,
+        }
+
+    return cached_result(f"season-stream:{year}", 300, _compute)
+
+
+@app.get("/api/activity/heard-vs-seen")
+def activity_heard_vs_seen(window_days: int = Query(30, ge=1, le=365),
+                           audio_confidence: float = Query(0.5, ge=0.1, le=1.0)):
+    """Heard vs Seen — Venn data contrasting BirdNET audio detections
+    against camera classifications over a time window.
+
+    Returns three sets of species:
+      - heard_only: in audio, not in cameras
+      - both: in both
+      - seen_only: in cameras, not in audio
+    """
+    from datetime import datetime, timedelta
+    import sqlite3
+
+    def _compute():
+        end = datetime.now().date()
+        start = end - timedelta(days=window_days)
+        start_str = start.strftime("%Y-%m-%d")
+
+        # Camera species
+        conn = cdb.get_conn(readonly=True)
+        seen_rows = conn.execute("""
+            SELECT common_name, COUNT(*) AS n
+            FROM classifications
+            WHERE action = 'classified'
+              AND source_date >= ?
+              AND common_name IS NOT NULL AND common_name != ''
+            GROUP BY common_name
+        """, (start_str,)).fetchall()
+        seen = {r[0]: r[1] for r in seen_rows}
+
+        # Audio species
+        heard = {}
+        if BIRDNET_DB_PATH.exists():
+            try:
+                aconn = sqlite3.connect(str(BIRDNET_DB_PATH), timeout=5)
+                audio_rows = aconn.execute("""
+                    SELECT common_name, COUNT(*) AS n
+                    FROM notes
+                    WHERE date >= ?
+                      AND confidence >= ?
+                      AND common_name IS NOT NULL AND common_name != ''
+                    GROUP BY common_name
+                """, (start_str, audio_confidence)).fetchall()
+                heard = {r[0]: r[1] for r in audio_rows}
+                aconn.close()
+            except Exception:
+                heard = {}
+
+        # Normalize names — strip whitespace so we compare fairly
+        seen_names = {k.strip() for k in seen}
+        heard_names = {k.strip() for k in heard}
+
+        both = sorted(seen_names & heard_names)
+        heard_only = sorted(heard_names - seen_names)
+        seen_only = sorted(seen_names - heard_names)
+
+        # Sort within each set by total count
+        def by_count(name, bag):
+            return bag.get(name) or bag.get(name.strip(), 0)
+
+        both.sort(key=lambda n: (seen.get(n, 0) + heard.get(n, 0)), reverse=True)
+        heard_only.sort(key=lambda n: heard.get(n, 0), reverse=True)
+        seen_only.sort(key=lambda n: seen.get(n, 0), reverse=True)
+
+        return {
+            "window_days": window_days,
+            "window_start": start_str,
+            "window_end": end.strftime("%Y-%m-%d"),
+            "audio_confidence": audio_confidence,
+            "heard_only": {
+                "count": len(heard_only),
+                "species": [{"name": n, "audio_detections": heard.get(n, 0)} for n in heard_only],
+            },
+            "both": {
+                "count": len(both),
+                "species": [{
+                    "name": n,
+                    "audio_detections": heard.get(n, 0),
+                    "camera_detections": seen.get(n, 0),
+                } for n in both],
+            },
+            "seen_only": {
+                "count": len(seen_only),
+                "species": [{"name": n, "camera_detections": seen.get(n, 0)} for n in seen_only],
+            },
+        }
+
+    cache_key = f"heard-vs-seen:{window_days}:{audio_confidence}"
+    return cached_result(cache_key, 300, _compute)
+
+
+@app.get("/api/activity/records")
+def activity_records():
+    """Record Book — superlative stats from the full classification history.
+
+    Returns a handful of all-time superlatives that can populate the Activity
+    tab's Record Book section. Queries are individually cheap and the whole
+    response is cached for 5 minutes.
+    """
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+        out = {}
+
+        # 1. Busiest day (most classifications in a single day)
+        row = conn.execute("""
+            SELECT source_date, COUNT(*) AS n, COUNT(DISTINCT common_name) AS species
+            FROM classifications
+            WHERE action = 'classified' AND source_date IS NOT NULL
+            GROUP BY source_date
+            ORDER BY n DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            out["busiest_day"] = {
+                "date": row[0], "visits": row[1], "species_count": row[2],
+            }
+
+        # 2. Most species in a day
+        row = conn.execute("""
+            SELECT source_date, COUNT(DISTINCT common_name) AS species, COUNT(*) AS visits
+            FROM classifications
+            WHERE action = 'classified' AND source_date IS NOT NULL
+              AND common_name IS NOT NULL AND common_name != ''
+            GROUP BY source_date
+            ORDER BY species DESC, visits DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            out["most_species_in_a_day"] = {
+                "date": row[0], "species_count": row[1], "visits": row[2],
+            }
+
+        # 3. Rarest species (≥1 sighting, fewest across all time)
+        row = conn.execute("""
+            SELECT common_name, COUNT(*) AS n, MIN(source_timestamp) AS first_seen,
+                   MAX(source_timestamp) AS last_seen
+            FROM classifications
+            WHERE action = 'classified'
+              AND common_name IS NOT NULL AND common_name != ''
+            GROUP BY common_name
+            ORDER BY n ASC, last_seen DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            out["rarest_species"] = {
+                "species": row[0], "total_sightings": row[1],
+                "first_seen": row[2], "last_seen": row[3],
+            }
+
+        # 4. Earliest sighting of the day (any day — the pre-dawn record)
+        row = conn.execute("""
+            SELECT common_name, source_timestamp,
+                   substr(source_timestamp, 12, 8) AS time_of_day
+            FROM classifications
+            WHERE action = 'classified'
+              AND common_name IS NOT NULL AND common_name != ''
+              AND source_timestamp IS NOT NULL
+              AND length(source_timestamp) >= 19
+            ORDER BY time_of_day ASC, source_timestamp DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            out["earliest_riser"] = {
+                "species": row[0], "timestamp": row[1], "time": row[2],
+            }
+
+        # 5. Longest single visit (from visits table, if populated)
+        try:
+            row = conn.execute("""
+                SELECT species, start_time, end_time, duration_sec
+                FROM visits
+                WHERE duration_sec IS NOT NULL AND species IS NOT NULL
+                ORDER BY duration_sec DESC
+                LIMIT 1
+            """).fetchone()
+            if row:
+                out["longest_visit"] = {
+                    "species": row[0], "start": row[1], "end": row[2],
+                    "duration_sec": float(row[3]) if row[3] is not None else None,
+                }
+        except Exception:
+            pass  # visits table absent or schema mismatch — skip gracefully
+
+        # 6. First arrival of the current year
+        from datetime import datetime
+        year = datetime.now().strftime("%Y")
+        row = conn.execute("""
+            SELECT common_name, source_timestamp
+            FROM classifications
+            WHERE action = 'classified'
+              AND common_name IS NOT NULL AND common_name != ''
+              AND strftime('%Y', source_timestamp) = ?
+            ORDER BY source_timestamp ASC
+            LIMIT 1
+        """, (year,)).fetchone()
+        if row:
+            out["first_arrival_this_year"] = {
+                "species": row[0], "timestamp": row[1], "year": year,
+            }
+
+        # Total all-time for context
+        row = conn.execute("""
+            SELECT COUNT(*) FROM classifications
+            WHERE action = 'classified' AND common_name IS NOT NULL
+        """).fetchone()
+        if row:
+            out["total_classifications"] = row[0]
+
+        return out
+
+    return cached_result("activity-records", 300, _compute)
+
+
+@app.get("/api/activity/first-arrivals")
+def activity_first_arrivals(years: int = Query(2, ge=1, le=5)):
+    """First Arrivals archive — first date each species was seen in each year.
+
+    Returns the last `years` calendar years of first-arrival dates per species.
+    Species flagged `first_ever=True` when the MIN timestamp in a given year
+    is ALSO the species' all-time MIN.
+    """
+    from datetime import datetime
+
+    def _compute():
+        conn = cdb.get_conn(readonly=True)
+        current_year = datetime.now().year
+        year_list = list(range(current_year, current_year - years, -1))  # newest first
+
+        # All-time first appearance per species (for the `first_ever` flag)
+        all_time_firsts = {
+            r[0]: r[1] for r in conn.execute("""
+                SELECT common_name, MIN(source_timestamp)
+                FROM classifications
+                WHERE action = 'classified' AND common_name IS NOT NULL
+                  AND common_name != ''
+                GROUP BY common_name
+            """).fetchall()
+        }
+
+        out = []
+        for y in year_list:
+            y_str = str(y)
+            rows = conn.execute("""
+                SELECT common_name, MIN(source_timestamp) AS first_in_year
+                FROM classifications
+                WHERE action = 'classified'
+                  AND common_name IS NOT NULL AND common_name != ''
+                  AND strftime('%Y', source_timestamp) = ?
+                GROUP BY common_name
+                ORDER BY first_in_year ASC
+            """, (y_str,)).fetchall()
+            entries = []
+            for common_name, first_ts in rows:
+                entries.append({
+                    "species": common_name,
+                    "first_seen": first_ts,
+                    "first_ever": (all_time_firsts.get(common_name) == first_ts),
+                })
+            if entries:
+                out.append({"year": y, "entries": entries})
+        return {"years": out, "current_year": current_year}
+
+    return cached_result(f"first-arrivals:{years}", 300, _compute)
 
 
 @app.get("/api/stats")

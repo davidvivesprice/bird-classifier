@@ -277,9 +277,26 @@ class CameraProcessThread:
                     c for s, c in track.vote_history if s == top_species
                 )
 
-                # Check lock condition
+                # Check lock condition.
+                #
+                # 2026-04-18: the 0.6 confidence gate previously worked because
+                # the yard model always reported 1.0 (pre-softmax-fix). After
+                # yard_classifier.py's temperature scaling (T=100), the MAX
+                # yard-only confidence is ~0.54 even for very peaked predictions
+                # — so a yard-only track could never lock under the old 0.6
+                # gate. Lowering to 0.35 matches the post-fix distribution:
+                #   peaked yard: 0.45–0.54 → pass
+                #   less peaked: 0.25–0.40 → pass only when agreement is strong
+                #   genuine uncertainty: ≤0.16 → fails (good)
+                # AIY and BOTH_AGREE results can still go much higher (AIY's
+                # 'confidence' is raw_score/100, which ranges 0–2.55), so they
+                # clear this threshold easily when they do match.
+                #
+                # The 60% agreement gate is the real across-frame quality
+                # check — flip-flopping yard predictions across frames fail it
+                # even if each individual prediction is "peaked" at 0.45.
                 if (len(track.vote_history) >= 3 and
-                        track.species_confidence >= 0.6 and
+                        track.species_confidence >= 0.35 and
                         species_counts[top_species] / len(track.vote_history) >= 0.6):
                     track.is_locked = True
                     track.needs_classification = False

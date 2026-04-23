@@ -125,6 +125,33 @@ class SmartClassifier:
         cam_stats["unlabeled_call"] += 1
         return ClassificationResult(None, 0.0, None, False)
 
+    def authoritative_classify(self, crop_pil):
+        """AIY-only classification intended for classifications.db writes.
+
+        Called by SnapshotWriter at track-lock time. Bypasses yard entirely
+        so the review queue / DB records reflect AIY's 965-species label
+        rather than yard's 12-species best-guess.
+
+        Takes the same Coral lock yard uses, since AIY also runs on Coral —
+        without the lock, yard's per-frame live call could race with this
+        snapshot-time AIY call on the same USB Edge TPU.
+
+        Returns a ClassificationResult, or None if the lock times out, AIY
+        errors, or AIY returns no confident prediction.
+        """
+        got = self._coral_lock.acquire(timeout=CORAL_ACQUIRE_TIMEOUT)
+        if not got:
+            return None
+        try:
+            aiy_res = self._run_aiy(crop_pil)
+            if not aiy_res or not aiy_res.species:
+                return None
+            return ClassificationResult(
+                aiy_res.species, aiy_res.confidence, ModelSource.AIY, False
+            )
+        finally:
+            self._coral_lock.release()
+
     def _run_yard(self, crop_pil, cam_stats):
         """Run yard classifier. Returns object with .species and .confidence, or None.
 
