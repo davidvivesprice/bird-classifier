@@ -120,7 +120,9 @@ class SnapshotWriter:
     """
 
     def __init__(self, maxsize: int = 32, classifier=None,
-                 go2rtc_url: str = "http://localhost:1984"):
+                 go2rtc_url: str = "http://localhost:1984",
+                 hires_ring=None,
+                 shadow_mode: bool = True):
         """
         Args:
             maxsize: max queued snapshots before oldest is dropped
@@ -133,6 +135,16 @@ class SnapshotWriter:
             go2rtc_url: base URL for go2rtc. Used to fetch 1080p frames via
                 `/api/frame.mp4?src=<camera>-main` so the saved JPG is
                 full-res rather than the 640x360 detector frame.
+            hires_ring: optional HiResRingBuffer. When provided, _write_one
+                prefers the nearest-timestamp frame from the ring over the
+                go2rtc /api/frame.mp4 fetch (which has a 2-5s keyframe wait
+                that causes the stale-bbox hallucination). None = current
+                behavior preserved.
+            shadow_mode: when True AND hires_ring is provided, the ring's
+                picked frame is written as a sidecar JSON only; the actual
+                JPG is still produced via the old go2rtc path. Lets David
+                eyeball ring-vs-old for 3-4 days before the ring becomes
+                authoritative. Flip to False after soak.
         """
         import queue as _q
         self._q: "_q.Queue" = _q.Queue(maxsize=maxsize)
@@ -140,6 +152,8 @@ class SnapshotWriter:
         self._thread: Optional[threading.Thread] = None
         self.classifier = classifier
         self.go2rtc_url = go2rtc_url.rstrip("/")
+        self.hires_ring = hires_ring
+        self.shadow_mode = shadow_mode
         self.stats = {
             "submitted": 0,
             "written": 0,
@@ -149,6 +163,9 @@ class SnapshotWriter:
             "hires_fail": 0,
             "aiy_relabel": 0,
             "aiy_none": 0,
+            "ring_pick_ok": 0,
+            "ring_pick_empty": 0,
+            "shadow_sidecar_written": 0,
         }
 
     def start(self):
@@ -288,26 +305,84 @@ class SnapshotWriter:
             "model_source": result.model_source or "aiy",
         }
 
+    def _pick_from_ring(self, camera, wall_time_ms, bbox_scaled, detector_conf):
+        """Query the ring for candidates, score, return best (frame, meta)."""
+        if self.hires_ring is None:
+            return None, {"reason": "no_ring"}
+        try:
+            from pipeline.hires_ring import score_frame
+            cands = self.hires_ring.find_candidates(wall_time_ms, k=5)
+        except Exception as e:
+            log.debug("ring query failed: %s", e)
+            return None, {"reason": "query_error"}
+        if not cands:
+            return None, {"reason": "ring_empty"}
+        scored = []
+        for c in cands:
+            s = score_frame(c.frame, bbox_scaled, detector_conf)
+            scored.append((s, c))
+        scored.sort(key=lambda sc: sc[0], reverse=True)
+        best_score, best = scored[0]
+        meta = {
+            "picked_wall_ms": best.wall_ms,
+            "picked_score": best_score,
+            "delta_ms": best.wall_ms - wall_time_ms,
+            "requested_wall_ms": wall_time_ms,
+            "candidates": [{"wall_ms": c.wall_ms, "score": s}
+                           for s, c in scored],
+        }
+        if best_score <= 0:
+            return None, {"reason": "all_zero_score", **meta}
+        return best.frame, meta
+
     def _write_one(self, p: dict):
-        # Try to swap in a 1080p frame from go2rtc's feeder-main stream. The
-        # detector's 640x360 substream frame is otherwise all the reviewer
-        # ever sees — this lifts the review queue to proper resolution AND
-        # gives the AIY re-classification a much larger crop to work with
-        # (AIY's "don't know" rate on small crops is the reason yard was
-        # kept live — a fresh 1080p crop fixes that systemically for the
-        # DB-write path without changing the live overlay).
-        hires = self._fetch_hires_frame(p["camera"])
-        if hires is not None:
-            low_w = p["frame"].shape[1] or 1
-            low_h = p["frame"].shape[0] or 1
-            sx = hires.shape[1] / low_w
-            sy = hires.shape[0] / low_h
-            p["bbox"] = [p["bbox"][0] * sx, p["bbox"][1] * sy,
-                         p["bbox"][2] * sx, p["bbox"][3] * sy]
-            p["frame"] = hires
+        # Hi-res frame acquisition — two paths:
+        # (1) If self.hires_ring is configured AND shadow_mode is False, use
+        #     the ring's best-quality nearest-timestamp frame. This is the
+        #     real fix for the stale-bbox hallucination.
+        # (2) Otherwise, fall back to the existing go2rtc /api/frame.mp4
+        #     fetch (which has the 2-5s keyframe wait, i.e. the bug path).
+        # In shadow mode (ring present but shadow_mode=True), path (2) still
+        # runs authoritatively AND we record the ring's pick in a sidecar
+        # JSON alongside the JPG — so David can compare ring-vs-old for
+        # 3-4 days before flipping shadow_mode off.
+        low_w = p["frame"].shape[1] or 1
+        low_h = p["frame"].shape[0] or 1
+        HIRES_W, HIRES_H = 1920, 1080
+        sx_hires = HIRES_W / low_w
+        sy_hires = HIRES_H / low_h
+        bbox_hires = [p["bbox"][0] * sx_hires, p["bbox"][1] * sy_hires,
+                      p["bbox"][2] * sx_hires, p["bbox"][3] * sy_hires]
+
+        ring_frame, ring_meta = self._pick_from_ring(
+            p["camera"], p["wall_time_ms"], bbox_hires,
+            p.get("confidence", 0.0),
+        )
+
+        if ring_frame is not None and not self.shadow_mode:
+            # Ring authoritative path
+            p["frame"] = ring_frame
+            p["bbox"] = bbox_hires
             self.stats["hires_ok"] += 1
+            self.stats["ring_pick_ok"] += 1
+            p["_ring_sidecar"] = ring_meta
         else:
-            self.stats["hires_fail"] += 1
+            # Legacy path (shadow mode OR ring empty OR ring disabled)
+            if ring_frame is None:
+                self.stats["ring_pick_empty"] += 1
+            hires = self._fetch_hires_frame(p["camera"])
+            if hires is not None:
+                sx = hires.shape[1] / low_w
+                sy = hires.shape[0] / low_h
+                p["bbox"] = [p["bbox"][0] * sx, p["bbox"][1] * sy,
+                             p["bbox"][2] * sx, p["bbox"][3] * sy]
+                p["frame"] = hires
+                self.stats["hires_ok"] += 1
+            else:
+                self.stats["hires_fail"] += 1
+            # Shadow sidecar: record what the ring would have picked
+            if ring_meta.get("picked_wall_ms") is not None:
+                p["_ring_sidecar"] = ring_meta
 
         # Re-classify with AIY on the (now hi-res, ideally) crop. This is the
         # authority for classifications.db — yard's 12-species label set is
@@ -409,3 +484,16 @@ class SnapshotWriter:
             except Exception:
                 pass
             raise
+
+        # Ring-buffer sidecar: when the ring is active, record the ring's
+        # pick next to the JPG so David can eyeball ring-vs-written for
+        # trust-building before shadow_mode flips off.
+        sidecar_meta = p.get("_ring_sidecar")
+        if sidecar_meta:
+            import json as _json
+            sidecar_path = out_path.with_suffix(".ring.json")
+            try:
+                sidecar_path.write_text(_json.dumps(sidecar_meta, indent=2))
+                self.stats["shadow_sidecar_written"] += 1
+            except Exception as e:
+                log.debug("ring sidecar write failed: %s", e)

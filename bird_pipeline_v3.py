@@ -138,7 +138,33 @@ def main():
     health_server.start()
     sse_server = SSEEventServer(port=SSE_PORT)
     sse_server.start()
-    snapshot_writer = SnapshotWriter()
+    # Hi-res ring buffer for the 1b stale-bbox fix — env-gated because
+    # this adds a second 1080p ffmpeg decode (~30-50% CPU on a busy system).
+    # Off by default; set PIPELINE_HIRES_RING=1 to enable shadow mode.
+    # When ON, SnapshotWriter records the ring's pick as a .ring.json sidecar
+    # next to each JPG. After 3-4 days of David eyeballing sidecars, set
+    # PIPELINE_HIRES_RING=authoritative (or any non-"1" truthy) to flip
+    # shadow_mode off and make the ring drive the JPG choice.
+    hires_ring = None
+    hires_capture = None
+    _hr_env = os.environ.get("PIPELINE_HIRES_RING", "0")
+    if _hr_env and _hr_env != "0":
+        from pipeline.hires_ring import HiResRingBuffer, HiResCapture
+        hires_ring = HiResRingBuffer(max_seconds=2.0, expected_fps=5.0)
+        hires_capture = HiResCapture(
+            camera_name=CAMERA_FEEDER,
+            rtsp_url=CAMERAS_MAIN[CAMERA_FEEDER],
+            ring=hires_ring,
+            width=1920, height=1080, fps=5,
+        )
+        hires_capture.start()
+        shadow_mode = (_hr_env == "1")  # "1" → shadow; anything else → authoritative
+        log.info("[hires_ring] ENABLED — shadow_mode=%s (PIPELINE_HIRES_RING=%r)",
+                 shadow_mode, _hr_env)
+    else:
+        shadow_mode = True  # unused when ring is None
+
+    snapshot_writer = SnapshotWriter(hires_ring=hires_ring, shadow_mode=shadow_mode)
     snapshot_writer.start()
     log.info("SnapshotWriter started — classifications.db + JPG snapshots restored")
 

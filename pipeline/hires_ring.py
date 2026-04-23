@@ -110,10 +110,157 @@ class HiResRingBuffer:
             return len(self._frames)
 
 
-# ── Quality scorer ─────────────────────────────────────────────────────────
+# ── HiResCapture: fps-throttled ffmpeg → ring ─────────────────────────────
 
-# Pulled in only when scoring; not required to instantiate the ring.
+
+import logging  # noqa: E402
+import subprocess  # noqa: E402
+import time  # noqa: E402
 import cv2  # noqa: E402
+
+_log = logging.getLogger(__name__)
+_FFMPEG = "/usr/local/bin/ffmpeg"
+_WATCHDOG_STALL_MS = 15_000
+_WATCHDOG_CHECK_S = 3.0
+
+
+class HiResCapture:
+    """Dedicated ffmpeg → HiResRingBuffer feeder for a main-stream camera.
+
+    Differs from pipeline.FrameCapture in TWO ways:
+    (1) Applies `-vf fps=N` to cap decode rate at the ring's expected fps.
+        Native-rate decode of 1920x1080 at 30 fps is ~90% of a core on this
+        system; fps-throttling to 5 drops that 6x. The `fps` filter's
+        ≤200 ms pacing latency is harmless for the ring because the
+        wall_time_ms is stamped at pipe-read (same cadence as the main
+        pipeline's sub-stream capture), so nearest-timestamp lookup is
+        self-consistent.
+    (2) Pushes directly to a HiResRingBuffer instead of a Queue. No
+        intermediate consumer thread needed.
+    """
+
+    def __init__(self, camera_name: str, rtsp_url: str,
+                 ring: HiResRingBuffer,
+                 width: int = 1920, height: int = 1080, fps: int = 5):
+        self.camera_name = camera_name
+        self.rtsp_url = rtsp_url
+        self.ring = ring
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.proc: Optional[subprocess.Popen] = None
+        self._reader_thread: Optional[threading.Thread] = None
+        self._watchdog_thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self.stats = {
+            "frames": 0,
+            "ffmpeg_restarts": 0,
+            "last_frame_ms": None,
+        }
+
+    def start(self):
+        self._stop.clear()
+        self._spawn_ffmpeg()
+        self._reader_thread = threading.Thread(
+            target=self._pipe_drain, name=f"hires-cap-{self.camera_name}",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog, name=f"hires-wd-{self.camera_name}",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=3)
+        if self._watchdog_thread is not None:
+            self._watchdog_thread.join(timeout=3)
+        proc = self.proc
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        self.proc = None
+
+    def _spawn_ffmpeg(self):
+        cmd = [
+            _FFMPEG,
+            "-loglevel", "warning",
+            "-rtsp_transport", "tcp",
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
+            "-rtsp_flags", "prefer_tcp",
+            "-max_delay", "200000",   # μs; tighter than sub-stream since we don't need ultra-low latency
+            "-i", self.rtsp_url,
+            "-vf", f"scale={self.width}:{self.height},fps={self.fps}",
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "-",
+        ]
+        _log.info("[%s-hires] spawning ffmpeg: %s", self.camera_name, " ".join(cmd))
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _pipe_drain(self):
+        frame_bytes = self.width * self.height * 3
+        while not self._stop.is_set():
+            proc = self.proc
+            if proc is None or proc.stdout is None:
+                time.sleep(0.1)
+                continue
+            try:
+                data = proc.stdout.read(frame_bytes)
+            except Exception:
+                time.sleep(0.5)
+                continue
+            if not data or len(data) != frame_bytes:
+                time.sleep(0.1)
+                continue
+            arr = np.frombuffer(data, dtype=np.uint8).reshape(
+                (self.height, self.width, 3)
+            ).copy()
+            wall_ms = time.time() * 1000
+            self.ring.push(arr, wall_ms)
+            self.stats["frames"] += 1
+            self.stats["last_frame_ms"] = wall_ms
+
+    def _watchdog(self):
+        while not self._stop.is_set():
+            try:
+                time.sleep(_WATCHDOG_CHECK_S)
+                if self._stop.is_set():
+                    break
+                last = self.stats.get("last_frame_ms")
+                if last is None:
+                    continue
+                age_ms = (time.time() * 1000) - last
+                if age_ms > _WATCHDOG_STALL_MS:
+                    _log.warning("[%s-hires] stalled %.0fms, restarting",
+                                 self.camera_name, age_ms)
+                    proc = self.proc
+                    if proc is not None:
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=3)
+                        except Exception:
+                            pass
+                    self._spawn_ffmpeg()
+                    self.stats["ffmpeg_restarts"] += 1
+                    self.stats["last_frame_ms"] = time.time() * 1000
+            except Exception:
+                _log.exception("[%s-hires] watchdog error", self.camera_name)
+                time.sleep(1.0)
+
+
+# ── Quality scorer ─────────────────────────────────────────────────────────
 
 MIN_BBOX_SIDE = 80   # px floor — smaller than this, can't see an eye
 
