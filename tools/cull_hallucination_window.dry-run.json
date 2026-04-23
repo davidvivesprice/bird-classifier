@@ -1,0 +1,10 @@
+{
+  "mode": "DRY-RUN",
+  "cutoff": "2026-04-19T21:16",
+  "scope_rows": 11189,
+  "would_cull_or_culled": 11189,
+  "pre_orphan_rows": 0,
+  "errors": 0,
+  "log": "/Users/vives/bird-classifier/tools/cull_hallucination_window.log",
+  "quarantine_dir": "/Users/vives/bird-snapshots/culled/2026-04-23"
+}
