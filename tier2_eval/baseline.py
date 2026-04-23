@@ -97,7 +97,8 @@ def load_holdout() -> list[dict]:
             c.common_name AS aiy_pred,
             c.raw_score AS aiy_raw,
             c.confidence AS detector_conf,
-            c.source_timestamp
+            c.source_timestamp,
+            c.camera
         FROM reviews r
         JOIN classifications c ON r.file = c.file
         WHERE r.verdict IN ('correct', 'wrong', 'trash')
@@ -127,6 +128,7 @@ def load_holdout() -> list[dict]:
             "detector_conf": r["detector_conf"] or 0.0,
             "verdict": verdict,
             "source_timestamp": r["source_timestamp"],
+            "camera": r["camera"] or "feeder",  # default for legacy rows
         })
     return out
 
