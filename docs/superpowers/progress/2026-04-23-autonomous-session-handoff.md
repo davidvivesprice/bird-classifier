@@ -4,7 +4,7 @@ David went offline after saying "make us proud." Below is everything that landed
 
 ## What shipped (commits on `main`)
 
-Ten commits this session, in order:
+Thirteen commits this session, in order:
 
 1. `84201bb` — Checkpoint: Sonoma migration + pipeline/dashboard hardening. (One-time git reset to make everything else atomic.)
 2. `46b21fd` — Add Tier 0-1 repair plans.
@@ -15,7 +15,10 @@ Ten commits this session, in order:
 7. `dde78e2` — Add data-integrity audit tool + LaunchAgent plist (not installed). **NOT installed.** Plist is in `tools/`, not `~/Library/LaunchAgents/`.
 8. `3e05086` — 1b Part 1: HiResRingBuffer + score_frame. **14 unit tests green.** Not wired into pipeline (deferred for David's review).
 9. `cea6a99` — Audit tool: separate legacy-underscored-dir orphans from real concerns.
-10. *(this doc, next commit)*
+10. `6bcf5f4` — Session handoff doc (this file).
+11. `cf0bf36` — test_camera_config: update asserts for Sonoma-era thresholds.
+12. `5542913` — CameraProcessThread: class-level defaults fix 4 test failures.
+13. *(this update to the handoff doc)*
 
 ## Verified (evidence in same message at commit time)
 
@@ -58,10 +61,11 @@ Ten commits this session, in order:
   6. Flip to `shadow_mode=False`.
 - RAM overhead estimate: ~150 MB (2s × 5 fps × 1920×1080×3 + ffmpeg buffers). Fine on the 8 GB iMac.
 
-**Fix the 13 pre-existing pipeline test failures?**
-- All of them predate today's work — drift from the Sonoma checkpoint commit (thresholds changed 0.6→0.25 etc., tests weren't updated).
-- Listed in `memory/project_system_repair_plan.md` forget-me-nots.
-- Straightforward to fix but needs judgment calls on a few (the classifier-decision-tree ones). Not urgent.
+**Fix the remaining 8 pipeline test failures?**
+- 5 of the original 13 were fixed this session (all mechanical drift — threshold-value drift + tests-using-`__new__`-without-new-attrs). Fixed commits: `cf0bf36`, `5542913`.
+- Remaining 8:
+  - 4× `test_pipeline_classifier`: decision-tree behavior changes. Tests assert old (pre-Sonoma) decision-tree paths; actual code now uses the recalibrated thresholds. Fixing means either rewriting the tests around the new thresholds OR reverting thresholds. **Judgment call I deliberately did not make** — needs David.
+  - 2× `test_frame_capture` + 1× `test_pipeline_e2e` + 1× `test_pipe_saturation`: likely environmental (need test video fixtures). Not investigated.
 
 ## Deferred and why
 
