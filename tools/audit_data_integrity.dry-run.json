@@ -1,6 +1,6 @@
 {
-  "total_rows_checked": 155059,
-  "disk_files_found": 53833,
+  "total_rows_checked": 155148,
+  "disk_files_found": 65219,
   "orphan_rows": [],
   "by_design_orphans": 102655,
   "canonical_orphan_files_count": 0,

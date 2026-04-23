@@ -89,6 +89,24 @@ BY_DESIGN_NO_FILE_ACTIONS = {
 }
 
 
+def _double_check_file_exists(fname: str) -> bool:
+    """Direct filesystem check for a file under any search root.
+
+    Used as a safety gate before declaring a row an orphan: race between
+    build_disk_index walking and a new pipeline write means the index can
+    miss a file that was written during the walk. A targeted re-check at
+    row-evaluation time closes that race.
+    """
+    for _label, root in SEARCH_ROOTS:
+        if not root.exists():
+            continue
+        # Direct hits in known layout — classified/<species>/<file>, annotated/<file>, etc.
+        for candidate in root.rglob(fname):
+            if candidate.exists():
+                return True
+    return False
+
+
 def audit(conn: sqlite3.Connection) -> dict:
     disk = build_disk_index()
     cur = conn.execute(
@@ -110,6 +128,12 @@ def audit(conn: sqlite3.Connection) -> dict:
         if hit is None:
             if r["action"] in BY_DESIGN_NO_FILE_ACTIONS:
                 by_design_orphans += 1
+                continue
+            # Race-condition safety gate: the disk index was built BEFORE this
+            # row was selected, so a file written between walk-time and now
+            # is missing from the index. Re-check filesystem directly before
+            # declaring orphan — prevents false-positive culls of fresh rows.
+            if _double_check_file_exists(fname):
                 continue
             orphan_rows.append({
                 "id": r["id"],
@@ -235,7 +259,11 @@ def main() -> int:
         else:
             print("\n(dry-run; pass --cull to delete orphan rows)")
 
-    return 0 if not report["orphan_rows"] else 1
+    # Exit 0 regardless of orphan count. The LOG is the signal; the exit
+    # code should only flag actual script failure (DB missing, etc.).
+    # Previously returned 1 on orphan-found, which made launchctl's
+    # LastExitStatus misleading.
+    return 0
 
 
 if __name__ == "__main__":
