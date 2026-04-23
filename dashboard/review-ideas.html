@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Review · Gamified Mockup</title>
+<meta name="theme-color" content="#0b0d11">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d11;
+    --bg-elev: #141820;
+    --bg-card: #1b1f28;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.16);
+    --text: #ebe7dc;
+    --text-muted: #9ea3ad;
+    --text-dim: #6b7079;
+    --gold: #e2b358;
+    --gold-glow: rgba(226,179,88,0.25);
+    --correct: #58c48a;
+    --correct-glow: rgba(88,196,138,0.35);
+    --wrong: #f4a261;
+    --wrong-glow: rgba(244,162,97,0.35);
+    --trash: #d05a5a;
+    --trash-glow: rgba(208,90,90,0.35);
+    --streak: #fb923c;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Outfit', system-ui, sans-serif;
+    height: 100%; overflow: hidden;
+    user-select: none;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(226,179,88,0.06), transparent 60%);
+    pointer-events: none;
+  }
+
+  /* ── Topbar ─────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(11,13,17,0.82);
+    backdrop-filter: blur(12px);
+    position: relative; z-index: 10;
+  }
+  .topbar .brand {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .topbar .brand span { color: var(--gold); }
+
+  .session-stats { display: flex; gap: 18px; align-items: center; font-size: 13px; }
+  .stat { display: flex; align-items: baseline; gap: 6px; color: var(--text-muted); }
+  .stat .val { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .val.fire { color: var(--streak); }
+  .goal-ring { position: relative; width: 36px; height: 36px; }
+  .goal-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .goal-ring circle { fill: none; stroke-width: 3; }
+  .goal-ring .bg { stroke: rgba(255,255,255,0.08); }
+  .goal-ring .fg { stroke: var(--gold); stroke-linecap: round; transition: stroke-dashoffset 0.4s ease; }
+  .goal-ring .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+
+  /* ── Mode pills ─────────────────────────────────────── */
+  .modes {
+    display: flex; gap: 8px; padding: 12px 28px; border-bottom: 1px solid var(--border);
+    background: rgba(20,24,32,0.4);
+  }
+  .mode-pill {
+    padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border); color: var(--text-muted); font-size: 12px;
+    cursor: pointer; transition: all 0.15s ease; font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .mode-pill:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .mode-pill.active {
+    background: var(--gold-glow); border-color: var(--gold); color: var(--gold);
+  }
+  .mode-pill .count { opacity: 0.5; margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+  /* ── Main card ─────────────────────────────────────── */
+  .stage {
+    position: relative; height: calc(100vh - 112px);
+    display: flex; align-items: center; justify-content: center;
+    perspective: 1200px;
+  }
+  .card-wrap {
+    position: absolute; inset: 24px;
+    display: flex; flex-direction: column; align-items: stretch;
+    pointer-events: auto;
+    transition: transform 0.35s cubic-bezier(0.5,0,0.2,1), opacity 0.25s ease;
+  }
+  .card-wrap.out-right { transform: translateX(120%) rotate(6deg); opacity: 0; }
+  .card-wrap.out-left  { transform: translateX(-120%) rotate(-6deg); opacity: 0; }
+  .card-wrap.out-down  { transform: translateY(110%) scale(0.9); opacity: 0; }
+  .card-wrap.press     { transform: scale(0.98); transition: transform 0.08s ease; }
+
+  .card-image-frame {
+    flex: 1; min-height: 0;
+    background: var(--bg-card);
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .bird-svg { width: 100%; height: 100%; display: block; }
+  .rare-chip {
+    position: absolute; top: 16px; right: 16px; z-index: 2;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(226,179,88,0.15); border: 1px solid var(--gold);
+    color: var(--gold); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    animation: chip-pulse 2s ease infinite;
+  }
+  @keyframes chip-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--gold-glow); }
+    50% { box-shadow: 0 0 0 8px transparent; }
+  }
+
+  .card-meta {
+    padding: 20px 28px 8px; display: flex; align-items: baseline; gap: 14px;
+  }
+  .ai-says {
+    font-size: 12px; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .species-name {
+    font-family: 'Playfair Display', serif; font-size: 28px; font-weight: 700;
+    color: var(--text); margin-right: auto;
+  }
+  .conf-chip {
+    padding: 4px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .conf-chip.high { color: var(--correct); border-color: rgba(88,196,138,0.3); }
+  .conf-chip.low { color: var(--wrong); border-color: rgba(244,162,97,0.3); }
+
+  /* ── Verdict buttons ────────────────────────────────── */
+  .verdicts {
+    display: grid; grid-template-columns: 2fr 1.4fr 1fr; gap: 14px;
+    padding: 8px 24px 0;
+  }
+  .v-btn {
+    padding: 22px 16px; border-radius: 14px;
+    background: var(--bg-elev); border: 1px solid var(--border-strong);
+    color: var(--text); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    transition: transform 0.1s ease, background 0.12s ease, box-shadow 0.2s ease;
+    font-family: inherit;
+  }
+  .v-btn:hover { background: rgba(255,255,255,0.06); }
+  .v-btn:active { transform: scale(0.96); }
+  .v-btn .key {
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-dim); font-weight: 500;
+  }
+  .v-btn .label {
+    font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700;
+  }
+  .v-btn.correct .label { color: var(--correct); }
+  .v-btn.wrong   .label { color: var(--wrong); }
+  .v-btn.trash   .label { color: var(--trash); }
+  .v-btn.correct:hover { box-shadow: 0 0 0 2px var(--correct-glow); }
+  .v-btn.wrong:hover   { box-shadow: 0 0 0 2px var(--wrong-glow); }
+  .v-btn.trash:hover   { box-shadow: 0 0 0 2px var(--trash-glow); }
+
+  .footer-bar {
+    padding: 10px 28px;
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--text-dim); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .footer-bar .left { display: flex; gap: 20px; }
+  .kbd {
+    display: inline-block; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    font-family: ui-monospace, monospace; font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* ── Toasts + feedback ──────────────────────────────── */
+  .toast-layer { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+  .toast {
+    position: absolute; left: 50%; top: 140px; transform: translateX(-50%);
+    padding: 14px 24px; border-radius: 12px;
+    background: rgba(11,13,17,0.92); border: 1px solid var(--border-strong);
+    backdrop-filter: blur(16px);
+    color: var(--text); font-weight: 600; font-size: 14px;
+    display: flex; align-items: center; gap: 10px;
+    animation: toast-in 0.3s cubic-bezier(0.2,0.8,0.3,1.2) forwards;
+  }
+  .toast.good { border-color: rgba(88,196,138,0.5); color: var(--correct); }
+  .toast.bad  { border-color: rgba(244,162,97,0.5); color: var(--wrong); }
+  .toast.catch { border-color: var(--gold); color: var(--gold); }
+  @keyframes toast-in {
+    0% { opacity: 0; transform: translate(-50%, -20px); }
+    100% { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  /* ── Session-end overlay ────────────────────────────── */
+  .session-end {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(11,13,17,0.94); backdrop-filter: blur(24px);
+    display: none; align-items: center; justify-content: center;
+  }
+  .session-end.show { display: flex; animation: fade-in 0.4s ease; }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .session-panel {
+    padding: 48px; border-radius: 18px;
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    max-width: 460px; text-align: center;
+  }
+  .session-panel h1 {
+    font-family: 'Playfair Display', serif; font-size: 36px; margin-bottom: 8px;
+  }
+  .session-panel .sub { color: var(--text-muted); margin-bottom: 28px; }
+  .breakdown { display: grid; gap: 10px; margin-bottom: 28px; text-align: left; }
+  .breakdown .row {
+    display: flex; justify-content: space-between; padding: 10px 14px;
+    background: rgba(255,255,255,0.03); border-radius: 8px;
+    font-size: 14px;
+  }
+  .breakdown .row .key { color: var(--text-muted); }
+  .breakdown .row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .play-again {
+    padding: 14px 28px; border-radius: 10px; border: 0; cursor: pointer;
+    background: var(--gold); color: var(--bg);
+    font-family: inherit; font-weight: 700; font-size: 14px;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+
+  /* ── Screen shake for trash ─────────────────────────── */
+  @keyframes shake {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(3px); }
+    100% { transform: translateX(0); }
+  }
+  body.shake { animation: shake 0.28s ease; }
+
+  /* ── Confetti ───────────────────────────────────────── */
+  .confetti {
+    position: fixed; pointer-events: none;
+    width: 8px; height: 12px; border-radius: 2px;
+    animation: confetti-fall 1.2s ease-in forwards;
+  }
+  @keyframes confetti-fall {
+    0% { transform: translateY(-20vh) rotate(0); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+  }
+
+  /* ── Wrong-species picker (slide-in) ────────────────── */
+  .picker-layer {
+    position: fixed; inset: 0; z-index: 40;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(11,13,17,0.7); backdrop-filter: blur(8px);
+  }
+  .picker-layer.show { display: flex; animation: fade-in 0.2s ease; }
+  .picker {
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    border-radius: 14px; padding: 24px; min-width: 420px;
+  }
+  .picker h3 { font-size: 16px; margin-bottom: 12px; color: var(--text-muted); }
+  .picker input {
+    width: 100%; padding: 12px 14px; border-radius: 8px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border-strong);
+    color: var(--text); font-family: inherit; font-size: 16px;
+    margin-bottom: 10px;
+  }
+  .picker input:focus { outline: 2px solid var(--gold); }
+  .picker-results { max-height: 240px; overflow-y: auto; display: grid; gap: 4px; }
+  .picker-result {
+    padding: 10px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; color: var(--text-muted);
+  }
+  .picker-result:hover, .picker-result.hover {
+    background: var(--gold-glow); color: var(--gold);
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">Review · <span>gamified mockup</span></div>
+  <div class="session-stats">
+    <div class="stat">Session <span class="val" id="stat-session">0</span><span style="color:var(--text-dim)">/50</span></div>
+    <div class="stat">Streak <span class="val fire" id="stat-streak">0</span><span id="stat-fire" style="opacity:0">🔥</span></div>
+    <div class="stat">Catches <span class="val" id="stat-catches">0</span></div>
+    <div class="stat">Rare <span class="val" id="stat-rare">0</span></div>
+    <div class="goal-ring">
+      <svg viewBox="0 0 36 36">
+        <circle class="bg" cx="18" cy="18" r="15.9"/>
+        <circle class="fg" id="goal-fg" cx="18" cy="18" r="15.9" stroke-dasharray="100" stroke-dashoffset="100"/>
+      </svg>
+      <div class="num" id="goal-num">0%</div>
+    </div>
+  </div>
+</div>
+
+<div class="modes">
+  <div class="mode-pill active" data-mode="mixed">Mixed<span class="count">· 47</span></div>
+  <div class="mode-pill" data-mode="hairy-downy">Hairy vs Downy<span class="count">· 18</span></div>
+  <div class="mode-pill" data-mode="rare">Rare species<span class="count">· 12</span></div>
+  <div class="mode-pill" data-mode="recent">Last 24h<span class="count">· 31</span></div>
+  <div class="mode-pill" data-mode="multibird">Multi-bird<span class="count">· 9</span></div>
+</div>
+
+<div class="stage">
+  <div class="card-wrap" id="card">
+    <div class="card-image-frame">
+      <div class="rare-chip" id="rare-chip" style="display:none">📈 rare training data</div>
+      <svg class="bird-svg" id="bird-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice"></svg>
+    </div>
+    <div class="card-meta">
+      <div>
+        <div class="ai-says">AI says</div>
+        <div class="species-name" id="species-name">—</div>
+      </div>
+      <div class="conf-chip" id="conf-chip">0%</div>
+    </div>
+    <div class="verdicts">
+      <button class="v-btn correct" data-verdict="correct">
+        <span class="key">Y · SPACE</span>
+        <span class="label">Correct</span>
+      </button>
+      <button class="v-btn wrong" data-verdict="wrong">
+        <span class="key">N</span>
+        <span class="label">Wrong</span>
+      </button>
+      <button class="v-btn trash" data-verdict="trash">
+        <span class="key">T</span>
+        <span class="label">Trash</span>
+      </button>
+    </div>
+    <div class="footer-bar">
+      <div class="left">
+        <span><span class="kbd">Ctrl+Z</span> undo</span>
+        <span><span class="kbd">S</span> skip</span>
+        <span><span class="kbd">?</span> help</span>
+      </div>
+      <div>mockup data · no real writes</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-layer" id="toasts"></div>
+
+<div class="picker-layer" id="picker">
+  <div class="picker">
+    <h3>What's the actual species?</h3>
+    <input id="picker-input" type="text" placeholder="Start typing…" autofocus/>
+    <div class="picker-results" id="picker-results"></div>
+  </div>
+</div>
+
+<div class="session-end" id="session-end">
+  <div class="session-panel">
+    <h1>🎉 Goal hit</h1>
+    <div class="sub">You reviewed <span id="end-count">50</span> birds this session.</div>
+    <div class="breakdown" id="end-breakdown"></div>
+    <button class="play-again" onclick="resetMockup()">New session</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // ── Mock queue ────────────────────────────────────────
+  // Real app: fetch from /api/review2/queue
+  const SPECIES_LIST = [
+    "Black-capped Chickadee","House Finch","Northern Cardinal","Dark-eyed Junco",
+    "Mourning Dove","Downy Woodpecker","Hairy Woodpecker","Tufted Titmouse",
+    "White-breasted Nuthatch","American Goldfinch","Carolina Wren","Blue Jay",
+    "Song Sparrow","Red-bellied Woodpecker","Brown-headed Cowbird",
+    "White-throated Sparrow","Common Grackle","European Starling","Red-winged Blackbird",
+    "Pine Warbler","Red-breasted Nuthatch","American Robin","House Sparrow",
+    "not_a_bird"
+  ];
+  const RARE = new Set(["Pine Warbler","Red-breasted Nuthatch"]);
+
+  function mockItem(i){
+    const sp = SPECIES_LIST[Math.floor(Math.random()*SPECIES_LIST.length)];
+    return {
+      client_id: 'mock-' + i + '-' + Math.random().toString(36).slice(2,8),
+      file: 'feeder_2026-04-23_' + String(9+(i%8)).padStart(2,'0') + '-' + String(i*7%60).padStart(2,'0') + '.jpg',
+      species: sp === "not_a_bird" ? "House Sparrow" : sp, // AI-guessed; "not_a_bird" cases present as some species
+      confidence: 0.35 + Math.random() * 0.6,
+      is_rare: RARE.has(sp),
+      ai_confidently_wrong: sp === "not_a_bird" && Math.random() > 0.5,
+    };
+  }
+  let queue = [];
+  for (let i = 0; i < 50; i++) queue.push(mockItem(i));
+
+  // ── State ─────────────────────────────────────────────
+  let session = { verdicts: [], streak: 0, catches: 0, rare: 0 };
+  let GOAL = 50;
+  let currentIdx = 0;
+  let animating = false;
+
+  // ── DOM ───────────────────────────────────────────────
+  const $ = s => document.querySelector(s);
+  const card = $('#card');
+  const birdSvg = $('#bird-svg');
+  const speciesName = $('#species-name');
+  const confChip = $('#conf-chip');
+  const rareChip = $('#rare-chip');
+
+  // ── Generative "bird" placeholder ─────────────────────
+  function generateBird(seed){
+    let s = 0;
+    for (const c of seed) s = (s * 31 + c.charCodeAt(0)) >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0xffffffff; };
+    const huePrim = Math.floor(rnd() * 60) + 20;      // warm feathers
+    const hueBG = Math.floor(rnd() * 120) + 70;       // foliage greenish
+    const cx = 380 + rnd() * 60, cy = 280 + rnd() * 60;
+    const r  = 90 + rnd() * 30;
+    const beakLen = 20 + rnd() * 15;
+    const eyeOffX = r * 0.5, eyeOffY = -r * 0.25;
+    return `
+      <defs>
+        <radialGradient id="bg" cx="50%" cy="60%" r="80%">
+          <stop offset="0%" stop-color="hsl(${hueBG}, 30%, 22%)"/>
+          <stop offset="100%" stop-color="hsl(${hueBG}, 40%, 10%)"/>
+        </radialGradient>
+        <radialGradient id="body" cx="40%" cy="35%" r="75%">
+          <stop offset="0%" stop-color="hsl(${huePrim}, 70%, 62%)"/>
+          <stop offset="100%" stop-color="hsl(${huePrim-15}, 60%, 30%)"/>
+        </radialGradient>
+      </defs>
+      <rect width="800" height="600" fill="url(#bg)"/>
+      <ellipse cx="${cx+20}" cy="${cy-40}" rx="${r*0.8}" ry="${r*0.55}" fill="url(#body)" opacity="0.9"/>
+      <ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${r*0.75}" fill="url(#body)"/>
+      <circle cx="${cx-eyeOffX}" cy="${cy+eyeOffY}" r="${r*0.12}" fill="#1a1410"/>
+      <circle cx="${cx-eyeOffX-2}" cy="${cy+eyeOffY-2}" r="${r*0.04}" fill="#fff"/>
+      <polygon points="${cx-r*0.95},${cy+eyeOffY} ${cx-r*0.95-beakLen},${cy+eyeOffY+4} ${cx-r*0.95},${cy+eyeOffY+8}" fill="hsl(${huePrim}, 30%, 20%)"/>
+      <path d="M ${cx+r*0.8} ${cy-5} Q ${cx+r*1.4} ${cy+r*0.2} ${cx+r*0.9} ${cy+r*0.6}" stroke="hsl(${huePrim-20}, 60%, 25%)" stroke-width="${r*0.5}" fill="none" stroke-linecap="round" opacity="0.7"/>
+    `;
+  }
+
+  // ── Render current card ───────────────────────────────
+  function render(){
+    const it = queue[currentIdx];
+    if (!it) { showSessionEnd(); return; }
+    birdSvg.innerHTML = generateBird(it.file);
+    speciesName.textContent = it.species;
+    const pct = Math.round(it.confidence * 100);
+    confChip.textContent = pct + '%';
+    confChip.className = 'conf-chip ' + (pct >= 70 ? 'high' : pct < 50 ? 'low' : '');
+    rareChip.style.display = it.is_rare ? '' : 'none';
+    updateStats();
+  }
+
+  function updateStats(){
+    $('#stat-session').textContent = session.verdicts.length;
+    $('#stat-streak').textContent  = session.streak;
+    $('#stat-catches').textContent = session.catches;
+    $('#stat-rare').textContent    = session.rare;
+    $('#stat-fire').style.opacity  = session.streak >= 5 ? '1' : '0';
+    const pct = Math.min(100, Math.round((session.verdicts.length / GOAL) * 100));
+    $('#goal-fg').setAttribute('stroke-dashoffset', 100 - pct);
+    $('#goal-num').textContent = pct + '%';
+  }
+
+  // ── Verdict handler ───────────────────────────────────
+  function handleVerdict(verdict, correctSpecies){
+    if (animating) return;
+    const it = queue[currentIdx];
+    if (!it) return;
+
+    // Catch-the-bot: user picked `wrong` on a high-confidence AI call
+    const isCatch = verdict === 'wrong' && it.confidence >= 0.7;
+    if (isCatch) session.catches++;
+    if (it.is_rare) session.rare++;
+
+    // Streak math
+    if (verdict === 'skip') session.streak = 0;
+    else session.streak++;
+
+    // Record
+    session.verdicts.push({
+      file: it.file, species: it.species, verdict, correctSpecies,
+      client_id: it.client_id, t: Date.now(),
+    });
+
+    // Animation
+    animating = true;
+    const direction = verdict === 'correct' ? 'right' : verdict === 'wrong' ? 'left' : 'down';
+    card.classList.add('out-' + direction);
+
+    // Feedback
+    if (verdict === 'trash') { document.body.classList.add('shake'); setTimeout(()=>document.body.classList.remove('shake'), 280); }
+    if (isCatch) toast('catch', '✓ you caught a bad call');
+    else if (verdict === 'correct' && session.streak % 10 === 0 && session.streak > 0) {
+      toast('good', '🔥 ' + session.streak + ' in a row');
+      confettiBurst();
+    }
+
+    setTimeout(() => {
+      card.classList.remove('out-right','out-left','out-down');
+      currentIdx++;
+      animating = false;
+      render();
+    }, 350);
+  }
+
+  // ── Undo ──────────────────────────────────────────────
+  function undo(){
+    if (session.verdicts.length === 0 || animating) return;
+    const last = session.verdicts.pop();
+    currentIdx = Math.max(0, currentIdx - 1);
+    session.streak = 0;  // undo breaks the streak
+    toast('bad', '↶ undone: ' + last.verdict);
+    render();
+  }
+
+  // ── Skip ──────────────────────────────────────────────
+  function skip(){ handleVerdict('skip', ''); }
+
+  // ── Toasts ────────────────────────────────────────────
+  function toast(kind, text){
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.textContent = text;
+    $('#toasts').appendChild(el);
+    setTimeout(() => {
+      el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      el.style.opacity = '0';
+      el.style.transform = 'translate(-50%, -20px)';
+      setTimeout(() => el.remove(), 320);
+    }, 1400);
+  }
+
+  // ── Confetti ──────────────────────────────────────────
+  function confettiBurst(){
+    const colors = ['#e2b358', '#58c48a', '#fb923c', '#f4a261', '#d05a5a', '#fff'];
+    for (let i = 0; i < 30; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      c.style.left = (40 + Math.random() * 20) + 'vw';
+      c.style.top = '0';
+      c.style.background = colors[i % colors.length];
+      c.style.animationDelay = (Math.random() * 0.3) + 's';
+      c.style.animationDuration = (0.9 + Math.random() * 0.6) + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 1800);
+    }
+  }
+
+  // ── Session end ───────────────────────────────────────
+  function showSessionEnd(){
+    const brk = session.verdicts.reduce((a, v) => {
+      a[v.verdict] = (a[v.verdict] || 0) + 1; return a;
+    }, {});
+    $('#end-count').textContent = session.verdicts.length;
+    $('#end-breakdown').innerHTML = Object.entries(brk)
+      .map(([k, v]) => `<div class="row"><span class="key">${k}</span><span class="val">${v}</span></div>`)
+      .join('');
+    $('#session-end').classList.add('show');
+  }
+  window.resetMockup = function(){
+    queue = []; for (let i = 0; i < 50; i++) queue.push(mockItem(i));
+    session = { verdicts: [], streak: 0, catches: 0, rare: 0 };
+    currentIdx = 0;
+    $('#session-end').classList.remove('show');
+    render();
+  };
+
+  // ── Wrong-species picker ──────────────────────────────
+  const picker = $('#picker');
+  const pickerInput = $('#picker-input');
+  const pickerResults = $('#picker-results');
+  let pickerHover = 0;
+
+  function openPicker(){
+    pickerInput.value = ''; pickerHover = 0;
+    picker.classList.add('show');
+    renderPickerResults();
+    setTimeout(() => pickerInput.focus(), 30);
+  }
+  function closePicker(){ picker.classList.remove('show'); }
+  function renderPickerResults(){
+    const q = pickerInput.value.toLowerCase();
+    const matches = SPECIES_LIST.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
+    pickerResults.innerHTML = matches
+      .map((s, i) => `<div class="picker-result${i === pickerHover ? ' hover' : ''}" data-sp="${s}">${s}</div>`)
+      .join('');
+    pickerResults.querySelectorAll('.picker-result').forEach(el => {
+      el.onclick = () => {
+        closePicker();
+        handleVerdict('wrong', el.dataset.sp);
+      };
+    });
+  }
+  pickerInput.addEventListener('input', () => { pickerHover = 0; renderPickerResults(); });
+  pickerInput.addEventListener('keydown', (e) => {
+    const n = pickerResults.children.length;
+    if (e.key === 'ArrowDown') { pickerHover = (pickerHover + 1) % n; renderPickerResults(); e.preventDefault(); }
+    if (e.key === 'ArrowUp')   { pickerHover = (pickerHover - 1 + n) % n; renderPickerResults(); e.preventDefault(); }
+    if (e.key === 'Enter' && pickerResults.children[pickerHover]) {
+      const sp = pickerResults.children[pickerHover].dataset.sp;
+      closePicker(); handleVerdict('wrong', sp);
+    }
+    if (e.key === 'Escape') closePicker();
+  });
+
+  // ── Keyboard shortcuts ────────────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (picker.classList.contains('show')) return;
+    if (animating) return;
+    if (e.target.tagName === 'INPUT') return;
+    const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'z') { undo(); e.preventDefault(); return; }
+    if (k === 'y' || k === ' ') { handleVerdict('correct', ''); e.preventDefault(); }
+    if (k === 'n') { openPicker(); e.preventDefault(); }
+    if (k === 't') { handleVerdict('trash', ''); e.preventDefault(); }
+    if (k === 's') { skip(); e.preventDefault(); }
+  });
+
+  // ── Click handlers ────────────────────────────────────
+  document.querySelectorAll('.v-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.verdict;
+      if (v === 'wrong') openPicker();
+      else handleVerdict(v, '');
+    });
+  });
+
+  document.querySelectorAll('.mode-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      toast('good', 'Mode: ' + pill.textContent.trim().split('·')[0].trim());
+    });
+  });
+
+  // ── Init ──────────────────────────────────────────────
+  render();
+})();
+</script>
+</body>
+</html>

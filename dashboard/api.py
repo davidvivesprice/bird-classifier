@@ -176,6 +176,14 @@ def serve_ideas():
     return FileResponse(str(DASHBOARD_DIR / "ideas.html"), media_type="text/html")
 
 
+@app.get("/review-ideas")
+def serve_review_ideas():
+    """Interactive mockup for the gamified review page.
+    Pairs with docs/superpowers/specs/2026-04-23-airtight-review-system.md
+    (the airtight-plumbing design doc). Uses fake data — no real writes."""
+    return FileResponse(str(DASHBOARD_DIR / "review-ideas.html"), media_type="text/html")
+
+
 @app.get("/motion-sandbox")
 def serve_motion_sandbox():
     """Label motion sandbox — real track replayed through four smoothing strategies.
