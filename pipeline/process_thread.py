@@ -24,6 +24,14 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 
 
 class CameraProcessThread:
+    # Class-level defaults. Tests construct via __new__ (skipping __init__) and
+    # then set the attributes they need; anything not set here would raise
+    # AttributeError when _process_frame accesses it. Keep this list in sync
+    # with every attribute that _process_frame / _classify_tracks / _emit_sse
+    # touches by name.
+    snapshot_writer = None
+    capture = None
+
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
                  event_store, health=None, sse_server=None,
