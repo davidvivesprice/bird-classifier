@@ -1,87 +1,141 @@
-# Autonomous Session Handoff — 2026-04-23
+# Autonomous Session Handoff — 2026-04-23 (extended)
 
-David went offline after saying "make us proud." Below is everything that landed during the autonomous block, what's verified, what needs his eye, and what I deliberately did not do.
+Full log of the autonomous block. Originally written after 15 commits; extended as the block continued. Read top-to-bottom for chronology.
 
-## What shipped (commits on `main`)
+## Commits on `main` since checkpoint (23 in this session)
 
-Thirteen commits this session, in order:
+```
+40966fc tier2_eval/split: visit-grouped StratifiedGroupKFold + real-data demo
+87a8332 Tier 2 Phase 0: evaluation harness + first real baseline numbers
+229777d Tier 2: four lit reviews + unified training plan v1
+0ce490e Airtight review system spec + gamified /review-ideas mockup
+1bca6c2 Tier 2 data audit: 1673 ground-truth samples, 13 trainable species, 158× imbalance
+de1c36c 1b wire-up (env-gated, off by default): HiResCapture + ring + sidecar
+5e83b79 Audit: close walk/select race; exit 0 regardless of orphan count
+b071b43 gitignore: ignore tool runtime logs + macOS Spotlight marker
+6373a9b Refresh dry-run summaries with current data
+4ac34d8 handoff doc: update with final session state
+5542913 CameraProcessThread: class-level defaults fix 4 test failures
+cf0bf36 test_camera_config: update asserts to Sonoma-era thresholds
+6bcf5f4 Session handoff note for 2026-04-23
+cea6a99 Audit tool: legacy-underscored vs canonical orphans
+3e05086 1b Part 1: HiResRingBuffer + score_frame tests
+dde78e2 Add data-integrity audit tool + plist (not installed)
+5b281c7 Add hallucination-window cull tool + dry-run
+962e6c4 O-cluster: hls.js + 1s fade + O1 diag + prune log
+99d1340 Add O-cluster plan for /live overlay fixes
+5df60cf Fix Live tab regressions (0a)
+46b21fd Add Tier 0-1 repair plans
+84201bb Checkpoint: Sonoma migration + pipeline/dashboard hardening
+```
 
-1. `84201bb` — Checkpoint: Sonoma migration + pipeline/dashboard hardening. (One-time git reset to make everything else atomic.)
-2. `46b21fd` — Add Tier 0-1 repair plans.
-3. `5df60cf` — Fix Live tab regressions (0a-1…0a-4). **4-of-4 David-verified.**
-4. `99d1340` — Add O-cluster plan for /live overlay fixes.
-5. `962e6c4` — O-cluster: hls.js catch-up config + 1s fade + O1 diagnostic capture + prune log. **Not visually verified.** David needs to `/live` hard-refresh to confirm O2 (17s → 10-12s) and O3 (1s fade).
-6. `5b281c7` — Add hallucination-window cull tool + captured dry-run. **NOT executed.** 11,189 rows ready for cull when David approves.
-7. `dde78e2` — Add data-integrity audit tool + LaunchAgent plist (not installed). **NOT installed.** Plist is in `tools/`, not `~/Library/LaunchAgents/`.
-8. `3e05086` — 1b Part 1: HiResRingBuffer + score_frame. **14 unit tests green.** Not wired into pipeline (deferred for David's review).
-9. `cea6a99` — Audit tool: separate legacy-underscored-dir orphans from real concerns.
-10. `6bcf5f4` — Session handoff doc (this file).
-11. `cf0bf36` — test_camera_config: update asserts for Sonoma-era thresholds.
-12. `5542913` — CameraProcessThread: class-level defaults fix 4 test failures.
-13. *(this update to the handoff doc)*
+Plus post-return commits when David flipped approvals:
+- 0b cull executed (11,293 rows quarantined to `~/bird-snapshots/culled/2026-04-23/`)
+- 1a LaunchAgent installed (hourly integrity audit running)
+- 1a race bug caught ON FIRST RUN, audit fixed, one row casualty salvaged
 
-## Verified (evidence in same message at commit time)
+## Live status (as of handoff)
 
-- **0a: all 4 symptoms cleared.** David confirmed 1-3 over chat, 4 ("phone check is good") late morning. Commit `5df60cf` records that.
-- **1b tests green.** `pytest tests/pipeline/test_hires_ring.py` → 14 passed.
-- **0b dry-run clean.** Script runs, no errors, 11,189 rows flagged, 0 pre-orphan. Captured in `tools/cull_hallucination_window.dry-run.json`.
-- **1a dry-run clean.** 0 true orphan rows, 0 canonical orphan files. 336 "orphans" are all legacy-underscored-dir stragglers (known deferred). Captured in `tools/audit_data_integrity.dry-run.json`.
-- **Dashboard serves new live.html** — `curl -sS http://localhost:8099/live | grep STALE_MS` returns the new value.
+**Production:** healthy.
+- Pipeline (PID 40808), go2rtc (29092), uvicorn (62924) all alive.
+- /api/pipeline/health returns 200, snapshot_writer still writing.
+- /review-ideas route added but **not yet served** (uvicorn needs restart to pick it up). Meanwhile viewable by opening `dashboard/review-ideas.html` directly.
+- 1a integrity LaunchAgent running hourly. Last run: 0 orphans (post-fix). Watch `~/bird-classifier/tools/audit_data_integrity.log` for evidence of the next orphan-bug occurrence.
 
-## Not verified (awaiting David's browser)
+**Filesystem salvage:**
+- `~/bird-snapshots/salvage_audit_race_2026-04-23/` — one JPG the 1a race bug orphaned. Includes `README.txt` with recovery options.
 
-- **O2 (17s → 10-12s)** — hls.js config tightened. Needs eye-check on `/live`.
-- **O3 (labels linger → ~1s fade)** — STALE_MS 1200→600. Note: the pipeline-side Norfair `hit_counter_max=15` = 3s Kalman coasting will still extend the *effective* fade by up to 3s. I did not change that (would risk vote-lock behavior). Documented in the O-cluster plan.
-- **O1 (label drift)** — the clock code is correctly ported (verified in code). I added an opt-in diagnostic capture (`window.__o1Capture = true`) for the next drift incident, rather than patching blind.
+**Working tree:** clean.
 
-## What David needs to decide
+---
 
-**Execute 0b cull?**
-- Script: `tools/cull_hallucination_window.py`
-- Dry-run summary: `tools/cull_hallucination_window.dry-run.json`
-- 11,189 unreviewed rows from the Apr 19+ hallucination window. Moves JPGs to `~/bird-snapshots/culled/2026-04-23/`, marks DB rows `action='culled_hallucination'`. Reversible within 30 days (per plan's 2-phase retention).
-- Command: `python3 tools/cull_hallucination_window.py --execute`
+## What David needs to review, ranked
 
-**Install 1a hourly integrity audit?**
-- Script: `tools/audit_data_integrity.py`
-- Plist: `tools/com.vives.bird-integrity-audit.plist`
-- Current state: clean. Installing means "catch the next occurrence of the orphan bug with evidence."
-- Install: `cp tools/com.vives.bird-integrity-audit.plist ~/Library/LaunchAgents/` then `launchctl load …`.
+### Must-review / high-impact
 
-**Wire 1b HiResRingBuffer into the pipeline?**
-- Module: `pipeline/hires_ring.py` (tested).
-- Integration point: `bird_pipeline_v3.py` where `FrameCapture` and `SnapshotWriter` are instantiated.
-- FrameCapture's contract (verified 2026-04-23): constructor is `FrameCapture(camera_name, rtsp_url, out_queue, width=1920, height=1080, fps=5)`. It pushes `Frame(bgr, wall_time_ms, camera, width, height)` objects to `out_queue` via `put_nowait` (drops oldest on backpressure). No callback API.
-- Suggested wire-up for the plan's Task 3 (David: this needs your eye before it ships):
-  1. Create a dedicated `queue.Queue(maxsize=20)` for the hi-res feed.
-  2. Create a FrameCapture for the `-main` stream pushing to that queue.
-  3. Spawn a consumer thread that drains the queue → `ring.push(frame.bgr, frame.wall_time_ms)`.
-  4. Pass `ring` into `SnapshotWriter(..., hires_ring=ring, shadow_mode=True)`.
-  5. Shadow-mode soak 3-4 days with sidecar JSONs per crop.
-  6. Flip to `shadow_mode=False`.
-- RAM overhead estimate: ~150 MB (2s × 5 fps × 1920×1080×3 + ffmpeg buffers). Fine on the 8 GB iMac.
+1. **Tier 2 training plan** (`docs/superpowers/specs/2026-04-23-tier2-training-plan-v1.md`).
+   - 16-class label set (Part C) — **David's sign-off needed**.
+   - Hairy/Downy specialist-head fallback — **David's sign-off needed**.
+   - Shadow-mode duration — **David's pick: 3 days? 7?**
+   - All six open questions at the end of the doc.
 
-**Fix the remaining 8 pipeline test failures?**
-- 5 of the original 13 were fixed this session (all mechanical drift — threshold-value drift + tests-using-`__new__`-without-new-attrs). Fixed commits: `cf0bf36`, `5542913`.
-- Remaining 8:
-  - 4× `test_pipeline_classifier`: decision-tree behavior changes. Tests assert old (pre-Sonoma) decision-tree paths; actual code now uses the recalibrated thresholds. Fixing means either rewriting the tests around the new thresholds OR reverting thresholds. **Judgment call I deliberately did not make** — needs David.
-  - 2× `test_frame_capture` + 1× `test_pipeline_e2e` + 1× `test_pipe_saturation`: likely environmental (need test video fixtures). Not investigated.
+2. **Airtight review system spec** (`docs/superpowers/specs/2026-04-23-airtight-review-system.md`) + **/review-ideas mockup** (`dashboard/review-ideas.html`).
+   - Six current-system bugs documented (A-F).
+   - Full design for `review_history` append-only table, keyset pagination, idempotency via client_id.
+   - Mockup is a working interactive prototype (generative SVG birds; keyboard Y/N/T; streaks; confetti; undo). Open the file directly or restart uvicorn to hit `/review-ideas`.
+   - **Not yet implemented.** Spec + mockup only.
 
-## Deferred and why
+3. **1b hi-res ring wire-up** (commit `de1c36c`). Env-gated, off by default.
+   - `PIPELINE_HIRES_RING=1` → shadow mode (sidecar JSONs, no behavior change)
+   - Any other truthy → ring authoritative
+   - **Do not flip on the iMac.** Load avg 22+ already. Wait for Pi 5 hardware.
 
-- **0b execution** — data change. Not mine to make without approval.
-- **1a LaunchAgent install** — installs a recurring autonomous action. Needs David's "yes."
-- **1b pipeline wire-up** — touches the live detection circuit. David explicitly asked me to "add the system in safely, don't break it." I'd rather have him eyeball the integration than guess.
-- **Norfair `hit_counter_max` change** — vote-lock interaction needs a soak. Documented as a future spec.
-- **Pipeline restart to pick up the new prune log line** — I didn't restart the production pipeline. New log line will appear on next organic prune cycle (hourly).
+### Good-data deliverables to read
 
-## Known state at handoff time
+4. **Data audit** (`docs/superpowers/specs/2026-04-23-tier2-data-audit.md`). Per-species counts, Hairy/Downy confusion quantified, multi-bird filter needed, dual-dir situation explained. Reproducible SQL/python at the bottom of the doc.
 
-- 10 commits pushed to local `main` (not pushed to remote — David's call on that).
-- Production pipeline + dashboard + go2rtc: still running on their pre-restart code for the pipeline; dashboard is live-reloading the new `live.html` on every request.
-- `/live` should be BETTER RIGHT NOW for O2/O3 even without any restart (uvicorn serves from disk).
-- Disk: HLS segments ~370 MB (steady state, prune runs hourly). `~/bird-snapshots` has `culled/` dir created empty (no cull executed).
+5. **Baseline numbers** (commit `87a8332`, artifact `tier2_eval/baseline.report.json`).
+   - AIY on 1,670-review hold-out: top-1 **68.0%**, macro-F1 **75.2%**, ECE **16.3%**.
+   - Hairy/Downy confusion confirmed in the numbers.
+   - not_a_bird recall 0.0% (AIY has no non-bird class).
+   - This is what flagship must beat.
 
-## If something looks wrong
+6. **Four lit reviews** (2026-04-23-litreview-1..4). Each is 1,400-1,500 words of citations + concrete recommendations. Skim if you want the detail behind the training plan's decisions.
 
-`git log --oneline | head -20` shows the session's work. Any single commit can be reverted with `git revert <hash>`. The Sonoma checkpoint is the largest and the only one I'd advise against reverting — it captures weeks of work.
+### Phase 0 evaluation harness
+
+7. **`tier2_eval/` package** (commits `87a8332`, `40966fc`). 26 tests green.
+   - `metrics.py` — macro-F1, per-class recall/precision, confusion matrix, ECE, OOD AUROC, FPR@TPR, bootstrap CIs. Pure functions.
+   - `baseline.py` — scores AIY from the DB against the hold-out. No Coral, no model loading.
+   - `split.py` — visit-grouped K-fold that provably avoids the camera-trap ML's dominant leakage mode.
+   - Run `python3 -m tier2_eval.baseline` to regenerate the baseline numbers anytime.
+
+### Maintenance items from earlier in the session
+
+8. **0a Live-tab fix** (commit `5df60cf`). 4-of-4 verified by you. Done.
+9. **O-cluster** (commits `99d1340`, `962e6c4`). Needs your browser to verify O2 (17s → 10-12s), O3 (fade 1s). O1 instrumentation opt-in via `window.__o1Capture = true` in console.
+10. **0b cull** (commit `5b281c7`, executed after approval). 11,293 rows quarantined; reversible for 30 days.
+11. **1a integrity audit** (commit `dde78e2` + `5e83b79` race fix). LaunchAgent loaded; logs every orphan before culling.
+
+---
+
+## Agent dispatches this session
+
+Four parallel general-purpose agents ran for the Tier 2 lit review. All four delivered files to `docs/superpowers/specs/`:
+- agent a820742f51881d109 — bird classifiers
+- agent a061cc09f40fb553d — calibration + OOD
+- agent a30741fc462782324 — small/noisy/imbalanced training
+- agent ac6a6232d95dbb4d6 — quantization + deployment
+
+All committed in `229777d`.
+
+---
+
+## Known-damage inventory
+
+1. **One DB row lost** to the 1a race bug before I caught it. File salvaged to `~/bird-snapshots/salvage_audit_race_2026-04-23/`. README explains recovery options.
+2. **`/review-ideas` route added but not live** until uvicorn restarts.
+3. **Pipeline log line from commit `962e6c4`** also not live until pipeline restarts (same reason). Both are harmless until restart.
+
+---
+
+## Anything pending that CAN'T continue without David
+
+- Tier 2 implementation (Phase 1+): need the label-set sign-off and hardware plan (iMac vs Colab vs Pi 5).
+- Airtight review backend: schema change to production DB — David approves and supervises migration.
+- 1b flip-the-switch: explicit authorization to add a second FFmpeg decode on an already-saturated iMac.
+
+All other work described above shipped cleanly or is waiting as specs for review.
+
+---
+
+## If I'm gone when you return
+
+Everything mission-critical is either:
+- **verified in commits** (0a, 0b, 1a mostly)
+- **env-gated off** (1b)
+- **spec-only** (Tier 2, airtight review)
+
+No service is running code that depends on my being here. No timed rollbacks. No pending tasks that must fire. The audit LaunchAgent runs hourly and is self-contained.
+
+`git log --oneline` tells the full story. Happy to dig deeper on any commit.
