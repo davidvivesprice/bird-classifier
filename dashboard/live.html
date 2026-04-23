@@ -139,7 +139,12 @@
   // ── Configuration ──
 
   var DELAY_SECONDS = 8;  // target seconds behind live edge
-  var STALE_MS = 1200;    // time without events before fade-out starts (wider than live because 5s segments)
+  // 2026-04-23: shortened STALE_MS 1200→600 per David's "1s fade-out feels
+  // better" (O3). Total time from last-event-for-a-track to invisible is now
+  // STALE_MS + FADE_OUT_MS = 1.0s (was 1.6s). If labels STILL linger past 1s,
+  // the pipeline is emitting SSE events for tracks whose bird has left frame
+  // — that's a separate investigation noted in plans/2026-04-23-live-overlay-fixes.md.
+  var STALE_MS = 600;
   var FADE_IN_MS = 200;
   var FADE_OUT_MS = 400;
   var LABEL_FONT = '14px system-ui, -apple-system, sans-serif';
@@ -184,11 +189,17 @@
   }
 
   hls = new Hls({
+    // 2026-04-23: tightened from {+10, +15, 10, 1.1} to close the O2 gap
+    // where /live sat ~17s behind live edge instead of the ~10-12s target.
+    // liveMaxLatencyDuration=DELAY_SECONDS+4 forces an hls.js catch-up seek
+    // when drift exceeds 12s (was 18, which tolerated 17s indefinitely).
+    // maxLiveSyncPlaybackRate=1.5 plays at 1.5× during catch-up so the gap
+    // closes in ~8s not ~40s. See plans/2026-04-23-live-overlay-fixes.md.
     liveSyncDuration: DELAY_SECONDS,
-    liveMaxLatencyDuration: DELAY_SECONDS + 10,
-    maxBufferLength: DELAY_SECONDS + 15,
-    backBufferLength: 10,
-    maxLiveSyncPlaybackRate: 1.1,
+    liveMaxLatencyDuration: DELAY_SECONDS + 4,
+    maxBufferLength: DELAY_SECONDS + 8,
+    backBufferLength: 6,
+    maxLiveSyncPlaybackRate: 1.5,
     enableWorker: true,
     lowLatencyMode: false,
     debug: false,
@@ -605,6 +616,35 @@
     // Walk the SSE buffer once, group by track.
     var trackSeries = indexTracksFromBuffer();
     pruneAlphaState(trackSeries);
+
+    // 2026-04-23: O1 diagnostic capture. Opt-in via `window.__o1Capture = true`
+    // in DevTools console — off by default so it adds no steady-state cost.
+    // When David next observes label drift, he can flip the flag, reproduce
+    // the drift, then `JSON.stringify(window.__o1Debug.slice(-10))` gives
+    // 10 frames of anchor math — narrow/wide disagreement, alpha, event
+    // window fill — the evidence required to fix the actual cause instead
+    // of patching blind. See plans/2026-04-23-live-overlay-fixes.md Task 4.
+    if (window.__o1Capture) {
+      window.__o1Debug = window.__o1Debug || [];
+      var trackSnapshot = {};
+      trackSeries.forEach(function(series, trackId) {
+        var narrow = gaussianAt(series.events, displayedWallMs, SIGMA_NARROW_MS);
+        var wide   = gaussianAt(series.events, displayedWallMs, SIGMA_WIDE_MS);
+        var past   = gaussianAt(series.events, displayedWallMs - VEL_LOOKBACK_MS, SIGMA_NARROW_MS);
+        var eventsInWindow = 0;
+        for (var _i = 0; _i < series.events.length; _i++) {
+          if (Math.abs(series.events[_i].wall - displayedWallMs) <= SIGMA_NARROW_MS * 3.2) eventsInWindow++;
+        }
+        trackSnapshot[trackId] = {
+          narrow: narrow, wide: wide, past: past,
+          events_in_narrow_window: eventsInWindow,
+          alpha: _adaptiveAlphaEMA.get(trackId),
+          last_event_age_ms: displayedWallMs - series.lastSeen,
+        };
+      });
+      window.__o1Debug.push({ t: displayedWallMs, snap: trackSnapshot });
+      if (window.__o1Debug.length > 200) window.__o1Debug.shift();
+    }
 
     var placements = [];
     trackSeries.forEach(function(series, trackId) {

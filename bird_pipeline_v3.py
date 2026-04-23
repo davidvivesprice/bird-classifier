@@ -89,6 +89,10 @@ def prune_loop(event_store, hls_root):
             event_store.prune_events(older_than_ms=cutoff)
             event_store.daily_checkpoint()
             HlsRecorder.cleanup_old_chunks(hls_root, retention_days=7)
+            # 2026-04-23: log line so the next regression is observable.
+            # If this stops appearing in ~/Library/Logs/bird-pipeline.log
+            # hourly, the prune thread has died — that's the signal.
+            logging.info("[prune] events pruned + HLS cleanup done (retention 7d)")
         except Exception as e:
             logging.warning("Prune loop error: %s", e)
 
