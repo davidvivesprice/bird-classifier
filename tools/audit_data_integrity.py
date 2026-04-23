@@ -129,21 +129,36 @@ def audit(conn: sqlite3.Connection) -> dict:
                 "found_in": label,
             })
 
-    # Orphan files: JPG under classified/ with no matching DB row.
-    orphan_files: list[str] = []
+    # Orphan files: JPG under classified/ with no matching DB row. Split into:
+    # - "legacy_underscored": files in species dirs whose name contains an
+    #   underscore (e.g. Northern_Cardinal/). 12 species have both the
+    #   underscored dir (old) and the space-named dir (current canonical).
+    #   DB uses space-separated names, so files in the underscored dirs are
+    #   invisible to the DB by design — the deferred dual-directory issue
+    #   from project_forget_me_nots.md, not a data-integrity bug.
+    # - "canonical_orphan": files in a space-named species dir with no DB
+    #   row. THIS is the signal worth raising.
+    legacy_underscored_files: list[str] = []
+    canonical_orphan_files: list[str] = []
     for fname, (label, path) in disk.items():
         if fname in db_files:
             continue
-        if label == "classified":
-            orphan_files.append(str(path))
+        if label != "classified":
+            continue
+        species_dir = path.parent.name
+        if "_" in species_dir:
+            legacy_underscored_files.append(str(path))
+        else:
+            canonical_orphan_files.append(str(path))
 
     return {
         "total_rows_checked": len(rows),
         "disk_files_found": len(disk),
         "orphan_rows": orphan_rows,
         "by_design_orphans": by_design_orphans,
-        "orphan_files_count": len(orphan_files),
-        "orphan_files_sample": orphan_files[:20],
+        "canonical_orphan_files_count": len(canonical_orphan_files),
+        "canonical_orphan_files_sample": canonical_orphan_files[:20],
+        "legacy_underscored_files_count": len(legacy_underscored_files),
         "location_mismatches": location_mismatches,
     }
 
@@ -179,10 +194,12 @@ def main() -> int:
     report = audit(conn)
 
     log.info(
-        "audit: rows=%d disk=%d orphan_rows=%d by_design=%d orphan_files=%d mismatches=%d",
+        "audit: rows=%d disk=%d orphan_rows=%d by_design=%d canonical_orphans=%d legacy_underscored=%d mismatches=%d",
         report["total_rows_checked"], report["disk_files_found"],
         len(report["orphan_rows"]), report["by_design_orphans"],
-        report["orphan_files_count"], len(report["location_mismatches"]),
+        report["canonical_orphan_files_count"],
+        report["legacy_underscored_files_count"],
+        len(report["location_mismatches"]),
     )
     for o in report["orphan_rows"]:
         log.info("orphan_row id=%d file=%s species=%s ts=%s action=%s",
@@ -202,14 +219,15 @@ def main() -> int:
     if args.json:
         print(json.dumps(report, indent=2, default=str))
     else:
-        print(f"rows checked:          {report['total_rows_checked']}")
-        print(f"disk files found:      {report['disk_files_found']}")
-        print(f"orphan rows:           {len(report['orphan_rows'])}  (row expects a file, none on disk)")
-        print(f"  by-design:           {report['by_design_orphans']}  (no_bird/trashed/skipped rows where absence is expected)")
-        print(f"orphan files:          {report['orphan_files_count']}  (not deleted; sample below)")
-        print(f"location mismatches:   {len(report['location_mismatches'])}  (row says classified, file is in trash/culled)")
-        for f in report["orphan_files_sample"]:
-            print(f"  file orphan: {f}")
+        print(f"rows checked:                  {report['total_rows_checked']}")
+        print(f"disk files found:              {report['disk_files_found']}")
+        print(f"orphan rows:                   {len(report['orphan_rows'])}  (row expects a file, none on disk)")
+        print(f"  by-design:                   {report['by_design_orphans']}  (no_bird/trashed/skipped rows where absence is expected)")
+        print(f"canonical orphan files:        {report['canonical_orphan_files_count']}  (file in space-named dir, no DB row — CONCERNING if >0)")
+        print(f"legacy underscored files:      {report['legacy_underscored_files_count']}  (known deferred dual-directory issue, not a bug)")
+        print(f"location mismatches:           {len(report['location_mismatches'])}  (row says classified, file is in trash/culled)")
+        for f in report["canonical_orphan_files_sample"]:
+            print(f"  canonical orphan: {f}")
         for m in report["location_mismatches"][:10]:
             print(f"  mismatch: id={m['id']} file={m['file']} found_in={m['found_in']}")
         if args.cull:
