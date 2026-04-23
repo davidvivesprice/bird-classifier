@@ -27,3 +27,9 @@ yard_model_prev.tflite
 yard_model_prev_labels.txt
 .bird-observatory-env
 .superpowers/
+
+# Runtime logs from maintenance tools (stateful; don't commit)
+tools/*.log
+
+# macOS Spotlight skip marker (user-local, not project state)
+.metadata_never_index
