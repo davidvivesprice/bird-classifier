@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Bird Observatory Integrity Audit — hourly data-integrity check.
+
+  Plan: docs/superpowers/plans/2026-04-22-data-integrity-audit.md
+
+  Runs tools/audit_data_integrity.py --cull once an hour. Logs every
+  orphan row it finds before culling, so the NEXT occurrence of the
+  orphan-row bug is diagnosable (row id + filename + timestamp + species
+  captured before the DELETE).
+
+  Install (requires David's approval):
+      cp tools/com.vives.bird-integrity-audit.plist \
+         ~/Library/LaunchAgents/com.vives.bird-integrity-audit.plist
+      launchctl load ~/Library/LaunchAgents/com.vives.bird-integrity-audit.plist
+
+  Uninstall:
+      launchctl unload ~/Library/LaunchAgents/com.vives.bird-integrity-audit.plist
+      rm ~/Library/LaunchAgents/com.vives.bird-integrity-audit.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vives.bird-integrity-audit</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/vives/bird-classifier/venv/bin/python3</string>
+    <string>/Users/vives/bird-classifier/tools/audit_data_integrity.py</string>
+    <string>--cull</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/vives/Library/Logs/bird-audit.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/vives/Library/Logs/bird-audit.log</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/vives/bird-classifier</string>
+</dict>
+</plist>

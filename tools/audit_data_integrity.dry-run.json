@@ -1,0 +1,31 @@
+{
+  "total_rows_checked": 155033,
+  "disk_files_found": 53807,
+  "orphan_rows": [],
+  "by_design_orphans": 102655,
+  "orphan_files_count": 336,
+  "orphan_files_sample": [
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/feeder_2026-04-12_09-09-40.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/2026-03-05_09-02-31.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/feeder_2026-04-11_13-59-17.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/feeder_2026-03-31_17-54-10.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/ground_2026-04-10_08-06-21_299.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/feeder_2026-04-10_07-42-19_7.jpg",
+    "/Users/vives/bird-snapshots/classified/Hairy_Woodpecker/2026-03-07_06-39-56.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/ground_2026-04-10_09-43-55_388.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/ground_2026-04-10_09-24-19_376.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/ground_2026-04-10_08-06-55_303.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-18_09-31-24.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-19_13-33-07.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/ground_2026-04-10_09-25-57_379.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-20_10-45-51.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-19_06-56-14.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-18_09-31-35.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/ground_2026-04-10_07-38-48.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-04-11_09-07-04.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-03-19_11-01-41.jpg",
+    "/Users/vives/bird-snapshots/classified/House_Finch/feeder_2026-04-11_09-06-53.jpg"
+  ],
+  "location_mismatches": [],
+  "culled": 0
+}
