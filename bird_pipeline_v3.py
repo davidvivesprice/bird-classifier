@@ -196,7 +196,12 @@ def main():
     if PI_MODE:
         from pipeline.model_registry import build_default_registry
         from pipeline.pi_classifier import PiClassifier
-        registry = build_default_registry(str(BASE_DIR / "models"))
+        # The pipeline also owns a Hailo detector slot (YOLOv8 on Hailo),
+        # and Hailo-8L has exactly ONE vdevice. So exclude hailo classifiers
+        # from the registry — they can't coexist with the detector in the
+        # same process. Dashboard lab keeps them available for upload-test.
+        registry = build_default_registry(str(BASE_DIR / "models"),
+                                          exclude_hailo=True)
         classifier = PiClassifier(registry)
         snapshot_writer.classifier = classifier
         log.info("[PI_MODE] PiClassifier ready. Active model: %s", registry.current_name)

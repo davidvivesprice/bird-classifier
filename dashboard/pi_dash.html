@@ -227,6 +227,47 @@
     pointer-events: none;
   }
   canvas.overlay { width: 100%; height: 100%; }
+  /* Recent classifications strip (replaces live feed on Pi) */
+  .recent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .recent-card {
+    display: block;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform .15s, border-color .15s;
+  }
+  .recent-card:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .recent-card img { width: 100%; height: 90px; object-fit: cover; display: block; background: var(--bg-elev); }
+  .recent-meta { padding: 6px 8px; }
+  .recent-sp { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent-ts { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+
+  /* Model switch / restart banner */
+  .switch-banner {
+    padding: 10px 12px;
+    margin: 8px 0;
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    display: none;
+  }
+  .switch-banner.visible { display: block; }
+  .switch-banner .dots::after {
+    content: '…';
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+
   .video-placeholder {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -421,18 +462,13 @@
   </div>
 
   <div class="grid-main">
-    <!-- LEFT: Live + Audio -->
+    <!-- LEFT: Recent classifications + Audio -->
     <div>
       <div class="panel">
-        <h2>Live feed</h2>
-        <div class="sub">Real-time 640×360 substream from the feeder camera. Labels applied by the active classifier.</div>
-        <div class="video-wrap" id="live-wrap">
-          <video id="live-video" muted playsinline autoplay></video>
-          <canvas class="overlay" id="overlay"></canvas>
-          <div class="video-placeholder" id="video-placeholder">
-            <div class="big">📷</div>
-            <div>Connecting to feeder camera…</div>
-          </div>
+        <h2>Recent classifications</h2>
+        <div class="sub">Last 8 birds the pipeline classified. Hi-res snapshots stored for review + training.</div>
+        <div class="recent-grid" id="recent-grid">
+          <div style="padding: 18px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 12px;">Loading…</div>
         </div>
       </div>
 
@@ -450,6 +486,9 @@
       <div class="panel">
         <h2>Model Lab</h2>
         <div class="sub">Switch between classifier candidates. The active one drives live labels. All run on this Pi — no Coral.</div>
+        <div class="switch-banner" id="switch-banner">
+          <span id="switch-msg">Restarting pipeline</span><span class="dots"></span>
+        </div>
         <div class="model-list" id="model-list">
           <div style="padding: 24px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 13px;">
             Loading candidates…
@@ -514,33 +553,34 @@
     }, 2200);
   };
 
-  // ── Live video — HLS from the Pi's pipeline recording ─────────────
-  // For instant video, use the go2rtc WebSocket path. Pure HLS takes 10s to start.
-  // We'll try video-rtc.js if available; otherwise fall back to the existing HLS.
-  const videoEl = document.getElementById('live-video');
-  const placeholder = document.getElementById('video-placeholder');
-  videoEl.addEventListener('playing', () => { placeholder.style.display = 'none'; });
-  videoEl.addEventListener('loadeddata', () => { placeholder.style.display = 'none'; });
-
-  // Try HLS via hls.js first (same pattern as the iMac /live page)
-  function loadVideo() {
-    const src = '/api/hls-live/feeder/live.m3u8';
-    if (window.Hls && window.Hls.isSupported()) {
-      const hls = new window.Hls({ liveSyncDuration: 8, lowLatencyMode: false });
-      hls.loadSource(src);
-      hls.attachMedia(videoEl);
-    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-      videoEl.src = src;
-    } else {
-      placeholder.innerHTML = '<div class="big">📷</div><div>No HLS support in this browser</div>';
+  // ── Recent classifications strip ──────────────────────────────────
+  // Shows the last 8 classified birds as thumbnails. Refreshed every 10s.
+  // Replaces the Pi's live-feed panel (HLS was flaky, not worth debugging
+  // when the real signal is "what's the pipeline classifying right now").
+  const recentGrid = document.getElementById('recent-grid');
+  async function loadRecent() {
+    try {
+      const r = await fetch('/api/review2/queue?limit=8');
+      const d = await r.json();
+      if (!d.items || d.items.length === 0) {
+        recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No pending birds yet. Pipeline warming up?</div>';
+        return;
+      }
+      recentGrid.innerHTML = d.items.map(it => {
+        const sp = it.species || '—';
+        const conf = Math.round((it.confidence || 0) * 100);
+        const ts = (it.source_timestamp || '').slice(11, 19); // HH:MM:SS
+        return '<a href="/bird-api/image/' + encodeURIComponent(it.file)
+          + '" target="_blank" class="recent-card">'
+          + '<img src="/bird-api/image-crop/' + encodeURIComponent(it.file) + '" loading="lazy">'
+          + '<div class="recent-meta"><div class="recent-sp">' + sp
+          + '</div><div class="recent-ts">' + ts + ' · ' + conf + '%</div></div>'
+          + '</a>';
+      }).join('');
+    } catch (e) {
+      recentGrid.innerHTML = '<div style="padding:18px;color:var(--danger);font-size:12px;">Error: ' + e.message + '</div>';
     }
   }
-  // Dynamically load hls.js
-  const hlsScript = document.createElement('script');
-  hlsScript.src = 'https://cdn.jsdelivr.net/npm/hls.js@1';
-  hlsScript.onload = loadVideo;
-  hlsScript.onerror = () => { placeholder.innerHTML = '<div class="big">📷</div><div>Failed to load HLS player</div>'; };
-  document.head.appendChild(hlsScript);
 
   // ── Model Lab ─────────────────────────────────────────────────────
   const modelList = document.getElementById('model-list');
@@ -582,21 +622,56 @@
     }
   }
 
+  const switchBanner = document.getElementById('switch-banner');
+  const switchMsg = document.getElementById('switch-msg');
+
   async function switchModel(name) {
-    toast('Switching to ' + name + '…');
+    switchBanner.classList.add('visible');
+    switchMsg.textContent = 'Restarting pipeline to load ' + name;
+    toast('Switching to ' + name + ' — pipeline restart in progress');
     try {
       const r = await fetch('/api/models/switch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
       const d = await r.json();
-      if (r.ok) {
-        toast('Active: ' + d.current, 'good');
+      if (!r.ok) {
+        switchBanner.classList.remove('visible');
+        toast('Error: ' + (d.detail || 'switch failed'), 'bad');
+        return;
+      }
+      // Pi path returns {restart_in_progress: true}. Poll /api/models/list
+      // until `current === name` (pipeline has come back up with the new
+      // classifier). Timeout at 30s → warn but don't crash.
+      if (d.restart_in_progress) {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1500));
+          try {
+            const check = await fetch('/api/models/list');
+            const cd = await check.json();
+            if (cd.current === name) {
+              switchBanner.classList.remove('visible');
+              toast('Active: ' + name + ' (pipeline restarted)', 'good');
+              loadModels();
+              return;
+            }
+          } catch (e) {
+            // dashboard itself might briefly flicker if restart cascade
+            // affects it; just keep polling.
+          }
+        }
+        switchBanner.classList.remove('visible');
+        toast('Timed out waiting for pipeline restart — check logs', 'bad');
         loadModels();
       } else {
-        toast('Error: ' + (d.detail || 'switch failed'), 'bad');
+        // iMac path — in-process switch, already done.
+        switchBanner.classList.remove('visible');
+        toast('Active: ' + (d.current || name), 'good');
+        loadModels();
       }
     } catch (e) {
+      switchBanner.classList.remove('visible');
       toast('Error: ' + e.message, 'bad');
     }
   }
@@ -659,7 +734,9 @@
   // ── Init ──────────────────────────────────────────────────────────
   loadModels();
   pollStats();
+  loadRecent();
   setInterval(pollStats, 5000);
+  setInterval(loadRecent, 10000);
 })();
 </script>
 </body>

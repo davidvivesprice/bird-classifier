@@ -3235,6 +3235,34 @@
     return 'var(--accent-red)';
   }
 
+  // Client-side idempotency key for /api/review2/* endpoints. A random
+  // UUID per mutation protects against double-submit (network retry, fast
+  // double-click). Reused across a single user action's retries, but unique
+  // per new action. Falls back to Math.random when crypto.randomUUID is
+  // unavailable.
+  function _reviewClientId() {
+    try { return crypto.randomUUID(); }
+    catch (_) {
+      return 'r-' + Date.now().toString(36) + '-'
+             + Math.random().toString(36).slice(2, 10);
+    }
+  }
+
+  // Airtight review POST helper. Body is JSON; response is parsed.
+  // Caller passes verdict/correct_species/etc. in `payload`; we attach a
+  // fresh client_id and a `reviewer` default. Returns the parsed JSON or
+  // throws on HTTP error.
+  async function reviewSubmit2(filename, payload) {
+    var body = Object.assign({ client_id: _reviewClientId() }, payload);
+    var resp = await fetch('/bird-api/review2/' + encodeURIComponent(filename), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return await resp.json();
+  }
+
   async function apiFetch(url, opts) {
     opts = opts || {};
     var timeout = opts.timeout || 15000;
@@ -3659,7 +3687,11 @@
     }
 
     try {
-      var resp = await apiFetch('/bird-api/review/second-opinion/' + encodeURIComponent(file), {method: 'POST'});
+      var resp = await apiFetch('/bird-api/review2/second-opinion/' + encodeURIComponent(file), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ client_id: _reviewClientId() }),
+      });
       if (resp.status === 'ok') {
         if (btn) {
           btn.textContent = '✅ Saved!';
@@ -3701,15 +3733,11 @@
       lightboxToggleWrongDropdown();
       return;
     }
-    var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
-    if (correctSpecies) {
-      url += '&correct_species=' + encodeURIComponent(correctSpecies);
-    }
-    if (verdict === 'reclassify') {
-      url += '&missed_birds=true';
-    }
+    var payload = { verdict: verdict };
+    if (correctSpecies) payload.correct_species = correctSpecies;
+    if (verdict === 'reclassify') payload.missed_birds = true;
     try {
-      await fetch(url, { method: 'POST' });
+      await reviewSubmit2(lightboxFile, payload);
       var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
       _updateGridCard(lightboxFile, verdict, correctSpecies);
@@ -3758,9 +3786,8 @@
     var sel = document.getElementById('lb-wrong-species');
     var species = sel.value;
     if (!species) { showToast('Select a species first', 'error'); return; }
-    var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=wrong&correct_species=' + encodeURIComponent(species);
     try {
-      await fetch(url, { method: 'POST' });
+      await reviewSubmit2(lightboxFile, { verdict: 'wrong', correct_species: species });
       showToast('Corrected to: ' + species, 'success');
       _updateGridCard(lightboxFile, 'wrong', species);
       if (lightboxDetectionList.length > 1) {
@@ -4860,7 +4887,11 @@
     btn.disabled = true;
     btn.textContent = 'Rerunning ' + count + ' files...';
     try {
-      var resp = await fetch('/bird-api/review/rerun-missed', { method: 'POST' });
+      var resp = await fetch('/bird-api/review2/rerun-missed', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ client_id: _reviewClientId() }),
+      });
       var data = await resp.json();
       var msg = data.message;
       if (data.moved > 0) msg += '\n\nFiles are now in the incoming queue. The classifier will pick them up automatically — check back in a few minutes.';
@@ -5229,10 +5260,10 @@
     if (lightboxFile) {
       var pred = lightboxSpeciesName;
       var verdict = (species === pred) ? 'correct' : 'wrong';
-      var url = '/bird-api/review/' + encodeURIComponent(lightboxFile) + '?verdict=' + verdict;
-      if (verdict === 'wrong') url += '&correct_species=' + encodeURIComponent(species);
+      var payload = { verdict: verdict };
+      if (verdict === 'wrong') payload.correct_species = species;
       try {
-        await fetch(url, { method: 'POST' });
+        await reviewSubmit2(lightboxFile, payload);
         showToast(verdict === 'correct' ? 'Confirmed: ' + species : 'Corrected to: ' + species, 'success');
         // Auto-advance to next detection in lightbox
         if (lightboxDetectionList.length > 1) {
@@ -5253,11 +5284,11 @@
     var item = pendingReview[reviewIndex];
     var pred = item.species || '';
     var verdict = (species === pred) ? 'correct' : 'wrong';
-    var url = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=' + verdict;
-    if (verdict === 'wrong') url += '&correct_species=' + encodeURIComponent(species);
-    if (selectedBirdIndex > 0) url += '&bird_index=' + selectedBirdIndex;
+    var payload = { verdict: verdict };
+    if (verdict === 'wrong') payload.correct_species = species;
+    if (selectedBirdIndex > 0) payload.bird_index = selectedBirdIndex;
     try {
-      await fetch(url, { method: 'POST' });
+      await reviewSubmit2(item.file, payload);
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
@@ -5540,11 +5571,11 @@
     if (reviewIndex >= pendingReview.length) return;
     const item = pendingReview[reviewIndex];
     try {
-      var url = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=' + verdict;
-      if (correctSpecies) url += '&correct_species=' + encodeURIComponent(correctSpecies);
-      if (verdict === 'reclassify') url += '&missed_birds=true';
-      if (selectedBirdIndex > 0) url += '&bird_index=' + selectedBirdIndex;
-      await fetch(url, { method: 'POST' });
+      var payload = { verdict: verdict };
+      if (correctSpecies) payload.correct_species = correctSpecies;
+      if (verdict === 'reclassify') payload.missed_birds = true;
+      if (selectedBirdIndex > 0) payload.bird_index = selectedBirdIndex;
+      await reviewSubmit2(item.file, payload);
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
@@ -5616,9 +5647,9 @@
     if (reviewIndex >= pendingReview.length) return;
     const item = pendingReview[reviewIndex];
     try {
-      var wrongUrl = '/bird-api/review/' + encodeURIComponent(item.file) + '?verdict=wrong&correct_species=' + encodeURIComponent(species);
-      if (selectedBirdIndex > 0) wrongUrl += '&bird_index=' + selectedBirdIndex;
-      await fetch(wrongUrl, { method: 'POST' });
+      var payload = { verdict: 'wrong', correct_species: species };
+      if (selectedBirdIndex > 0) payload.bird_index = selectedBirdIndex;
+      await reviewSubmit2(item.file, payload);
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
@@ -6886,10 +6917,10 @@
   function batchConfirmSelected() {
     if (_batchSelected.size === 0) return;
     var files = Array.from(_batchSelected);
-    fetch('/bird-api/review/batch-confirm', {
+    fetch('/bird-api/review2/batch-confirm', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(files),
+      body: JSON.stringify({ files: files, client_id: _reviewClientId() }),
     })
       .then(function(r) { return r.json(); })
       .then(function(data) {

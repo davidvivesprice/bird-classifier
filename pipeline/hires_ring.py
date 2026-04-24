@@ -114,12 +114,15 @@ class HiResRingBuffer:
 
 
 import logging  # noqa: E402
+import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
 import cv2  # noqa: E402
 
 _log = logging.getLogger(__name__)
-_FFMPEG = "/usr/local/bin/ffmpeg"
+# 2026-04-25: resolve ffmpeg at import time so Pi (apt ffmpeg at /usr/bin/ffmpeg)
+# and iMac (homebrew /usr/local/bin/ffmpeg) both work without a rebuild.
+_FFMPEG = shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
 _WATCHDOG_STALL_MS = 15_000
 _WATCHDOG_CHECK_S = 3.0
 

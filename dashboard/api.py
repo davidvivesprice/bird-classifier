@@ -1241,68 +1241,22 @@ def review_batch(species: str = "", trust: str = "", limit: int = 12):
     }
 
 
+# 2026-04-25: legacy batch-confirm + batch-reject RETIRED — they used raw
+# INSERT OR IGNORE INTO reviews and bypassed review_history. Replaced by
+# /api/review2/batch-confirm and /api/review2/batch-reject which use
+# insert_review per file. These stubs return 410 Gone if anything external
+# still hits them.
+
 @app.post("/api/review/batch-confirm")
-async def batch_confirm(request: StarletteRequest):
-    """Confirm multiple images at once. All files marked as 'correct'."""
-    try:
-        files = await request.json()
-    except Exception:
-        files = []
-    if not isinstance(files, list):
-        files = []
-    if not files:
-        return {"confirmed": 0}
-    rw_conn = rdb.get_conn(readonly=False)
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    count = 0
-    for f in files:
-        try:
-            rw_conn.execute(
-                "INSERT OR IGNORE INTO reviews (file, verdict, timestamp, reviewer) "
-                "VALUES (?, 'correct', ?, 'batch-review')",
-                (f, now_ts),
-            )
-            count += 1
-        except Exception:
-            pass
-    rw_conn.commit()
-    if count:
-        invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
-    return {"confirmed": count}
+async def batch_confirm_retired():
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/batch-confirm (JSON body: {files, client_id?})")
 
 
 @app.post("/api/review/batch-reject")
-async def batch_reject(request: StarletteRequest):
-    """Reject multiple images and optionally set the correct species."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    files = body.get("files", []) if isinstance(body, dict) else body
-    correct_species = body.get("correct_species", "") if isinstance(body, dict) else ""
-    if not files:
-        return {"rejected": 0}
-    correct = normalize_species(correct_species) if correct_species else ""
-    rw_conn = rdb.get_conn(readonly=False)
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    count = 0
-    for f in files:
-        try:
-            rw_conn.execute(
-                "INSERT OR IGNORE INTO reviews (file, verdict, correct_species, timestamp, reviewer) "
-                "VALUES (?, 'wrong', ?, ?, 'batch-review')",
-                (f, correct, now_ts),
-            )
-            count += 1
-        except Exception:
-            pass
-    rw_conn.commit()
-    # Move files to match rejection
-    for f in files:
-        apply_verdict(f, "wrong", correct)
-    if count:
-        invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
-    return {"rejected": count, "correct_species": correct}
+async def batch_reject_retired():
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/batch-reject (JSON body: {files, correct_species?, client_id?})")
 
 
 @app.get("/api/activity/daily-rhythm")
@@ -1834,58 +1788,13 @@ def get_image_crop(filename: str, box: str = ""):
 SECOND_OPINION_DIR = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Second Opinion"
 
 
+# 2026-04-25: legacy /api/review/second-opinion/{filename} RETIRED.
+# Replaced by /api/review2/second-opinion/{filename}.
+
 @app.post("/api/review/second-opinion/{filename}")
-def save_second_opinion(filename: str):
-    """Save a cropped bird image to the second-opinion folder for external ID (e.g., Merlin app).
-
-    Crops the bird from the raw classified image using the bounding box from the DB.
-    Saves as {species}_{timestamp}.jpg for easy browsing on a phone.
-    """
-    import io
-    from PIL import Image as PILImage
-
-    safe_name = os.path.basename(filename)
-    path = _find_any_image(safe_name)
-    if not path:
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    # Get bounding box from DB
-    entry = cdb.get_entry_by_file(safe_name)
-    if not entry or not entry.get("best_detection"):
-        raise HTTPException(status_code=400, detail="No detection data for this image")
-
-    box = entry["best_detection"].get("box")
-    species = entry.get("common_name", "unknown")
-
-    img = PILImage.open(path)
-    w, h = img.size
-
-    if box:
-        x1, y1, x2, y2 = [int(b) for b in box]
-        # 15% padding for context
-        bw, bh = x2 - x1, y2 - y1
-        pad_x, pad_y = int(bw * 0.15), int(bh * 0.15)
-        x1 = max(0, x1 - pad_x)
-        y1 = max(0, y1 - pad_y)
-        x2 = min(w, x2 + pad_x)
-        y2 = min(h, y2 + pad_y)
-        crop = img.crop((x1, y1, x2, y2))
-    else:
-        crop = img
-
-    SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Name: species_timestamp.jpg (easy to browse on phone)
-    safe_species = species.replace(" ", "_").replace("'", "")
-    ts = entry.get("source_timestamp", "").replace(" ", "_").replace(":", "-")
-    out_name = f"{safe_species}_{ts}.jpg"
-    out_path = SECOND_OPINION_DIR / out_name
-    crop.save(str(out_path), quality=95)
-    img.close()
-    crop.close()
-
-    logging.info("Second opinion saved: %s → %s", safe_name, out_name)
-    return {"status": "ok", "saved": out_name, "path": str(out_path)}
+def save_second_opinion_retired(filename: str):
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/second-opinion/{filename}")
 
 
 @app.get("/api/review/second-opinion")
@@ -1999,49 +1908,13 @@ def rerun_count():
     return {"count": len(reclassify_reviews)}
 
 
+# 2026-04-25: legacy /api/review/rerun-missed RETIRED.
+# Replaced by /api/review2/rerun-missed (accepts optional client_id).
+
 @app.post("/api/review/rerun-missed")
-def rerun_missed():
-    """Move all reclassify-flagged files back to incoming/ for reprocessing.
-
-    For each file with verdict=reclassify:
-    1. Find in classified/*/ → move to incoming/
-    2. Delete annotated version (new one will be generated)
-    3. Write verdict=requeued entry so it shows as pending after re-classification
-    """
-    flagged_reviews = rdb.get_reviews_by_verdict("reclassify")
-    flagged = [r["file"] for r in flagged_reviews]
-
-    INCOMING_DIR.mkdir(parents=True, exist_ok=True)
-    moved = 0
-    not_found = 0
-
-    for fname in flagged:
-        src = _find_classified_file(fname)
-        if src:
-            dst = INCOMING_DIR / fname
-            shutil.move(str(src), str(dst))
-            ann = ANNOTATED_DIR / fname
-            if ann.exists():
-                ann.unlink()
-            moved += 1
-        else:
-            not_found += 1
-
-        requeue_entry = {
-            "file": fname,
-            "verdict": "requeued",
-            "correct_species": "",
-            "missed_birds": False,
-            "bird_index": 0,
-            "timestamp": datetime.now().isoformat(),
-        }
-        rdb.insert_review(requeue_entry)
-
-    return {
-        "moved": moved,
-        "not_found": not_found,
-        "message": f"Requeued {moved} files for reclassification" + (f" ({not_found} not found on disk)" if not_found else ""),
-    }
+def rerun_missed_retired():
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/rerun-missed")
 
 
 @app.get("/api/review/goals")
@@ -2076,17 +1949,13 @@ def review_goals(threshold: int = 50, camera: str = ""):
     }
 
 
+# 2026-04-25: legacy /api/review/{filename} RETIRED.
+# UI migrated to /api/review2/{filename} (JSON body, client_id idempotent).
+
 @app.post("/api/review/{filename}")
-def submit_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
-    """Submit a review verdict for a classification."""
-    review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
-    rdb.insert_review(review)
-    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
-
-    # Move files + update DB to match verdict
-    apply_verdict(review["file"], verdict, review.get("correct_species", ""))
-
-    return {"status": "ok", "review": review}
+def submit_review_retired(filename: str):
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/{filename} (JSON body: {verdict, correct_species?, client_id?})")
 
 
 # ── Airtight review API (2026-04-24) ──
@@ -2094,6 +1963,189 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
 # idempotency. DB write happens first (via reviews_db.insert_review which
 # appends to review_history and upserts reviews), then file move via
 # apply_verdict. See docs/superpowers/specs/2026-04-23-airtight-review-system.md
+#
+# IMPORTANT: specific routes (batch-confirm, batch-reject, etc.) must be
+# declared BEFORE the catch-all /api/review2/{filename} so FastAPI's
+# first-match router doesn't swallow them as filename="batch-confirm".
+
+
+@app.post("/api/review2/batch-confirm")
+async def batch_confirm2(body: dict = Body(default=None)):
+    """Airtight bulk confirm. Body: {files: list, client_id?}.
+
+    Writes one review_history row per file (verdict='correct') via
+    reviews_db.insert_review. This replaces the legacy /api/review/batch-confirm
+    which used raw SQL and bypassed the audit trail.
+
+    Idempotency: pass a `client_id` (e.g. a UUID v4 generated client-side).
+    Each file gets its own per-file client_id of `{client_id}:{filename}` so
+    replays are no-ops at the file level.
+    """
+    body = body or {}
+    files = body.get("files") or []
+    if not isinstance(files, list):
+        files = []
+    client_id = body.get("client_id")
+    count = 0
+    for fname in files:
+        try:
+            review = _create_review_entry(fname, "correct", "", "false", "0")
+            review["reviewer"] = "batch-review"
+            if client_id:
+                review["client_id"] = f"{client_id}:{fname}"
+            rdb.insert_review(review)
+            count += 1
+        except Exception as e:
+            logging.warning("batch-confirm2 failed for %s: %s", fname, e)
+    if count:
+        invalidate_cache("stats:", "species:", "goals:", "highlights:",
+                         "profile:", "weekly_snapshot")
+    return {"confirmed": count}
+
+
+@app.post("/api/review2/batch-reject")
+async def batch_reject2(body: dict = Body(default=None)):
+    """Airtight bulk reject. Body: {files: list, correct_species?, client_id?}.
+
+    Writes one review_history row per file (verdict='wrong') and calls
+    apply_verdict to move files into the correct species directory (or trash
+    if correct_species == 'not_a_bird'). Replaces the legacy raw-SQL version.
+    """
+    body = body or {}
+    files = body.get("files") or []
+    if not isinstance(files, list):
+        files = []
+    correct_species_raw = body.get("correct_species", "")
+    client_id = body.get("client_id")
+    # Preserve the 'not_a_bird' sentinel through normalize_species.
+    if correct_species_raw == "not_a_bird":
+        correct = "not_a_bird"
+    else:
+        correct = normalize_species(correct_species_raw) if correct_species_raw else ""
+    count = 0
+    for fname in files:
+        try:
+            review = _create_review_entry(fname, "wrong", correct, "false", "0")
+            review["reviewer"] = "batch-review"
+            if client_id:
+                review["client_id"] = f"{client_id}:{fname}"
+            result = rdb.insert_review(review)
+            # apply_verdict only on non-duplicates to keep idempotency honest.
+            if not result.get("duplicate"):
+                apply_verdict(fname, "wrong", correct)
+            count += 1
+        except Exception as e:
+            logging.warning("batch-reject2 failed for %s: %s", fname, e)
+    if count:
+        invalidate_cache("stats:", "species:", "goals:", "highlights:",
+                         "profile:", "weekly_snapshot")
+    return {"rejected": count, "correct_species": correct}
+
+
+@app.post("/api/review2/rerun-missed")
+def rerun_missed2(body: dict = Body(default=None)):
+    """Airtight rerun-missed. Body: {client_id?}.
+
+    For each file with verdict=reclassify:
+    1. Move from classified/*/ → incoming/
+    2. Delete annotated copy
+    3. Write verdict=requeued review_history row via insert_review
+    """
+    body = body or {}
+    client_id = body.get("client_id")
+
+    flagged_reviews = rdb.get_reviews_by_verdict("reclassify")
+    flagged = [r["file"] for r in flagged_reviews]
+
+    INCOMING_DIR.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    not_found = 0
+
+    for fname in flagged:
+        src = _find_classified_file(fname)
+        if src:
+            dst = INCOMING_DIR / fname
+            shutil.move(str(src), str(dst))
+            ann = ANNOTATED_DIR / fname
+            if ann.exists():
+                ann.unlink()
+            moved += 1
+        else:
+            not_found += 1
+
+        requeue_entry = {
+            "file": fname,
+            "verdict": "requeued",
+            "correct_species": "",
+            "missed_birds": False,
+            "bird_index": 0,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if client_id:
+            requeue_entry["client_id"] = f"{client_id}:{fname}"
+        rdb.insert_review(requeue_entry)
+
+    if moved:
+        invalidate_cache("stats:", "species:", "goals:", "highlights:",
+                         "profile:", "weekly_snapshot")
+    return {
+        "moved": moved,
+        "not_found": not_found,
+        "message": f"Requeued {moved} files for reclassification"
+                   + (f" ({not_found} not found on disk)" if not_found else ""),
+    }
+
+
+@app.post("/api/review2/second-opinion/{filename}")
+def save_second_opinion2(filename: str, body: dict = Body(default=None)):
+    """Airtight second-opinion: save a cropped bird image for external ID.
+
+    This is not a DB mutation — it's a file save. Idempotency here is "same
+    file name wins, last write stays". Body is optional; {client_id?} is
+    accepted for future use but not required (crop is always safe to rewrite).
+    """
+    import io
+    from PIL import Image as PILImage
+
+    safe_name = os.path.basename(filename)
+    path = _find_any_image(safe_name)
+    if not path:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    entry = cdb.get_entry_by_file(safe_name)
+    if not entry or not entry.get("best_detection"):
+        raise HTTPException(status_code=400, detail="No detection data for this image")
+
+    box = entry["best_detection"].get("box")
+    species = entry.get("common_name", "unknown")
+
+    img = PILImage.open(path)
+    w, h = img.size
+
+    if box:
+        x1, y1, x2, y2 = [int(b) for b in box]
+        bw, bh = x2 - x1, y2 - y1
+        pad_x, pad_y = int(bw * 0.15), int(bh * 0.15)
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+        crop = img.crop((x1, y1, x2, y2))
+    else:
+        crop = img
+
+    SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
+    safe_species = species.replace(" ", "_").replace("'", "")
+    ts = entry.get("source_timestamp", "").replace(" ", "_").replace(":", "-")
+    out_name = f"{safe_species}_{ts}.jpg"
+    out_path = SECOND_OPINION_DIR / out_name
+    crop.save(str(out_path), quality=95)
+    img.close()
+    crop.close()
+
+    logging.info("Second opinion saved: %s → %s", safe_name, out_name)
+    return {"status": "ok", "saved": out_name, "path": str(out_path)}
+
 
 @app.post("/api/review2/{filename}")
 def submit_review2(filename: str, body: dict = Body(...)):
@@ -2202,40 +2254,178 @@ def review2_queue(limit: int = 20, after: str = "", species: str = "",
 
 # ── Model Lab: registry of candidate classifiers for A/B demo ──
 # Lazily-built so it doesn't slow dashboard startup if models aren't present.
-_model_registry = None
+# Two views:
+#   _lab_registry: for the upload-test box. Exposes all candidates including
+#     Hailo ones (classifier runs alone in this code path).
+#   _pipeline_view_registry: for "what can the live pipeline actually use".
+#     Excludes Hailo candidates because the pipeline also owns a Hailo
+#     detector slot (Hailo-8L has 1 vdevice). Used by /api/models/list and
+#     the /switch validation.
+_lab_registry = None
+_pipeline_view_registry = None
 
 
 def _get_model_registry():
-    global _model_registry
-    if _model_registry is None:
+    """Lab registry (includes Hailo candidates for upload-test)."""
+    global _lab_registry
+    if _lab_registry is None:
         import sys
         from pathlib import Path
         repo = Path(__file__).resolve().parent.parent
         if str(repo) not in sys.path:
             sys.path.insert(0, str(repo))
         from pipeline.model_registry import build_default_registry
-        _model_registry = build_default_registry(str(repo / "models"))
-    return _model_registry
+        _lab_registry = build_default_registry(str(repo / "models"))
+    return _lab_registry
+
+
+def _get_pipeline_view_registry():
+    """Registry reflecting the PIPELINE's constraints: on Pi, the pipeline
+    owns the Hailo detector, so Hailo classifiers are shown as unavailable."""
+    global _pipeline_view_registry
+    if _pipeline_view_registry is None:
+        import sys
+        from pathlib import Path
+        repo = Path(__file__).resolve().parent.parent
+        if str(repo) not in sys.path:
+            sys.path.insert(0, str(repo))
+        from pipeline.model_registry import build_default_registry
+        # On Pi, pipeline has hailo detector → exclude hailo classifiers.
+        # On iMac, no hailo at all, so exclude_hailo is a no-op (no hailo
+        # candidates are available anyway).
+        exclude = os.environ.get("PI_MODE", "0") == "1"
+        _pipeline_view_registry = build_default_registry(
+            str(repo / "models"), exclude_hailo=exclude,
+        )
+    return _pipeline_view_registry
+
+
+def _pi_active_classifier() -> Optional[str]:
+    """Read the pipeline's active classifier on Pi by parsing the env file.
+
+    The dashboard's in-process registry is for the Lab's upload-test only.
+    The PIPELINE process owns the real classifier — and its startup selection
+    is driven by PI_CLASSIFIER in ~/.bird-observatory-env. That file is the
+    single source of truth for what's classifying birds right now.
+    """
+    env_path = Path.home() / ".bird-observatory-env"
+    if not env_path.exists():
+        return None
+    for ln in env_path.read_text().splitlines():
+        if ln.strip().startswith("PI_CLASSIFIER="):
+            return ln.split("=", 1)[1].strip()
+    return None
 
 
 @app.get("/api/models/list")
 def api_models_list():
-    """List candidate classifiers + which one is currently loaded in the Lab."""
+    """List candidate classifiers + which one drives the live pipeline.
+
+    On Pi (PI_MODE=1): `current` is the pipeline's classifier as recorded
+    in ~/.bird-observatory-env (PI_CLASSIFIER=...). The Lab's in-process
+    registry is irrelevant for "what's classifying birds right now"; it's
+    only for upload-test. If the pipeline is mid-restart, `current` is
+    still the target name — the pipeline will match it when it comes back.
+
+    On iMac: `current` is the Lab's in-process registry.
+    """
     try:
-        r = _get_model_registry()
-        return {"current": r.current_name, "candidates": r.list()}
+        # Use the pipeline-view registry so availability reflects what the
+        # live pipeline can actually run.
+        r = _get_pipeline_view_registry()
+        candidates = r.list()
+        if os.environ.get("PI_MODE", "0") == "1":
+            pi_active = _pi_active_classifier()
+            # Mark the pipeline's active one as active in the UI.
+            for c in candidates:
+                c["active"] = (c["name"] == pi_active)
+            return {"current": pi_active, "candidates": candidates}
+        return {"current": r.current_name, "candidates": candidates}
     except Exception as e:
         return JSONResponse({"error": str(e), "candidates": []}, status_code=500)
 
 
+def _pi_update_env_classifier(name: str) -> dict:
+    """On the Pi, rewrite ~/.bird-observatory-env so PI_CLASSIFIER=<name>, then
+    systemctl-restart bird-pipeline so the running pipeline picks it up.
+
+    This is the "reboot-based hot-swap": not true live IPC, but a real switch
+    — the actual running classifier changes after ~5-10 seconds. Honest.
+
+    Returns {ok: True, restart_in_progress: True} on success, or raises.
+    """
+    import subprocess
+    env_path = Path.home() / ".bird-observatory-env"
+    if not env_path.exists():
+        # First-time: create with just the classifier line.
+        env_path.write_text(f"PI_CLASSIFIER={name}\n")
+    else:
+        # Rewrite: update PI_CLASSIFIER=... in place (preserve other vars).
+        lines = env_path.read_text().splitlines()
+        new_lines = []
+        found = False
+        for ln in lines:
+            if ln.strip().startswith("PI_CLASSIFIER="):
+                new_lines.append(f"PI_CLASSIFIER={name}")
+                found = True
+            else:
+                new_lines.append(ln)
+        if not found:
+            new_lines.append(f"PI_CLASSIFIER={name}")
+        env_path.write_text("\n".join(new_lines) + "\n")
+    # Restart the pipeline via systemd-user.
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "restart", "bird-pipeline"],
+            check=True, capture_output=True, timeout=10,
+        )
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"systemctl restart failed: {e.stderr.decode('utf-8', 'replace')[:200]}"
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500, detail="systemctl not available on this host"
+        )
+    return {"ok": True, "restart_in_progress": True, "active": name}
+
+
 @app.post("/api/models/switch")
 def api_models_switch(body: dict = Body(...)):
-    """Switch the Lab's currently-loaded model. Body: {name: str}."""
+    """Switch the live pipeline's classifier.
+
+    On Pi (PI_MODE=1): writes PI_CLASSIFIER=<name> to ~/.bird-observatory-env
+    and `systemctl --user restart bird-pipeline`. The running classifier
+    actually changes after the restart (~5-10s). Returns
+    {ok, restart_in_progress: True, active}.
+
+    On iMac (no PI_MODE): in-process switch of the dashboard's lab registry.
+    Returns {ok, current, noop?}.
+
+    Body: {name: str}.
+    """
     name = (body or {}).get("name")
     if not name:
         raise HTTPException(status_code=400, detail="name required")
-    r = _get_model_registry()
-    result = r.switch(name)
+    # Validate against the PIPELINE-view registry — on Pi this rejects Hailo
+    # classifiers because they'd conflict with the Hailo detector slot.
+    r = _get_pipeline_view_registry()
+    cand = r.candidates.get(name)
+    if cand is None:
+        raise HTTPException(status_code=400, detail=f"unknown model: {name}")
+    if cand.is_placeholder() or not cand.available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"not available: {name} ({cand.notes or 'no availability reason'})",
+        )
+
+    if os.environ.get("PI_MODE", "0") == "1":
+        return _pi_update_env_classifier(name)
+    # iMac path: in-process switch via the lab registry too (so upload-test
+    # reflects the new choice).
+    lab = _get_model_registry()
+    result = lab.switch(name)
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "switch failed"))
     return result
@@ -2306,14 +2496,14 @@ def review_classified(species: str = "", verdict: str = "", limit: int = 50, off
     return {"items": items, "total": total, "species_list": species_list}
 
 
+# 2026-04-25: legacy /api/review/{filename}/update RETIRED.
+# UI migrated to /api/review2/{filename} which handles updates via
+# append-only review_history (newest row wins in the reviews cache).
+
 @app.post("/api/review/{filename}/update")
-def update_review(filename: str, verdict: str, correct_species: str = "", missed_birds: str = "false", bird_index: str = "0"):
-    """Update an existing review verdict."""
-    review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
-    rdb.insert_review(review)
-    apply_verdict(filename, verdict, normalize_species(correct_species) if correct_species else "")
-    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
-    return {"status": "ok", "review": review}
+def update_review_retired(filename: str):
+    raise HTTPException(status_code=410,
+                        detail="Use /api/review2/{filename}")
 
 
 @app.get("/api/dates")

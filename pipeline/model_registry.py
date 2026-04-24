@@ -17,10 +17,11 @@ where each dict has at least {common_name: str, scientific_name: str, raw_score:
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ def load_hailo_classifier(path: str):
 # ── Default registry builder (Pi-specific) ────────────────────────────────
 
 
-def build_default_registry(models_dir: str) -> ModelRegistry:
+def build_default_registry(models_dir: str, exclude_hailo: bool = False) -> ModelRegistry:
     """Build a registry with the candidate set for the Pi observatory.
 
     - AIY Birds V1 (ONNX CPU) — the primary classifier, benchmarked at 7.4ms.
@@ -159,6 +160,13 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
     - YOLOv8s-cls (Hailo) — if available.
     - MobileNet-V2 (Hailo) — if available.
     - Flagship placeholder — pending Tier 2 training, shows as "coming soon".
+
+    `exclude_hailo`: when True, marks all hailo-type candidates as
+    `available=False`. Use this in the PIPELINE process which also owns a
+    Hailo detector slot — the Hailo-8L has exactly ONE vdevice, so having
+    both a Hailo detector AND a Hailo classifier fails with
+    HAILO_OUT_OF_PHYSICAL_DEVICES. Dashboard lab upload-test leaves this
+    False (classifier runs alone when the Lab is exercised).
     """
     root = Path(models_dir)
     hailo_root = Path("/usr/share/hailo-models")
@@ -178,14 +186,15 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
 
     # 2. ResNet50 on Hailo — 1000-class ImageNet, demonstrates Hailo classification.
     resnet = hailo_root / "resnet_v1_50_h8l.hef"
+    _hailo_conflict_note = " · Unavailable while Hailo detector is active (8L has 1 vdevice slot)" if exclude_hailo else ""
     reg.register(CandidateModel(
         name="resnet50_hailo",
         description="ResNet-50 on Hailo — ImageNet (1000 classes, some birds)",
         type_="hailo",
         path=str(resnet),
         loader=load_hailo_classifier,
-        available=resnet.exists(),
-        notes="ImageNet baseline — demonstrates Hailo classifier path.",
+        available=resnet.exists() and not exclude_hailo,
+        notes="ImageNet baseline — demonstrates Hailo classifier path." + _hailo_conflict_note,
     ))
 
     # 3-4. YOLO-derived Hailo models for coarse "is it a bird at all" signals.
@@ -206,8 +215,8 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
             type_="hailo",
             path=str(p),
             loader=load_hailo_classifier,
-            available=p.exists(),
-            notes=h_notes,
+            available=p.exists() and not exclude_hailo,
+            notes=h_notes + _hailo_conflict_note,
         ))
 
     # 5. Flagship placeholder — the Tier 2 custom-trained model, not yet built.
@@ -221,7 +230,25 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
         notes="Tier 2 training not yet started. 16-class, Hairy/Downy specialist, energy-OOD gate.",
     ))
 
-    # Default: pick the first AVAILABLE non-placeholder. Usually AIY.
+    # 2026-04-25: honor PI_CLASSIFIER env var for startup selection so
+    # /api/models/switch can flip the live pipeline via a service restart.
+    # If PI_CLASSIFIER is set AND points at an available candidate, use it.
+    # Otherwise fall back to first-available (historical behavior).
+    desired = os.environ.get("PI_CLASSIFIER", "").strip()
+    if desired and desired in reg.candidates:
+        cand = reg.candidates[desired]
+        if cand.available and not cand.is_placeholder():
+            res = reg.switch(desired)
+            if res.get("ok"):
+                log.info("ModelRegistry startup: PI_CLASSIFIER=%s → active", desired)
+                return reg
+            log.warning("ModelRegistry startup: PI_CLASSIFIER=%s failed: %s — falling back",
+                        desired, res.get("error"))
+        else:
+            log.warning("ModelRegistry startup: PI_CLASSIFIER=%s not available — falling back",
+                        desired)
+
+    # Fallback: pick the first AVAILABLE non-placeholder. Usually AIY.
     for c in reg.candidates.values():
         if c.available and not c.is_placeholder():
             reg.switch(c.name)
