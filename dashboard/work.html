@@ -603,21 +603,37 @@ Phases:       0 (harness, done) → 1 (clean) → 2-4 (train) → 5 (OOD) →
 Doc:          docs/superpowers/specs/2026-04-23-tier2-training-plan-v1.md</div>
   </div>
 
-  <div class="card">
+  <div class="card" style="border-color: rgba(88,196,138,0.3);">
     <div class="card-head">
-      <h3><span class="id">Airtight</span>Review system redesign</h3>
-      <div class="meta"><span class="pill review">review</span>0ce490e</div>
+      <h3><span class="id">Airtight</span>Review system redesign <span class="pill done" style="margin-left:6px">DB layer shipped</span></h3>
+      <div class="meta">spec 0ce490e · DB a167907</div>
     </div>
     <p class="desc">
       Audited the current review flow — found <strong>6 real bugs</strong>:
       <span class="jargon" data-plain="The SQLite `INSERT OR REPLACE` command replaces any existing row with the same primary key. Meant for upserts. But here it means: reviewing a file twice wipes the earlier review. No history. No recovery.">INSERT OR REPLACE</span>
       lets double-review overwrite corrections; OFFSET-pagination drops items under trash; non-atomic DB+file operations; <code>_find</code>
-      misses files in non-classified/ roots; no audit log; annotated mirror drifts. Spec proposes an append-only <code>review_history</code>
-      table with
-      <span class="jargon" data-plain="A unique ID the UI mints when showing you a review card. When you submit, the server uses it to detect 'you already did this one' and not apply the same change twice. Protects against double-clicks, network retries, race conditions.">idempotency keys</span>,
-      <span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>,
-      two-phase writes, and defensive find-everywhere. Paired with a <strong>live interactive mockup</strong> at <a href="/review-ideas">/review-ideas</a>.
+      misses files in non-classified/ roots; no audit log; annotated mirror drifts. Paired with a <strong>live interactive mockup</strong> at <a href="/review-ideas">/review-ideas</a>.
     </p>
+    <div class="evidence">DB LAYER (2026-04-24, shipped as a167907)
+─────────────────────────────────────────────
+<span class="good">✓</span> review_history append-only table + partial unique index on client_id
+<span class="good">✓</span> insert_review() evolved: writes history first, then reviews cache
+<span class="good">✓</span> <span class="jargon" data-plain="A unique ID the UI mints when showing you a review card. When you submit, the server uses it to detect 'you already did this one' and not apply the same change twice. Protects against double-clicks, network retries, race conditions.">client_id</span> idempotency — same id twice = no-op
+<span class="good">✓</span> prev_row_id chains history as linked list per file
+<span class="good">✓</span> get_history(file), undo(history_id, client_id)
+<span class="good">✓</span> 13 new TDD tests green; 62 existing tests still pass;
+   419 total tests green; zero regressions.
+
+API LAYER (in progress)
+─────────────────────────────────────────────
+<span class="num">⧗</span> /api/review2/{filename}  POST (idempotent submit)
+<span class="num">⧗</span> /api/review2/history    GET  (audit trail)
+<span class="num">⧗</span> /api/review2/undo        POST
+<span class="num">⧗</span> /api/review2/queue       GET  (<span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>)
+
+UI INTEGRATION
+─────────────────────────────────────────────
+<span class="num">⧗</span> Wire /review-ideas mockup to /api/review2/*</div>
   </div>
 
   <!-- ═══ THE NUMBERS ════════════════════════════════════ -->

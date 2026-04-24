@@ -229,20 +229,30 @@ Built as a live HTML+CSS+JS prototype at `dashboard/review-ideas.html`. Interact
 
 ---
 
-## Part 3: Implementation plan (future)
+## Part 3: Implementation progress
 
-Not in this commit — this doc is the spec and the mockup. Actual implementation should be its own branch with:
+### Shipped (2026-04-24)
 
-1. `review_history` schema + migration
-2. New API endpoints (`/api/review2/*`) with tests
-3. Keyset pagination for queue
-4. Atomic helper `_move_file_safe`
-5. Idempotency via `client_id`
-6. Undo endpoint
-7. New `/review` page (from the mockup)
-8. Gradual cutover of UI from old to new
+**DB layer** — commit `a167907`, evolved `reviews_db.py` in-place instead of building a parallel module.
 
-Each of those is a small, independently-testable PR.
+- ✓ `review_history` append-only table with partial unique index on `client_id`.
+- ✓ `insert_review()` now writes history first (in a transaction) + updates the `reviews` cache. Idempotent on `client_id`. Returns `{history_id, prev_row_id, duplicate}`.
+- ✓ `get_history(file)` — chronological list of all reviews for a file.
+- ✓ `undo(history_id, client_id)` — appends `verdict='undone'` entry + restores the `reviews` cache to the prior state.
+- ✓ 13 new TDD tests green; 62 existing tests still pass; 419 tests total pass; zero regressions.
+- ✓ Backward compat: 3 existing `rdb.insert_review()` callers in `api.py` discard the return value — grep-verified before shipping.
+
+### In progress
+
+1. New API endpoints (`/api/review2/*`) with tests
+2. Keyset pagination for queue
+3. Atomic helper `_move_file_safe`
+4. `/review` page wiring (from the /review-ideas mockup)
+
+### Deferred
+
+- Gradual cutover of legacy `/api/review/` endpoints — no hurry; they now carry a full audit trail via the evolved `insert_review()`.
+- Nightly integrity script (`tools/review_system_integrity.py`).
 
 ---
 
