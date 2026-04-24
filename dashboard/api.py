@@ -2116,6 +2116,73 @@ def review2_history(filename: str):
     return {"file": filename, "history": rdb.get_history(filename)}
 
 
+@app.get("/api/review2/queue")
+def review2_queue(limit: int = 20, after: str = "", species: str = "",
+                  camera: str = ""):
+    """Pending review queue with KEYSET pagination.
+
+    Parameters:
+      limit:   page size (default 20)
+      after:   cursor — the `timestamp` of the last item on the previous page.
+               Omit for first page. Cursor is stable under trash-mutations:
+               the query uses `WHERE timestamp < after` so items earlier
+               than the cursor are unaffected by anything reviewed since.
+      species: filter by effective species name
+      camera:  filter by camera
+
+    Returns: {items: [...], next_cursor: str|null}
+    """
+    conn = rdb.get_conn(readonly=True)
+
+    where = [
+        "c.action = 'classified'",
+        "c.common_name IS NOT NULL",
+        "(r.file IS NULL OR r.verdict = 'requeued')",
+    ]
+    params = []
+    if after:
+        where.append("c.timestamp < ?")
+        params.append(after)
+    if species:
+        where.append("c.common_name = ?")
+        params.append(species)
+    if camera:
+        where.append("c.camera = ?")
+        params.append(camera)
+    where_sql = " AND ".join(where)
+
+    # Fetch limit+1 to know if there's a next page without a separate count query
+    sql = (
+        f"SELECT c.file, c.common_name, c.camera, c.confidence, c.raw_score, "
+        f"       c.timestamp, c.source_timestamp, c.best_detection_json, c.top3_json "
+        f"FROM classifications c "
+        f"LEFT JOIN reviews r ON r.file = c.file "
+        f"WHERE {where_sql} "
+        f"ORDER BY c.timestamp DESC "
+        f"LIMIT ?"
+    )
+    params_with_limit = params + [limit + 1]
+    rows = conn.execute(sql, params_with_limit).fetchall()
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    items = []
+    for r in page:
+        items.append({
+            "file": r["file"],
+            "species": r["common_name"],
+            "camera": r["camera"],
+            "confidence": r["confidence"] or 0.0,
+            "raw_score": r["raw_score"] or 0,
+            "timestamp": r["timestamp"],
+            "source_timestamp": r["source_timestamp"],
+        })
+
+    next_cursor = page[-1]["timestamp"] if has_more and page else None
+    return {"items": items, "next_cursor": next_cursor}
+
+
 @app.post("/api/review2/undo/{history_id}")
 def review2_undo(history_id: int, body: dict = Body(default=None)):
     """Append an `undone` entry + restore the previous state in `reviews`.
