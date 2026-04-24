@@ -184,6 +184,13 @@ def serve_review_ideas():
     return FileResponse(str(DASHBOARD_DIR / "review-ideas.html"), media_type="text/html")
 
 
+@app.get("/work")
+def serve_work():
+    """Single-page review of all work shipped in the 2026-04-22 → 2026-04-23 revamp.
+    Includes hover-tooltip + drawer glossary for jargon terms."""
+    return FileResponse(str(DASHBOARD_DIR / "work.html"), media_type="text/html")
+
+
 @app.get("/motion-sandbox")
 def serve_motion_sandbox():
     """Label motion sandbox — real track replayed through four smoothing strategies.

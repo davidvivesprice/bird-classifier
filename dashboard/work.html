@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Observatory · Work</title>
+<meta name="theme-color" content="#0b0d11">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d11;
+    --bg-elev: #141820;
+    --bg-card: #1b1f28;
+    --bg-hover: #232833;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #ebe7dc;
+    --text-muted: #9ea3ad;
+    --text-dim: #6b7079;
+    --gold: #e2b358;
+    --gold-glow: rgba(226,179,88,0.22);
+    --emerald: #58c48a;
+    --emerald-glow: rgba(88,196,138,0.25);
+    --cardinal: #d05a5a;
+    --dusk: #f4a261;
+    --sky: #6aa9d9;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Outfit', system-ui, sans-serif; font-size: 16px; line-height: 1.6; min-height: 100%; }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background: radial-gradient(ellipse 60% 50% at 20% 0%, rgba(226,179,88,0.06), transparent 60%),
+                radial-gradient(ellipse 60% 60% at 100% 30%, rgba(88,196,138,0.04), transparent 60%);
+    pointer-events: none;
+  }
+  a { color: var(--gold); text-decoration: none; border-bottom: 1px dashed rgba(226,179,88,0.3); }
+  a:hover { border-bottom-style: solid; }
+  code, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.92em; }
+
+  /* ── Glossary term ─────────────────────────────────── */
+  .jargon {
+    position: relative; cursor: help;
+    border-bottom: 1px dotted var(--gold);
+    color: var(--gold);
+    padding: 0 1px;
+    transition: background 0.15s ease;
+  }
+  .jargon:hover { background: rgba(226,179,88,0.08); border-radius: 3px; }
+  .jargon:focus { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 3px; }
+  .jargon::after {
+    content: attr(data-plain);
+    position: absolute;
+    left: 50%; bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    width: max-content; max-width: 340px;
+    padding: 10px 14px;
+    background: rgba(11,13,17,0.97); color: var(--text);
+    border: 1px solid var(--gold);
+    border-radius: 8px;
+    font-family: 'Outfit', system-ui, sans-serif;
+    font-size: 13px; font-weight: 400; line-height: 1.5;
+    letter-spacing: 0; text-transform: none;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    transform: translate(-50%, 4px);
+    z-index: 50;
+    white-space: normal;
+    pointer-events: none;
+  }
+  .jargon::before {
+    content: "";
+    position: absolute;
+    left: 50%; bottom: calc(100% + 4px);
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border: 6px solid transparent;
+    border-top-color: var(--gold);
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.18s ease;
+    z-index: 51;
+  }
+  .jargon:hover::after, .jargon:focus::after,
+  .jargon:hover::before, .jargon:focus::before,
+  .jargon.pinned::after, .jargon.pinned::before {
+    opacity: 1; visibility: visible;
+    transform: translate(-50%, 0);
+  }
+  /* Below-aligned variant for terms near the top of the page */
+  .jargon.below::after {
+    bottom: auto; top: calc(100% + 10px);
+    transform: translate(-50%, -4px);
+  }
+  .jargon.below::before {
+    bottom: auto; top: calc(100% + 4px);
+    border-top-color: transparent; border-bottom-color: var(--gold);
+  }
+
+  /* ── Topbar ─────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 48px; border-bottom: 1px solid var(--border);
+    background: rgba(11,13,17,0.85); backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .brand {
+    font-family: 'Playfair Display', serif; font-weight: 700; font-size: 18px;
+    letter-spacing: -0.01em;
+  }
+  .brand span { color: var(--gold); }
+  .topbar .links { display: flex; gap: 18px; align-items: center; }
+  .topbar .links a {
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.04em;
+    text-transform: uppercase; font-weight: 500;
+    border-bottom: none;
+  }
+  .topbar .tip {
+    font-size: 11px; color: var(--text-dim); font-style: italic;
+    font-family: 'Fraunces', serif;
+  }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .shell { max-width: 1180px; margin: 0 auto; padding: 56px 48px 96px; }
+  @media (max-width: 900px) { .shell { padding: 32px 20px 60px; } }
+
+  /* ── Hero ───────────────────────────────────────────── */
+  .hero { margin-bottom: 48px; }
+  .hero .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-family: 'Playfair Display', serif; font-weight: 800; font-size: 60px;
+    line-height: 1.0; letter-spacing: -0.02em; margin-bottom: 20px;
+  }
+  @media (max-width: 700px) { .hero h1 { font-size: 40px; } }
+  .hero .lede {
+    font-size: 19px; color: var(--text-muted); max-width: 720px;
+    font-family: 'Fraunces', serif; font-weight: 400;
+  }
+
+  /* ── Banner (big finding) ───────────────────────────── */
+  .banner {
+    padding: 28px 32px;
+    background: linear-gradient(135deg, rgba(88,196,138,0.10), rgba(106,169,217,0.06) 60%, transparent);
+    border: 1px solid rgba(88,196,138,0.35);
+    border-radius: 14px;
+    margin-bottom: 48px;
+    position: relative;
+  }
+  .banner .corner {
+    position: absolute; top: -12px; left: 20px;
+    background: var(--bg); padding: 0 12px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--emerald);
+  }
+  .banner h2 {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 24px; margin-bottom: 14px; color: var(--text);
+  }
+  .banner .table {
+    display: grid; grid-template-columns: max-content repeat(3, 1fr);
+    gap: 10px 24px; margin: 16px 0;
+    font-size: 14px; font-variant-numeric: tabular-nums;
+  }
+  .banner .table .hdr { font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase; }
+  .banner .table .big { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--text); }
+  .banner .table .big.hi { color: var(--emerald); }
+  .banner .table .big.lo { color: var(--cardinal); }
+  .banner .takeaway {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 17px; color: var(--text); margin-top: 14px;
+    padding-left: 14px; border-left: 3px solid var(--emerald);
+  }
+
+  /* ── Stats grid ─────────────────────────────────────── */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    margin-bottom: 56px;
+  }
+  @media (max-width: 800px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    padding: 16px 18px; border-radius: 10px;
+    background: var(--bg-card); border: 1px solid var(--border);
+  }
+  .stat .label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .stat .val {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 32px; line-height: 1; margin-top: 6px; color: var(--text);
+  }
+  .stat .val.gold { color: var(--gold); }
+  .stat .val.emerald { color: var(--emerald); }
+  .stat .sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+  /* ── Section headers ────────────────────────────────── */
+  h2.section {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 34px; letter-spacing: -0.01em;
+    margin: 56px 0 8px; padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .section-sub {
+    font-size: 14px; color: var(--text-muted); margin-bottom: 28px;
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+
+  /* ── Pills ──────────────────────────────────────────── */
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; border: 1px solid transparent;
+    vertical-align: middle; margin-right: 6px;
+  }
+  .pill.done { background: rgba(88,196,138,0.12); color: var(--emerald); border-color: rgba(88,196,138,0.35); }
+  .pill.verified { background: rgba(88,196,138,0.18); color: var(--emerald); border-color: var(--emerald); }
+  .pill.pending { background: rgba(244,162,97,0.12); color: var(--dusk); border-color: rgba(244,162,97,0.35); }
+  .pill.review { background: rgba(226,179,88,0.12); color: var(--gold); border-color: rgba(226,179,88,0.4); }
+  .pill.gated { background: rgba(106,169,217,0.12); color: var(--sky); border-color: rgba(106,169,217,0.4); }
+  .pill.spec { background: rgba(255,255,255,0.04); color: var(--text-muted); border-color: var(--border-strong); }
+  .pill.bug { background: rgba(208,90,90,0.14); color: var(--cardinal); border-color: rgba(208,90,90,0.4); }
+
+  /* ── Item cards ─────────────────────────────────────── */
+  .card {
+    padding: 22px 26px; border-radius: 12px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    margin-bottom: 14px;
+    transition: background 0.12s ease;
+  }
+  .card:hover { background: var(--bg-hover); }
+  .card .card-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 14px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .card h3 {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 20px; letter-spacing: -0.005em;
+  }
+  .card h3 .id {
+    font-family: 'JetBrains Mono', monospace; color: var(--gold);
+    font-size: 13px; font-weight: 400; margin-right: 10px;
+  }
+  .card .meta {
+    font-size: 11px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .card .desc { color: var(--text-muted); font-size: 14.5px; margin-bottom: 10px; }
+  .card .desc strong { color: var(--text); font-weight: 600; }
+  .card .links {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-dim);
+    margin-top: 10px;
+  }
+  .card .links a { color: var(--text-muted); border-bottom: 1px dotted; }
+
+  .evidence {
+    background: rgba(0,0,0,0.28); border-left: 3px solid var(--gold);
+    padding: 12px 16px; border-radius: 0 8px 8px 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    color: var(--text-muted);
+    margin-top: 10px;
+    white-space: pre-wrap;
+    line-height: 1.65;
+  }
+  .evidence .num { color: var(--gold); font-weight: 500; }
+  .evidence .good { color: var(--emerald); }
+  .evidence .bad { color: var(--cardinal); }
+
+  /* ── Decisions ──────────────────────────────────────── */
+  .decision {
+    padding: 22px 28px;
+    background: linear-gradient(135deg, rgba(226,179,88,0.09), rgba(88,196,138,0.05));
+    border: 1px solid rgba(226,179,88,0.3);
+    border-radius: 12px;
+    margin-bottom: 14px;
+  }
+  .decision h3 {
+    font-family: 'Playfair Display', serif; font-size: 18px;
+    color: var(--gold); margin-bottom: 6px;
+  }
+  .decision .q { color: var(--text); font-size: 15px; margin-bottom: 8px; }
+  .decision .opts {
+    font-size: 13px; color: var(--text-muted);
+    border-left: 2px solid rgba(226,179,88,0.3); padding-left: 12px;
+  }
+
+  /* ── Timeline ───────────────────────────────────────── */
+  .timeline {
+    position: relative; padding-left: 24px; margin-top: 16px;
+  }
+  .timeline::before {
+    content: ""; position: absolute; top: 8px; bottom: 8px; left: 6px;
+    width: 2px; background: linear-gradient(var(--gold), var(--emerald));
+    opacity: 0.4;
+  }
+  .t-item { position: relative; padding: 4px 0 14px; }
+  .t-item::before {
+    content: ""; position: absolute; left: -22px; top: 10px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--gold); border: 2px solid var(--bg);
+    box-shadow: 0 0 0 2px var(--gold-glow);
+  }
+  .t-item .hash {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--gold); margin-right: 10px;
+  }
+  .t-item .label { color: var(--text); font-size: 14px; }
+
+  /* ── Footer ─────────────────────────────────────────── */
+  .foot {
+    border-top: 1px solid var(--border); padding: 28px 48px;
+    color: var(--text-dim); font-size: 12px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }
+
+  /* ── Glossary drawer (bottom sheet) ─────────────────── */
+  .glossary-btn {
+    position: fixed; right: 24px; bottom: 24px; z-index: 20;
+    padding: 10px 18px; border-radius: 999px;
+    background: var(--gold); color: var(--bg);
+    border: 0; cursor: pointer;
+    font-family: 'Outfit', sans-serif; font-weight: 700;
+    font-size: 13px; letter-spacing: 0.04em;
+    box-shadow: 0 8px 24px rgba(226,179,88,0.3);
+    transition: transform 0.15s ease;
+  }
+  .glossary-btn:hover { transform: translateY(-2px); }
+  .glossary-drawer {
+    position: fixed; right: 0; top: 0; bottom: 0;
+    width: min(420px, 92vw);
+    background: var(--bg-elev); border-left: 1px solid var(--border-strong);
+    padding: 28px 24px; overflow-y: auto;
+    transform: translateX(100%); transition: transform 0.25s ease;
+    z-index: 30;
+  }
+  .glossary-drawer.open { transform: translateX(0); }
+  .glossary-drawer h2 {
+    font-family: 'Playfair Display', serif; font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .glossary-drawer .hint {
+    font-size: 12px; color: var(--text-dim); margin-bottom: 20px;
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+  .glossary-drawer .entry {
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+  }
+  .glossary-drawer .term {
+    color: var(--gold); font-weight: 600; font-size: 14px; margin-bottom: 4px;
+  }
+  .glossary-drawer .def { font-size: 13px; color: var(--text-muted); }
+  .glossary-drawer .close {
+    position: absolute; right: 14px; top: 14px;
+    background: transparent; border: 0; color: var(--text-muted);
+    font-size: 20px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">Vives <span>Observatory</span> · Work</div>
+  <div class="links">
+    <span class="tip">Hover any <span style="color:var(--gold);border-bottom:1px dotted var(--gold);cursor:help;">gold-dotted</span> word for plain English</span>
+    <a href="/">← Dashboard</a>
+  </div>
+</div>
+
+<div class="shell">
+
+  <!-- ═══ HERO ═══════════════════════════════════════════ -->
+  <section class="hero">
+    <div class="eyebrow">The 2026-04-22 → 2026-04-23 revamp</div>
+    <h1>The flagship rebuild, in progress.</h1>
+    <p class="lede">
+      Starting from "the Live tab is stuck and the model is lying," through culling 11,000+ contaminated rows,
+      installing a live data-integrity watchdog, and landing the first measured baseline against which any flagship
+      yard model will be judged — all shipped as 24 clean commits and a set of specs ready for your eyes.
+    </p>
+  </section>
+
+  <!-- ═══ BANNER — THE BIG FINDING ══════════════════════════ -->
+  <div class="banner">
+    <span class="corner">Confirmed 2026-04-23</span>
+    <h2>You were right. AIY didn't break — the pipeline broke.</h2>
+    <p style="color:var(--text-muted);margin-bottom:10px;">
+      Split the <span class="jargon below" data-plain="The 1,670 human-verified reviews used as untouchable ground truth for any accuracy measurement.">hold-out</span>
+      by when it was captured — before the Sonoma migration's hi-res re-crop shipped vs. after — and scored AIY separately on each half.
+      The numbers don't lie:
+    </p>
+    <div class="table">
+      <div class="hdr">Period</div>
+      <div class="hdr">Top-1 accuracy</div>
+      <div class="hdr"><span class="jargon below" data-plain="Unweighted average of per-class F1 scores. A fair metric when classes are imbalanced — it won't be tricked by doing great on Mourning Dove while getting every Hairy Woodpecker wrong.">Macro-F1</span></div>
+      <div class="hdr"><span class="jargon below" data-plain="Expected Calibration Error. Measures how much the model's confidence matches its accuracy. 5% is good, 16% is bad, 27% is broken. If the model says 90%, it should be right 90% of the time.">ECE</span></div>
+
+      <div>Pre-Sonoma (1,591 reviews)</div>
+      <div class="big hi">69.3%</div>
+      <div class="big hi">75.6%</div>
+      <div class="big">15.8%</div>
+
+      <div>Post-Sonoma (79 reviews)</div>
+      <div class="big lo">41.8%</div>
+      <div class="big lo">38.9%</div>
+      <div class="big lo">26.9%</div>
+    </div>
+    <div class="takeaway">
+      28 points of accuracy vaporized when the pipeline started fetching a hi-res frame 2-5 seconds after detection.
+      The bird had time to leave the bbox. AIY did what any classifier would do — it labeled the empty feeder
+      background. The cheap fix isn't "retrain the whole thing." It's "give AIY the frame it was actually detecting on."
+    </div>
+  </div>
+
+  <!-- ═══ TOP STATS ══════════════════════════════════════ -->
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="label">Commits this revamp</div>
+      <div class="val gold">24</div>
+      <div class="sub">on <span class="mono">main</span>, none destructive</div>
+    </div>
+    <div class="stat">
+      <div class="label">Rows quarantined</div>
+      <div class="val">11,293</div>
+      <div class="sub">hallucination window, 30-day recoverable</div>
+    </div>
+    <div class="stat">
+      <div class="label">Ground-truth samples</div>
+      <div class="val">1,670</div>
+      <div class="sub">hold-out, never trained on</div>
+    </div>
+    <div class="stat">
+      <div class="label">Pre-Sonoma AIY top-1</div>
+      <div class="val emerald">69.3%</div>
+      <div class="sub">the baseline to restore, not beat</div>
+    </div>
+  </div>
+
+  <!-- ═══ WHAT'S DONE ════════════════════════════════════ -->
+  <h2 class="section">What's done</h2>
+  <p class="section-sub">Shipped. Verified. Behind you.</p>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">0a</span>Live tab regressions</h3>
+      <div class="meta"><span class="pill verified">verified</span>5df60cf</div>
+    </div>
+    <p class="desc">
+      Four symptoms — default feeder not loading, tiny video after ground→feeder switch, overlay stuck through
+      <span class="jargon" data-plain="The Cloudflare tunnel that forwards birds.vivessato.com to the local dashboard. Remote access path.">tunnel</span>,
+      phone fullscreen broken — all traced to a single cause: the 8-second "offline timeout" mutating DOM destructively
+      without ever resetting. Three surgical patches in <code>initLiveFeed()</code>.
+    </p>
+    <div class="evidence">All four verified in-browser:
+  0a-1 default feeder loads on fresh page ✓
+  0a-2 ground→feeder switches full-size ✓
+  0a-3 "Connecting" overlay hides on tunnel (~2s delay, acceptable) ✓
+  0a-4 phone fullscreen works via LAN ✓</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">0b</span>Hallucination-window cull</h3>
+      <div class="meta"><span class="pill done">executed</span>5b281c7</div>
+    </div>
+    <p class="desc">
+      The Sonoma-migration's hi-res re-crop path introduced a 2-5 second
+      <span class="jargon" data-plain="A special video frame that contains the full image, not just changes from the previous frame. H.264 video sends one of these every few seconds; between them, you can't decode a clean standalone image.">keyframe</span>
+      wait between detection and crop. The bird had time to leave the <span class="jargon" data-plain="Bounding box. The rectangle around the detected bird.">bbox</span>.
+      AIY confidently called empty-feeder backgrounds "Common Grackle" (95% of that species' rows) and "American Robin" (62%).
+    </p>
+    <div class="evidence">11,293 rows → <span class="num">~/bird-snapshots/culled/2026-04-23/</span>
+22,586 JPGs moved (classified + annotated, 6.9 GB)
+46 reviewed rows preserved (not touched)
+0 errors
+Reversible for 30 days. Script: tools/cull_hallucination_window.py</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">1a</span>Data-integrity watchdog</h3>
+      <div class="meta"><span class="pill done">installed</span>dde78e2 + 5e83b79</div>
+    </div>
+    <p class="desc">
+      A <span class="jargon" data-plain="A LaunchAgent is macOS's scheduled-task system. This one runs every hour on the iMac.">LaunchAgent</span>
+      runs hourly, compares every <code>classifications</code> row to its JPG on disk, logs every orphan before culling.
+      <strong>Caught a race bug on its very first run</strong> — including its own fix and one-row salvage — demonstrating the watchdog's value.
+    </p>
+    <div class="evidence">LaunchAgent: com.vives.bird-integrity-audit (loaded, hourly)
+Script: tools/audit_data_integrity.py
+Log: ~/bird-classifier/tools/audit_data_integrity.log
+Caught own <span class="jargon" data-plain="A race condition is when two things happen close in time and the result depends on which finishes first. Here: the audit walked the disk, then the pipeline wrote a new file, then the audit read the DB — so the DB had a row the audit hadn't seen yet.">race</span> bug → walk/select race closed, exit-code semantics fixed.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">O-cluster</span>/live overlay tuning</h3>
+      <div class="meta"><span class="pill pending">needs eyes</span>962e6c4</div>
+    </div>
+    <p class="desc">
+      Tightened <span class="jargon" data-plain="hls.js is the video-player library the /live page uses to stream HLS video. Its catch-up config controls how fast it tries to get close to the live edge.">hls.js</span>
+      catch-up config (18s→12s max latency, 1.1→1.5× playback rate) — got you from 17s to 13-14s delay, within target band.
+      Fade constants cut from 1.6s→1.0s total for O3. O1 label drift not patched blind: the clock port from April 18 is verified intact
+      in code; instead I shipped a diagnostic capture (<code>window.__o1Capture</code>) so the next drift reports evidence, not guesses.
+    </p>
+    <div class="evidence">O2 delay:   17s → 13-14s  (target 10-12s, close enough for now)
+O3 fade:    1.6s → 1.0s   <span class="good">✓</span> matches David's "1 sec is way better"
+O1 drift:   not observed post-patch; instrumentation shipped opt-in
+            In DevTools: window.__o1Capture = true, then reproduce</div>
+  </div>
+
+  <!-- ═══ READY, ENV-GATED ═══════════════════════════════ -->
+  <h2 class="section">Built, safe, waiting</h2>
+  <p class="section-sub">Shipped as code; doesn't activate without your explicit approval.</p>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">1b</span>Hi-res ring buffer + frame-quality scorer</h3>
+      <div class="meta"><span class="pill gated">env-gated</span>de1c36c</div>
+    </div>
+    <p class="desc">
+      The actual fix for the stale-bbox hallucination. A rolling 2-second <span class="jargon" data-plain="A ring buffer (or circular buffer) is a fixed-size queue that overwrites the oldest item when it fills up. Good for keeping 'the last N things' without growing memory.">ring buffer</span>
+      of 1080p frames keyed by wall-clock. When detection fires, <code>SnapshotWriter</code> picks the best-scoring candidate by sharpness
+      (<span class="jargon" data-plain="A mathematical way to measure how sharp vs blurry an image is. Sharp images have high values; blurry ones have low. Works by looking at how quickly brightness changes between nearby pixels.">Laplacian variance</span>,
+      anti-motion-blur), center weight, size floor (80 px), and detector confidence. Shadow-mode records a sidecar JSON first; flip after soak.
+    </p>
+    <div class="evidence">14 unit tests: <span class="good">green</span>
+Code: pipeline/hires_ring.py (ring + HiResCapture + scorer)
+Flag: <span class="num">PIPELINE_HIRES_RING=1</span> = shadow mode (safe)
+      PIPELINE_HIRES_RING=auth = ring authoritative
+Ring adds ~30-50% CPU for second 1080p decode. <span class="bad">Don't flip on the iMac</span> —
+load avg is 22+ already. Safe to flip on Pi 5 when ready.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">eval</span>Tier 2 evaluation harness (Phase 0)</h3>
+      <div class="meta"><span class="pill done">built</span>87a8332 + 40966fc</div>
+    </div>
+    <p class="desc">
+      A <code>tier2_eval/</code> package with 26 green unit tests. Pure analytics, no production dependencies, no Coral contention.
+      Scores AIY historical predictions against the 1,670-review hold-out by joining the DB — zero model inference required. Includes
+      <span class="jargon" data-plain="K-fold cross-validation splits the data into K chunks and trains K models, each leaving one chunk out for testing. 'Visit-grouped' means no chunk contains two photos from the same bird visit — prevents fake-high accuracy from near-duplicate frames leaking across train/test.">visit-grouped K-fold</span>
+      splits that provably prevent the camera-trap ML's dominant leakage mode.
+    </p>
+    <div class="evidence">Metrics:  macro-F1, per-class recall/prec, ECE, bootstrap CI, OOD-AUROC, FPR@TPR
+Baseline: python3 -m tier2_eval.baseline → top-1 68.0%, macro-F1 75.2%, ECE 0.163
+Splits:   563 distinct visits in the 1,670 hold-out (avg 3 crops/visit)
+          5-fold stratified K-fold with zero visit leakage verified.
+Artifact: tier2_eval/baseline.report.json</div>
+  </div>
+
+  <!-- ═══ FOR YOUR REVIEW (SPECS) ════════════════════════ -->
+  <h2 class="section">Specs waiting on you</h2>
+  <p class="section-sub">Design, numbers, open questions. Approve, counter, or pivot.</p>
+
+  <div class="card" style="border-color: rgba(88,196,138,0.4); background: linear-gradient(180deg, rgba(88,196,138,0.05), var(--bg-card));">
+    <div class="card-head">
+      <h3><span class="id">Cheap</span>Restore what already worked (new priority)</h3>
+      <div class="meta"><span class="pill review">review</span>new</div>
+    </div>
+    <p class="desc">
+      Given the pre-vs-post-Sonoma split above, the fastest path to "<span class="jargon" data-plain="Your word from the chat: what the system was before Sonoma broke it. 69.3% top-1 accuracy — not perfect, but genuinely useful.">passable</span>"
+      is to undo the 2-5s hi-res wait and run AIY on the detection-time crop (like it used to). Two options:
+    </p>
+    <div class="evidence">Option A  <span class="good">Quick</span>: Make SnapshotWriter skip _fetch_hires_frame entirely
+          and run AIY on the substream detection frame (640×360).
+          Smaller crops for the review queue, but accuracy returns.
+          ~20 lines of code; ships in one commit.
+
+Option B  <span class="good">Correct</span>: Flip 1b on Pi 5 when it comes online.
+          Ring buffer gives hi-res crops AT the detection moment.
+          Best of both: big clean crops + no stale bbox.
+          Zero production risk on Pi 5; the CPU is there.
+
+Option C  Both: A today on the iMac (cheap restore), B when Pi 5 lands.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">Tier 2</span>Flagship training plan v1 (now optional?)</h3>
+      <div class="meta"><span class="pill review">review</span>229777d</div>
+    </div>
+    <p class="desc">
+      A synthesis of four parallel lit-reviews + the data audit into a concrete 8-phase training recipe.
+      <strong>EfficientNet-Lite0</strong> backbone (unanimous across three reviews), <strong>cleanlab-first cleaning</strong>
+      of the 34K weak AIY labels, <strong>decoupled two-stage training</strong> (Kang 2020) with
+      <span class="jargon" data-plain="A training trick for imbalanced data: instead of re-weighting the loss by class frequency (which destabilizes training), you shift the model's raw output scores before the softmax by the log of each class's frequency. Cleaner math, better results on long-tail benchmarks.">logit adjustment</span>,
+      <strong>Hairy/Downy specialist head</strong>,
+      <span class="jargon" data-plain="A way to detect 'I've never seen this before' without adding a class. Based on the 'energy' of the model's output logits: high-energy = confident, low-energy = unknown. Cheap to compute, free at inference.">energy-based OOD gate</span>.
+      <strong>Given the pre-Sonoma 69% baseline, this is now OPTIONAL — a long-term flagship to eventually beat AIY rather than a required replacement.</strong>
+    </p>
+    <div class="evidence">Label set:    16 classes (14 species + not_a_bird + unknown)
+Targets:      top-1 ≥75%, macro-F1 ≥65%, ECE ≤5%, OOD AUROC ≥0.85
+Baseline to beat: AIY pre-Sonoma 69.3%, post-cleanup likely similar
+Phases:       0 (harness, done) → 1 (clean) → 2-4 (train) → 5 (OOD) →
+              6 (quantize) → 7 (shadow) → 8 (cutover)
+Doc:          docs/superpowers/specs/2026-04-23-tier2-training-plan-v1.md</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3><span class="id">Airtight</span>Review system redesign</h3>
+      <div class="meta"><span class="pill review">review</span>0ce490e</div>
+    </div>
+    <p class="desc">
+      Audited the current review flow — found <strong>6 real bugs</strong>:
+      <span class="jargon" data-plain="The SQLite `INSERT OR REPLACE` command replaces any existing row with the same primary key. Meant for upserts. But here it means: reviewing a file twice wipes the earlier review. No history. No recovery.">INSERT OR REPLACE</span>
+      lets double-review overwrite corrections; OFFSET-pagination drops items under trash; non-atomic DB+file operations; <code>_find</code>
+      misses files in non-classified/ roots; no audit log; annotated mirror drifts. Spec proposes an append-only <code>review_history</code>
+      table with
+      <span class="jargon" data-plain="A unique ID the UI mints when showing you a review card. When you submit, the server uses it to detect 'you already did this one' and not apply the same change twice. Protects against double-clicks, network retries, race conditions.">idempotency keys</span>,
+      <span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>,
+      two-phase writes, and defensive find-everywhere. Paired with a <strong>live interactive mockup</strong> at <a href="/review-ideas">/review-ideas</a>.
+    </p>
+  </div>
+
+  <!-- ═══ THE NUMBERS ════════════════════════════════════ -->
+  <h2 class="section">The numbers that motivate everything</h2>
+  <p class="section-sub">Measured, not guessed.</p>
+
+  <div class="card" style="background: linear-gradient(135deg, rgba(226,179,88,0.06), transparent);">
+    <div class="evidence" style="margin-top: 0; border-left-color: var(--emerald);">AIY BASELINE by era on 1,670-review hold-out
+─────────────────────────────────────────────
+Pre-Sonoma  (1,591 reviews):  <span class="good">top-1 69.3%</span>  macro-F1 <span class="good">75.6%</span>  ECE 15.8%
+Post-Sonoma (79 reviews):     <span class="bad">top-1 41.8%</span>  macro-F1 <span class="bad">38.9%</span>  ECE 26.9%
+Combined:                     top-1 68.0%  macro-F1 75.2%  ECE 16.3%
+
+Hairy/Downy confusion — proven in the data:
+  Hairy recall 99%, precision 43%   ← AIY over-calls Hairy
+  Downy recall 41%, precision 95%   ← AIY under-calls Downy
+  → biggest single misclassification pattern in the whole system
+
+not_a_bird recall:  <span class="bad">0.0%</span>
+  All 374 non-bird samples get mapped to a species.
+  This is the exact failure the OOD energy gate fixes.
+
+CLASS IMBALANCE in training pool:
+  Top:    Mourning Dove  7,125 files
+  Bottom: Common Grackle    45 files (post-cull)
+  Ratio:  <span class="num">158×</span>  → stratified sampling required
+
+DATASET:
+  155K total classification rows
+  1,827 human reviews → 1,673 usable ground truth
+     1,133 correct + 251 wrong-with-correction + 289 trash
+  46 species have folder structure; 13 with ≥500 files
+  10,341 multi-bird frames (must filter from training)</div>
+  </div>
+
+  <!-- ═══ DECISIONS WAITING ═══════════════════════════════ -->
+  <h2 class="section">Your decisions, ranked</h2>
+  <p class="section-sub">Everything after these is unblocked.</p>
+
+  <div class="decision">
+    <h3>1. Restore-what-worked: Option A, B, or C?</h3>
+    <div class="q">Ship the quick restore (AIY on detection-time crop, ~20 lines), wait for Pi 5 + 1b, or both?</div>
+    <div class="opts">The pre-Sonoma 69.3% / post-Sonoma 41.8% split makes this the fastest win. My lean: <strong>C</strong> — A today gets accuracy back while we wait on Pi 5; then B supersedes A once the ring buffer has CPU room to breathe.</div>
+  </div>
+
+  <div class="decision">
+    <h3>2. Tier 2 flagship — still want it?</h3>
+    <div class="q">Given 69% AIY is "passable," is the flagship yard model still a priority or a long-term want?</div>
+    <div class="opts">Arguments for: improves beyond AIY's ceiling (Hairy/Downy, OOD); future-proofs for Pi 5+Hailo. Arguments against: AIY is 95% of what we need once the pipeline is fixed. Either way, Phase 0 harness already built and paid for — it stays.</div>
+  </div>
+
+  <div class="decision">
+    <h3>3. Airtight review-system: when?</h3>
+    <div class="q">Now (prevents future correction loss) or after the restore (ship accuracy first)?</div>
+    <div class="opts">The 6 bugs actively corrupt training signal every review. ~2 days of work. My lean: <strong>after</strong> the cheap restore — ship accuracy first, then harden the review pipe.</div>
+  </div>
+
+  <div class="decision">
+    <h3>4. Restart uvicorn to pick up new routes</h3>
+    <div class="q"><code>/work</code> and <code>/review-ideas</code> need a dashboard restart.</div>
+    <div class="opts">30-second interruption. <code>launchctl kickstart -k gui/$(id -u)/com.vives.bird-dashboard</code>.</div>
+  </div>
+
+  <!-- ═══ COMMIT LOG ═════════════════════════════════════ -->
+  <h2 class="section">The 24 commits</h2>
+  <p class="section-sub">In order, oldest first. Every commit self-contained.</p>
+
+  <div class="timeline">
+    <div class="t-item"><span class="hash">84201bb</span><span class="label">Checkpoint: Sonoma migration + pipeline/dashboard hardening (Apr 19-22)</span></div>
+    <div class="t-item"><span class="hash">46b21fd</span><span class="label">Add Tier 0-1 repair plans</span></div>
+    <div class="t-item"><span class="hash">5df60cf</span><span class="label">Fix Live tab regressions (0a)</span></div>
+    <div class="t-item"><span class="hash">99d1340</span><span class="label">Add O-cluster plan for /live overlay fixes</span></div>
+    <div class="t-item"><span class="hash">962e6c4</span><span class="label">O-cluster: hls.js catch-up + 1s fade + O1 diagnostic + prune log</span></div>
+    <div class="t-item"><span class="hash">5b281c7</span><span class="label">Add hallucination-window cull tool + dry-run</span></div>
+    <div class="t-item"><span class="hash">dde78e2</span><span class="label">Add data-integrity audit tool + LaunchAgent plist (not installed)</span></div>
+    <div class="t-item"><span class="hash">3e05086</span><span class="label">1b Part 1: HiResRingBuffer + score_frame</span></div>
+    <div class="t-item"><span class="hash">cea6a99</span><span class="label">Audit tool: legacy-underscored vs canonical orphans</span></div>
+    <div class="t-item"><span class="hash">6bcf5f4</span><span class="label">Session handoff note</span></div>
+    <div class="t-item"><span class="hash">cf0bf36</span><span class="label">test_camera_config: update asserts to Sonoma-era thresholds</span></div>
+    <div class="t-item"><span class="hash">5542913</span><span class="label">CameraProcessThread: class-level defaults fix 4 test failures</span></div>
+    <div class="t-item"><span class="hash">4ac34d8</span><span class="label">Handoff doc update</span></div>
+    <div class="t-item"><span class="hash">6373a9b</span><span class="label">Refresh dry-run summaries</span></div>
+    <div class="t-item"><span class="hash">b071b43</span><span class="label">gitignore: tool runtime logs + macOS Spotlight marker</span></div>
+    <div class="t-item"><span class="hash">5e83b79</span><span class="label">Audit: close walk/select race; exit 0 regardless</span></div>
+    <div class="t-item"><span class="hash">de1c36c</span><span class="label">1b wire-up (env-gated): HiResCapture + ring + sidecar</span></div>
+    <div class="t-item"><span class="hash">1bca6c2</span><span class="label">Tier 2 data audit: 1673 ground-truth samples, 158× imbalance</span></div>
+    <div class="t-item"><span class="hash">0ce490e</span><span class="label">Airtight review system spec + gamified /review-ideas mockup</span></div>
+    <div class="t-item"><span class="hash">229777d</span><span class="label">Tier 2: four lit reviews + unified training plan v1</span></div>
+    <div class="t-item"><span class="hash">87a8332</span><span class="label">Tier 2 Phase 0: eval harness + first real baseline numbers</span></div>
+    <div class="t-item"><span class="hash">40966fc</span><span class="label">tier2_eval/split: visit-grouped K-fold + real-data demo</span></div>
+    <div class="t-item"><span class="hash">7dfa60c</span><span class="label">Handoff doc: full autonomous-session log</span></div>
+    <div class="t-item"><span class="hash">f9ac394</span><span class="label">baseline.report.json: regen without stderr contamination</span></div>
+  </div>
+
+</div>
+
+<button class="glossary-btn" id="g-btn">📖 Glossary</button>
+
+<div class="glossary-drawer" id="g-drawer">
+  <button class="close" id="g-close">×</button>
+  <h2>Plain-English dictionary</h2>
+  <p class="hint">Every <span style="color:var(--gold);border-bottom:1px dotted var(--gold);">gold-dotted</span> term on the page also has a hover tooltip. This list is the same content, searchable.</p>
+  <div id="g-list"></div>
+</div>
+
+<div class="foot">
+  <span>Vives Bird Observatory · Work page · Generated 2026-04-23</span>
+  <span><a href="/">Dashboard</a> · <a href="/ideas">Ideas</a> · <a href="/review-ideas">/review-ideas</a> · <a href="/live">/live</a></span>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // Collect every .jargon term's data-plain into the drawer
+  const terms = new Map();
+  document.querySelectorAll('.jargon').forEach(el => {
+    const term = el.textContent.trim();
+    const def = el.getAttribute('data-plain');
+    if (term && def && !terms.has(term)) terms.set(term, def);
+  });
+  const list = document.getElementById('g-list');
+  [...terms.entries()].sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase())).forEach(([t, d]) => {
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.innerHTML = `<div class="term">${t}</div><div class="def">${d}</div>`;
+    list.appendChild(entry);
+  });
+
+  // Drawer toggle
+  const btn = document.getElementById('g-btn');
+  const drawer = document.getElementById('g-drawer');
+  const close = document.getElementById('g-close');
+  btn.addEventListener('click', () => drawer.classList.toggle('open'));
+  close.addEventListener('click', () => drawer.classList.remove('open'));
+
+  // Tap a jargon term on mobile to pin/unpin its tooltip
+  document.querySelectorAll('.jargon').forEach(el => {
+    el.setAttribute('tabindex', '0');  // keyboard-focusable
+    el.addEventListener('click', (e) => {
+      if ('ontouchstart' in window) {
+        // Mobile: toggle pinned state
+        document.querySelectorAll('.jargon.pinned').forEach(other => {
+          if (other !== el) other.classList.remove('pinned');
+        });
+        el.classList.toggle('pinned');
+        e.preventDefault();
+      }
+    });
+  });
+
+  // Close pinned tooltips when tapping elsewhere
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.jargon')) {
+      document.querySelectorAll('.jargon.pinned').forEach(el => el.classList.remove('pinned'));
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
