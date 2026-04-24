@@ -22,7 +22,7 @@ from datetime import datetime, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -90,13 +90,21 @@ app.add_middleware(BirdAPIRewriteMiddleware)
 
 @app.on_event("startup")
 def warm_cache():
-    """Verify SQLite DB is accessible on startup."""
+    """Verify SQLite DB is accessible on startup. Creates tables on empty DBs."""
     import logging
     t0 = _time.time()
     cdb.init_db()
-    total = cdb.count_total()
-    species = cdb.count_species()
-    review_count = rdb.count_reviews()
+    # Ensure reviews + review_history tables exist before any JOIN query runs.
+    # On a fresh Pi install, count_species() below uses a LEFT JOIN on reviews.
+    rdb.get_conn(readonly=False)
+    try:
+        total = cdb.count_total()
+        species = cdb.count_species()
+        review_count = rdb.count_reviews()
+    except Exception as e:
+        # Empty DB / missing table: don't crash startup.
+        logging.warning("Startup: DB warm-up hit %s — continuing with zeros", e)
+        total = species = review_count = 0
     t1 = _time.time()
     logging.info("Startup: SQLite DB has %d entries (%d species), %d reviews in %.1fs",
                  total, species, review_count, t1 - t0)
@@ -114,9 +122,18 @@ app.add_middleware(
 
 DASHBOARD_DIR = Path(__file__).parent
 
+@app.get("/pi")
+def serve_pi_dash():
+    """Pi-specific dashboard — model lab, theme picker, Hailo-aware."""
+    return FileResponse(str(DASHBOARD_DIR / "pi_dash.html"), media_type="text/html")
+
+
 @app.get("/")
 def serve_dashboard():
-    """Serve the main dashboard HTML."""
+    """Serve the main dashboard HTML. On Pi (PI_MODE=1), serve pi_dash.html
+    which is the Pi-specific rebuild with model lab + themes."""
+    if os.environ.get("PI_MODE", "0") == "1":
+        return FileResponse(str(DASHBOARD_DIR / "pi_dash.html"), media_type="text/html")
     return FileResponse(str(DASHBOARD_DIR / "index.html"), media_type="text/html")
 
 
@@ -2181,6 +2198,66 @@ def review2_queue(limit: int = 20, after: str = "", species: str = "",
 
     next_cursor = page[-1]["timestamp"] if has_more and page else None
     return {"items": items, "next_cursor": next_cursor}
+
+
+# ── Model Lab: registry of candidate classifiers for A/B demo ──
+# Lazily-built so it doesn't slow dashboard startup if models aren't present.
+_model_registry = None
+
+
+def _get_model_registry():
+    global _model_registry
+    if _model_registry is None:
+        import sys
+        from pathlib import Path
+        repo = Path(__file__).resolve().parent.parent
+        if str(repo) not in sys.path:
+            sys.path.insert(0, str(repo))
+        from pipeline.model_registry import build_default_registry
+        _model_registry = build_default_registry(str(repo / "models"))
+    return _model_registry
+
+
+@app.get("/api/models/list")
+def api_models_list():
+    """List candidate classifiers + which one is currently loaded in the Lab."""
+    try:
+        r = _get_model_registry()
+        return {"current": r.current_name, "candidates": r.list()}
+    except Exception as e:
+        return JSONResponse({"error": str(e), "candidates": []}, status_code=500)
+
+
+@app.post("/api/models/switch")
+def api_models_switch(body: dict = Body(...)):
+    """Switch the Lab's currently-loaded model. Body: {name: str}."""
+    name = (body or {}).get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    r = _get_model_registry()
+    result = r.switch(name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "switch failed"))
+    return result
+
+
+@app.post("/api/models/classify-upload")
+async def api_models_classify_upload(file: UploadFile = File(...)):
+    """Classify an uploaded image with the Lab's current model.
+    Returns {model, predictions: [{common_name, scientific_name, raw_score}]}.
+    """
+    from PIL import Image
+    import io
+    r = _get_model_registry()
+    if r.current_name is None:
+        raise HTTPException(status_code=400, detail="no model loaded")
+    data = await file.read()
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"bad image: {e}")
+    preds = r.classify(img)
+    return {"model": r.current_name, "predictions": preds}
 
 
 @app.post("/api/review2/undo/{history_id}")

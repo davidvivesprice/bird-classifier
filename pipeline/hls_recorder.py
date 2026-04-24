@@ -15,7 +15,8 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-FFMPEG = "/usr/local/bin/ffmpeg"
+import shutil as _shutil
+FFMPEG = _shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
 
 # How often the sidecar-manifest thread polls the HLS directory for
 # segment changes. Small enough that segment completions are recorded

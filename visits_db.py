@@ -16,7 +16,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
+DB_PATH = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
 
 DEFAULT_GAP_SECONDS = 60  # Visit ends after 60s with no detection
 

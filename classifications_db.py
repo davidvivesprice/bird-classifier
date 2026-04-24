@@ -16,7 +16,7 @@ from pathlib import Path
 
 from bird_inference import SPECIES_ALIASES, normalize_species
 
-DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
+DB_PATH = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
 
 
 # ── Connection pool (thread-local) ──

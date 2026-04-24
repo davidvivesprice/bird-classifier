@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -247,7 +248,7 @@ class SnapshotWriter:
             return None
         try:
             proc = subprocess.run(
-                ["/usr/local/bin/ffmpeg",
+                [shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg",
                  "-hide_banner", "-loglevel", "error",
                  "-f", "mp4", "-i", "pipe:0",
                  "-frames:v", "1",

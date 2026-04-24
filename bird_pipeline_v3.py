@@ -184,34 +184,46 @@ def main():
         CAMERA_GROUND: CameraClassifierConfig(use_yard=False),
     }
 
-    # Retry classifier loading with backoff — Coral USB is single-session and
-    # may be held by another process (classify.py --watch) after a machine
-    # restart. Wait for it to become available instead of crash-looping.
+    # 2026-04-24: PI_MODE=1 switches to the Hailo-backed classifier registry.
+    # On iMac (PI_MODE unset), this whole block falls back to SmartClassifier
+    # with Coral. On Pi, we instantiate PiClassifier wrapping a ModelRegistry
+    # of candidate classifiers (AIY ONNX on CPU + Hailo candidates), and
+    # make it hot-swappable via /api/models/switch. Saved as
+    # snapshot_writer.classifier so authoritative_classify() works the same.
+    PI_MODE = os.environ.get("PI_MODE", "0") == "1"
+
     classifier = None
-    for attempt in range(1, 13):  # up to ~2 minutes of retries
-        try:
-            classifier = SmartClassifier(
-                yard_model_path=YARD_MODEL,
-                yard_labels_path=YARD_LABELS,
-                aiy_model_path=AIY_MODEL,
-                aiy_labels_path=AIY_LABELS,
-                regional_species=regional_species,
-                camera_configs=camera_configs,
-            )
-            # Hand the classifier to the snapshot writer so it can re-run
-            # AIY on the 1080p crop at DB-write time. Yard stays the driver
-            # for the live overlay (keeps the fast-feedback UX) but AIY's
-            # 965-species verdict is what lands in classifications.db.
-            snapshot_writer.classifier = classifier
-            break
-        except Exception as e:
-            if attempt < 12:
-                wait = min(10, attempt * 2)  # 2, 4, 6, 8, 10, 10, 10, ...
-                log.warning("Classifier load attempt %d failed: %s — retrying in %ds", attempt, e, wait)
-                time.sleep(wait)
-            else:
-                log.error("Failed to load classifiers after %d attempts: %s — pipeline will not start", attempt, e)
-                return 1
+    if PI_MODE:
+        from pipeline.model_registry import build_default_registry
+        from pipeline.pi_classifier import PiClassifier
+        registry = build_default_registry(str(BASE_DIR / "models"))
+        classifier = PiClassifier(registry)
+        snapshot_writer.classifier = classifier
+        log.info("[PI_MODE] PiClassifier ready. Active model: %s", registry.current_name)
+        log.info("[PI_MODE] Candidates: %s",
+                 ", ".join(c["name"] for c in registry.list()))
+    else:
+        # iMac path — SmartClassifier with Coral retry (unchanged).
+        for attempt in range(1, 13):  # up to ~2 minutes of retries
+            try:
+                classifier = SmartClassifier(
+                    yard_model_path=YARD_MODEL,
+                    yard_labels_path=YARD_LABELS,
+                    aiy_model_path=AIY_MODEL,
+                    aiy_labels_path=AIY_LABELS,
+                    regional_species=regional_species,
+                    camera_configs=camera_configs,
+                )
+                snapshot_writer.classifier = classifier
+                break
+            except Exception as e:
+                if attempt < 12:
+                    wait = min(10, attempt * 2)
+                    log.warning("Classifier load attempt %d failed: %s — retrying in %ds", attempt, e, wait)
+                    time.sleep(wait)
+                else:
+                    log.error("Failed to load classifiers after %d attempts: %s — pipeline will not start", attempt, e)
+                    return 1
 
     # Per-camera stack
     camera_stacks = []
@@ -229,11 +241,21 @@ def main():
             if aoi:
                 log.info("[%s] MotionGate AOI enabled: %d-point polygon", name, len(aoi))
             tracker = BirdTracker()
-            detector = BirdDetector(
-                yolo_model_path=YOLO_MODEL,
-                stationary_track_regions_fn=tracker.stationary_regions,
-                confidence=0.3,
-            )
+            if PI_MODE:
+                from pipeline.hailo_detector import HailoDetector
+                # Default Hailo HEF for YOLOv8-s. Env override allowed.
+                hef_path = os.environ.get(
+                    "PI_YOLO_HEF",
+                    "/usr/share/hailo-models/yolov8s_h8l.hef",
+                )
+                detector = HailoDetector(hef_path=hef_path, confidence=0.3)
+                log.info("[PI_MODE] HailoDetector: %s", hef_path)
+            else:
+                detector = BirdDetector(
+                    yolo_model_path=YOLO_MODEL,
+                    stationary_track_regions_fn=tracker.stationary_regions,
+                    confidence=0.3,
+                )
             process = CameraProcessThread(
                 name=name,
                 frame_queue=frame_q,

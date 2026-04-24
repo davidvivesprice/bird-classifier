@@ -18,7 +18,8 @@ from pipeline.frame import Frame
 
 log = logging.getLogger(__name__)
 
-FFMPEG = "/usr/local/bin/ffmpeg"
+import shutil as _shutil
+FFMPEG = _shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
 WATCHDOG_STALL_MS = 10_000
 WATCHDOG_CHECK_S = 2.0
 

@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 
-DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
+DB_PATH = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
 
 # ── Connection pool (thread-local) ──
 

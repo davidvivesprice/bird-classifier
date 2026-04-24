@@ -23,7 +23,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # Default database paths
-CLASSIFICATIONS_DB = Path("/Users/vives/bird-snapshots/logs/classifications.db")
+CLASSIFICATIONS_DB = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
 BIRDNET_DB = Path("/Users/vives/bird-snapshots/birdnet-audio/birdnet_local.db")
 
 # Thread-local storage for connections

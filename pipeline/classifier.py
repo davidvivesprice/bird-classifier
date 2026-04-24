@@ -43,10 +43,18 @@ class SmartClassifier:
         regional_species,
         camera_configs: dict[str, CameraClassifierConfig],
     ):
-        from yard_classifier import YardClassifier
         from bird_inference import SpeciesClassifier
 
-        self.yard = YardClassifier(yard_model_path, yard_labels_path)
+        # 2026-04-24: YardClassifier is lazy-loaded so the pipeline can boot
+        # on a Coral-free host (Pi 5). If no camera config asks for yard, we
+        # never try to import pycoral. On iMac it still works — any camera
+        # with use_yard=True triggers the import.
+        needs_yard = any(c.use_yard for c in camera_configs.values())
+        if needs_yard:
+            from yard_classifier import YardClassifier
+            self.yard = YardClassifier(yard_model_path, yard_labels_path)
+        else:
+            self.yard = None
         self.aiy = SpeciesClassifier(
             aiy_model_path, aiy_labels_path,
             regional_species=regional_species,
@@ -162,6 +170,9 @@ class SmartClassifier:
         acquired within CORAL_ACQUIRE_TIMEOUT — the caller should retry on the
         next frame rather than fall through to AIY.
         """
+        if self.yard is None:
+            # Coral-free host; caller shouldn't reach this if camera_configs are right.
+            return None
         got = self._coral_lock.acquire(timeout=CORAL_ACQUIRE_TIMEOUT)
         if not got:
             cam_stats["lock_timeouts"] += 1
