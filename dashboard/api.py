@@ -22,7 +22,7 @@ from datetime import datetime, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -2070,6 +2070,63 @@ def submit_review(filename: str, verdict: str, correct_species: str = "", missed
     apply_verdict(review["file"], verdict, review.get("correct_species", ""))
 
     return {"status": "ok", "review": review}
+
+
+# ── Airtight review API (2026-04-24) ──
+# New endpoint family: /api/review2/*. Accepts JSON body with client_id for
+# idempotency. DB write happens first (via reviews_db.insert_review which
+# appends to review_history and upserts reviews), then file move via
+# apply_verdict. See docs/superpowers/specs/2026-04-23-airtight-review-system.md
+
+@app.post("/api/review2/{filename}")
+def submit_review2(filename: str, body: dict = Body(...)):
+    """Airtight review submit. Body: {verdict, correct_species?, missed_birds?, bird_index?, client_id?}.
+    Same client_id twice = no-op; returns first history_id + duplicate=True.
+    """
+    verdict = body.get("verdict")
+    if not verdict:
+        raise HTTPException(status_code=400, detail="verdict required")
+    correct_species = body.get("correct_species", "")
+    missed_birds = str(body.get("missed_birds", False)).lower()
+    bird_index = str(body.get("bird_index", 0))
+    client_id = body.get("client_id")
+
+    review = _create_review_entry(filename, verdict, correct_species, missed_birds, bird_index)
+    if client_id:
+        review["client_id"] = client_id
+    result = rdb.insert_review(review)
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+
+    # File move happens AFTER DB commit. If this fails, the audit catches it.
+    # A duplicate (same client_id) skips the file move — idempotent.
+    if not result.get("duplicate"):
+        apply_verdict(review["file"], verdict, review.get("correct_species", ""))
+
+    return {
+        "ok": True,
+        "history_id": result["history_id"],
+        "prev_row_id": result.get("prev_row_id"),
+        "duplicate": result["duplicate"],
+    }
+
+
+@app.get("/api/review2/history/{filename}")
+def review2_history(filename: str):
+    """Full audit trail for a file. Oldest first. Empty list if unreviewed."""
+    return {"file": filename, "history": rdb.get_history(filename)}
+
+
+@app.post("/api/review2/undo/{history_id}")
+def review2_undo(history_id: int, body: dict = Body(default=None)):
+    """Append an `undone` entry + restore the previous state in `reviews`.
+    Body: {client_id?} for idempotency.
+    """
+    client_id = (body or {}).get("client_id") if body else None
+    result = rdb.undo(history_id, client_id=client_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "undo failed"))
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+    return result
 
 
 @app.get("/api/review/classified")
