@@ -633,9 +633,14 @@ API LAYER (2026-04-24, shipped as 8bf6868)
 <span class="good">✓</span> DB commit first, file-move after — if move fails, audit catches
    the mismatch rather than losing the verdict.
 
+QUEUE ENDPOINT (2026-04-24, shipped as ec640a2)
+─────────────────────────────────────────────
+<span class="good">✓</span> GET /api/review2/queue — <span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>
+<span class="good">✓</span> 6 new tests green; 434 total tests green; zero regressions.
+<span class="good">✓</span> Key invariant test: trashing between pages doesn't skip items.
+
 NEXT
 ─────────────────────────────────────────────
-<span class="num">⧗</span> /api/review2/queue  GET  (<span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>)
 <span class="num">⧗</span> Wire /review-ideas mockup to /api/review2/*
 <span class="num">⧗</span> _move_file_safe defensive helper
 <span class="num">⧗</span> Nightly integrity script</div>

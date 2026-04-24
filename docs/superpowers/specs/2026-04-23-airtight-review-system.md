@@ -251,12 +251,19 @@ Built as a live HTML+CSS+JS prototype at `dashboard/review-ideas.html`. Interact
 - ✓ `POST /api/review2/undo/{history_id}` — body `{client_id?}`. Idempotent.
 - ✓ 9 new TDD tests; 428 total tests green; zero regressions.
 
+### Shipped (2026-04-24, part 3)
+
+**Queue endpoint** — commit `ec640a2`:
+
+- ✓ `GET /api/review2/queue` with keyset pagination. Params: `limit`, `after` (cursor = last-seen timestamp), `species`, `camera`. Returns `{items, next_cursor}`. Fetches `limit+1` rows internally to determine has-more without a separate COUNT.
+- ✓ 6 new tests. Key invariant covered: trashing an item on page 1 cannot make page 2 skip items.
+- ✓ 434 total tests green; zero regressions.
+
 ### In progress / next
 
-1. `GET /api/review2/queue` — keyset pagination (stable under trash mutations).
-2. Wire the `/review-ideas` mockup to the real API.
-3. Atomic helper `_move_file_safe` — walks all snapshot roots; defensive find-everywhere.
-4. Nightly integrity script (`tools/review_system_integrity.py`).
+1. Wire the `/review-ideas` mockup to the real API.
+2. Atomic helper `_move_file_safe` — walks all snapshot roots; defensive find-everywhere (fixes Bug D).
+3. Nightly integrity script (`tools/review_system_integrity.py`).
 
 ### Deferred
 
