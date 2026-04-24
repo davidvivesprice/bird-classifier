@@ -603,10 +603,10 @@ Phases:       0 (harness, done) → 1 (clean) → 2-4 (train) → 5 (OOD) →
 Doc:          docs/superpowers/specs/2026-04-23-tier2-training-plan-v1.md</div>
   </div>
 
-  <div class="card" style="border-color: rgba(88,196,138,0.3);">
+  <div class="card" style="border-color: rgba(88,196,138,0.5); background: linear-gradient(180deg, rgba(88,196,138,0.05), var(--bg-card));">
     <div class="card-head">
-      <h3><span class="id">Airtight</span>Review system redesign <span class="pill done" style="margin-left:6px">DB layer shipped</span></h3>
-      <div class="meta">spec 0ce490e · DB a167907</div>
+      <h3><span class="id">Airtight</span>Review system redesign <span class="pill done" style="margin-left:6px">DB + API shipped</span></h3>
+      <div class="meta">spec 0ce490e · DB a167907 · API 8bf6868</div>
     </div>
     <p class="desc">
       Audited the current review flow — found <strong>6 real bugs</strong>:
@@ -624,16 +624,21 @@ Doc:          docs/superpowers/specs/2026-04-23-tier2-training-plan-v1.md</div>
 <span class="good">✓</span> 13 new TDD tests green; 62 existing tests still pass;
    419 total tests green; zero regressions.
 
-API LAYER (in progress)
+API LAYER (2026-04-24, shipped as 8bf6868)
 ─────────────────────────────────────────────
-<span class="num">⧗</span> /api/review2/{filename}  POST (idempotent submit)
-<span class="num">⧗</span> /api/review2/history    GET  (audit trail)
-<span class="num">⧗</span> /api/review2/undo        POST
-<span class="num">⧗</span> /api/review2/queue       GET  (<span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>)
+<span class="good">✓</span> POST /api/review2/{filename}  — idempotent submit via client_id
+<span class="good">✓</span> GET  /api/review2/history/{filename}  — full audit trail
+<span class="good">✓</span> POST /api/review2/undo/{history_id}   — revert + restore prior
+<span class="good">✓</span> 9 new API tests green; 428 total green; zero regressions.
+<span class="good">✓</span> DB commit first, file-move after — if move fails, audit catches
+   the mismatch rather than losing the verdict.
 
-UI INTEGRATION
+NEXT
 ─────────────────────────────────────────────
-<span class="num">⧗</span> Wire /review-ideas mockup to /api/review2/*</div>
+<span class="num">⧗</span> /api/review2/queue  GET  (<span class="jargon" data-plain="Instead of 'page 1, page 2, page 3' with OFFSET queries (which shift when rows get deleted), pagination uses 'show me items after timestamp X'. Stable against deletions — trashing an item on page 1 doesn't cause items to get skipped on page 2.">keyset pagination</span>)
+<span class="num">⧗</span> Wire /review-ideas mockup to /api/review2/*
+<span class="num">⧗</span> _move_file_safe defensive helper
+<span class="num">⧗</span> Nightly integrity script</div>
   </div>
 
   <!-- ═══ THE NUMBERS ════════════════════════════════════ -->

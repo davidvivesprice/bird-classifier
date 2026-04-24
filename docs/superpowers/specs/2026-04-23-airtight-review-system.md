@@ -242,12 +242,21 @@ Built as a live HTML+CSS+JS prototype at `dashboard/review-ideas.html`. Interact
 - ✓ 13 new TDD tests green; 62 existing tests still pass; 419 tests total pass; zero regressions.
 - ✓ Backward compat: 3 existing `rdb.insert_review()` callers in `api.py` discard the return value — grep-verified before shipping.
 
-### In progress
+### Shipped (2026-04-24, part 2)
 
-1. New API endpoints (`/api/review2/*`) with tests
-2. Keyset pagination for queue
-3. Atomic helper `_move_file_safe`
-4. `/review` page wiring (from the /review-ideas mockup)
+**API layer** — commit `8bf6868`, three endpoints in `dashboard/api.py`:
+
+- ✓ `POST /api/review2/{filename}` — JSON body `{verdict, correct_species?, missed_birds?, bird_index?, client_id?}`. Idempotent via `client_id`. `apply_verdict` runs AFTER DB commit; if the file-move fails, the 1a audit catches the mismatch rather than losing the verdict.
+- ✓ `GET /api/review2/history/{filename}` — full chronological audit trail.
+- ✓ `POST /api/review2/undo/{history_id}` — body `{client_id?}`. Idempotent.
+- ✓ 9 new TDD tests; 428 total tests green; zero regressions.
+
+### In progress / next
+
+1. `GET /api/review2/queue` — keyset pagination (stable under trash mutations).
+2. Wire the `/review-ideas` mockup to the real API.
+3. Atomic helper `_move_file_safe` — walks all snapshot roots; defensive find-everywhere.
+4. Nightly integrity script (`tools/review_system_integrity.py`).
 
 ### Deferred
 
