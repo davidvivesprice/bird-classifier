@@ -78,6 +78,10 @@ def in_memory_db(monkeypatch):
         conn.execute(reviews_db.CREATE_TABLE)
         for idx in reviews_db.INDEXES:
             conn.execute(idx)
+        # Airtight history table (added 2026-04-24)
+        conn.execute(reviews_db.CREATE_HISTORY_TABLE)
+        for idx in reviews_db.HISTORY_INDEXES:
+            conn.execute(idx)
         conn.commit()
         return conn
 

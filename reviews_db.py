@@ -11,6 +11,7 @@ Thread-safe: uses thread-local connections, WAL mode (same as classifications_db
 import sqlite3
 import threading
 from pathlib import Path
+from typing import List, Optional
 
 DB_PATH = Path("/Users/vives/bird-snapshots/logs/classifications.db")
 
@@ -64,6 +65,9 @@ def _ensure_table(conn, readonly):
     conn.execute(CREATE_TABLE)
     for idx in INDEXES:
         conn.execute(idx)
+    conn.execute(CREATE_HISTORY_TABLE)
+    for idx in HISTORY_INDEXES:
+        conn.execute(idx)
     conn.commit()
     _table_ensured = True
 
@@ -89,6 +93,36 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_reviews_species ON reviews(correct_species)",
 ]
 
+# ── Append-only history table (airtight 2026-04-24) ──
+# Every review ever made lands here, never replaced, never deleted.
+# The `reviews` table above is a current-state cache (latest row per file).
+# Plan: docs/superpowers/specs/2026-04-23-airtight-review-system.md
+
+CREATE_HISTORY_TABLE = """
+CREATE TABLE IF NOT EXISTS review_history (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    file             TEXT    NOT NULL,
+    verdict          TEXT    NOT NULL,
+    correct_species  TEXT    DEFAULT '',
+    bird_index       INTEGER DEFAULT 0,
+    missed_birds     INTEGER DEFAULT 0,
+    reviewer         TEXT    DEFAULT 'dashboard',
+    timestamp        TEXT    NOT NULL,
+    prev_row_id      INTEGER,
+    client_id        TEXT,
+    FOREIGN KEY (prev_row_id) REFERENCES review_history(id)
+)
+"""
+
+HISTORY_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_rh_file ON review_history(file)",
+    "CREATE INDEX IF NOT EXISTS idx_rh_timestamp ON review_history(timestamp)",
+    # Partial unique index: idempotency via client_id. NULL client_ids allowed
+    # to co-exist (legacy path).
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_rh_client "
+    "ON review_history(client_id) WHERE client_id IS NOT NULL",
+]
+
 
 # ── Write ──
 
@@ -98,26 +132,159 @@ INSERT OR REPLACE INTO reviews (
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 
+INSERT_HISTORY_SQL = """
+INSERT INTO review_history (
+    file, verdict, correct_species, bird_index, missed_birds,
+    reviewer, timestamp, prev_row_id, client_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 
 def insert_review(review_dict):
-    """Insert or replace a review entry.
+    """Insert a review. Appends to review_history (audit trail) AND upserts
+    the current-state `reviews` row.
 
-    Accepts a dict with keys: file, verdict, correct_species, bird_index,
-    missed_birds, timestamp, reviewer.  Missing keys get sensible defaults.
+    Accepts a dict with keys:
+      file, verdict, correct_species, bird_index, missed_birds,
+      timestamp, reviewer, client_id.
+    Missing keys get sensible defaults.
+
+    If `client_id` is provided AND a history row with that client_id already
+    exists, this call is a no-op (idempotent replay). Returns the existing
+    history_id with duplicate=True. This is how the UI protects against
+    double-submit without ever losing or overwriting a correction.
+
+    Returns: {"history_id": int, "prev_row_id": int|None, "duplicate": bool}
+    Backward-compat: the return value is new, but no existing caller
+    inspects it (verified 2026-04-24 in grep), so this is safe.
     """
     d = review_dict
-    row = (
-        d["file"],
-        d["verdict"],
-        d.get("correct_species", ""),
-        d.get("bird_index", 0),
-        d.get("missed_birds", 0),
-        d["timestamp"],
-        d.get("reviewer", "dashboard"),
-    )
+    client_id = d.get("client_id")
     conn = get_conn(readonly=False)
-    conn.execute(INSERT_SQL, row)
-    conn.commit()
+
+    # Idempotency gate
+    if client_id:
+        existing = conn.execute(
+            "SELECT id FROM review_history WHERE client_id = ?", (client_id,)
+        ).fetchone()
+        if existing:
+            prev = conn.execute(
+                "SELECT prev_row_id FROM review_history WHERE id = ?",
+                (existing[0],),
+            ).fetchone()
+            return {
+                "history_id": existing[0],
+                "prev_row_id": prev[0] if prev else None,
+                "duplicate": True,
+            }
+
+    # Chain back to the most recent history row for this file
+    prev_row = conn.execute(
+        "SELECT id FROM review_history WHERE file = ? ORDER BY id DESC LIMIT 1",
+        (d["file"],),
+    ).fetchone()
+    prev_row_id = prev_row[0] if prev_row else None
+
+    # Single transaction: append history + upsert current state
+    try:
+        conn.execute("BEGIN")
+        cur = conn.execute(INSERT_HISTORY_SQL, (
+            d["file"], d["verdict"], d.get("correct_species", ""),
+            d.get("bird_index", 0), int(d.get("missed_birds", 0)),
+            d.get("reviewer", "dashboard"),
+            d["timestamp"], prev_row_id, client_id,
+        ))
+        history_id = cur.lastrowid
+        conn.execute(INSERT_SQL, (
+            d["file"], d["verdict"], d.get("correct_species", ""),
+            d.get("bird_index", 0), int(d.get("missed_birds", 0)),
+            d["timestamp"], d.get("reviewer", "dashboard"),
+        ))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    return {
+        "history_id": history_id,
+        "prev_row_id": prev_row_id,
+        "duplicate": False,
+    }
+
+
+def get_history(file: str) -> List[dict]:
+    """All review_history rows for `file`, oldest first. Empty list for
+    files never reviewed.
+    """
+    conn = get_conn(readonly=True)
+    rows = conn.execute(
+        "SELECT * FROM review_history WHERE file = ? ORDER BY id ASC",
+        (file,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def undo(history_id: int, client_id: Optional[str] = None) -> dict:
+    """Undo the history row `history_id`. Appends a new history row with
+    verdict='undone' that points back at it via prev_row_id, and rewrites
+    the `reviews` cache to reflect the state BEFORE the undone entry.
+
+    If there is no prior state (we're undoing the first review for a file),
+    the `reviews` row is deleted. The history entry for 'undone' remains.
+
+    Idempotent when `client_id` is provided.
+    """
+    from datetime import datetime
+    conn = get_conn(readonly=False)
+
+    # Idempotency
+    if client_id:
+        existing = conn.execute(
+            "SELECT id FROM review_history WHERE client_id = ?", (client_id,)
+        ).fetchone()
+        if existing:
+            return {"ok": True, "history_id": existing[0], "duplicate": True}
+
+    target = conn.execute(
+        "SELECT file, prev_row_id FROM review_history WHERE id = ?",
+        (history_id,),
+    ).fetchone()
+    if target is None:
+        return {"ok": False, "error": "history_id not found"}
+
+    file = target["file"]
+    prev_row_id = target["prev_row_id"]
+    now = datetime.utcnow().isoformat()
+
+    try:
+        conn.execute("BEGIN")
+        # Append 'undone' entry
+        cur = conn.execute(INSERT_HISTORY_SQL, (
+            file, "undone", "", 0, 0,
+            "dashboard", now, history_id, client_id,
+        ))
+        undo_id = cur.lastrowid
+
+        # Restore previous state OR delete reviews row
+        if prev_row_id is not None:
+            prev = conn.execute(
+                "SELECT verdict, correct_species, bird_index, missed_birds, "
+                "       timestamp, reviewer FROM review_history WHERE id = ?",
+                (prev_row_id,),
+            ).fetchone()
+            conn.execute(INSERT_SQL, (
+                file, prev["verdict"], prev["correct_species"] or "",
+                prev["bird_index"] or 0, prev["missed_birds"] or 0,
+                prev["timestamp"], prev["reviewer"],
+            ))
+        else:
+            conn.execute("DELETE FROM reviews WHERE file = ?", (file,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    return {"ok": True, "history_id": undo_id, "duplicate": False}
 
 
 # ── Read helpers ──
