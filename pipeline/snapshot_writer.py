@@ -15,6 +15,7 @@ here: the plumbing must keep flowing so reviewers can correct labels.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -161,6 +162,7 @@ class SnapshotWriter:
             "errors": 0,
             "hires_ok": 0,
             "hires_fail": 0,
+            "hires_skipped": 0,      # cheap-restore path (default since 2026-04-23)
             "aiy_relabel": 0,
             "aiy_none": 0,
             "ring_pick_ok": 0,
@@ -336,16 +338,22 @@ class SnapshotWriter:
         return best.frame, meta
 
     def _write_one(self, p: dict):
-        # Hi-res frame acquisition — two paths:
+        # Hi-res frame acquisition — three paths:
         # (1) If self.hires_ring is configured AND shadow_mode is False, use
-        #     the ring's best-quality nearest-timestamp frame. This is the
-        #     real fix for the stale-bbox hallucination.
-        # (2) Otherwise, fall back to the existing go2rtc /api/frame.mp4
-        #     fetch (which has the 2-5s keyframe wait, i.e. the bug path).
-        # In shadow mode (ring present but shadow_mode=True), path (2) still
-        # runs authoritatively AND we record the ring's pick in a sidecar
-        # JSON alongside the JPG — so David can compare ring-vs-old for
-        # 3-4 days before flipping shadow_mode off.
+        #     the ring's best-quality nearest-timestamp frame. Real fix for
+        #     the stale-bbox hallucination. (Needs Pi 5 CPU headroom.)
+        # (2) CHEAP RESTORE (default since 2026-04-23, David-approved):
+        #     skip the go2rtc /api/frame.mp4 fetch entirely. The detection-
+        #     time 640x360 frame is used as-is. This is what AIY had
+        #     pre-Sonoma when it scored 69.3% top-1 / 75.6% macro-F1 — the
+        #     SAME frame the bird was detected on, no stale-bbox window.
+        #     Crop is smaller but the bird is IN IT.
+        # (3) Old broken behavior (opt-in, env PIPELINE_HIRES_RECROP=1):
+        #     fetch a 1080p frame via /api/frame.mp4. Had a 2-5 second
+        #     keyframe wait that caused the hallucination. Retained for
+        #     comparison / A-B only.
+        _do_hires_recrop = os.environ.get("PIPELINE_HIRES_RECROP", "0") == "1"
+
         low_w = p["frame"].shape[1] or 1
         low_h = p["frame"].shape[0] or 1
         HIRES_W, HIRES_H = 1920, 1080
@@ -360,14 +368,14 @@ class SnapshotWriter:
         )
 
         if ring_frame is not None and not self.shadow_mode:
-            # Ring authoritative path
+            # Path 1: ring authoritative.
             p["frame"] = ring_frame
             p["bbox"] = bbox_hires
             self.stats["hires_ok"] += 1
             self.stats["ring_pick_ok"] += 1
             p["_ring_sidecar"] = ring_meta
-        else:
-            # Legacy path (shadow mode OR ring empty OR ring disabled)
+        elif _do_hires_recrop:
+            # Path 3: the old (broken) hi-res fetch, opt-in only.
             if ring_frame is None:
                 self.stats["ring_pick_empty"] += 1
             hires = self._fetch_hires_frame(p["camera"])
@@ -380,7 +388,15 @@ class SnapshotWriter:
                 self.stats["hires_ok"] += 1
             else:
                 self.stats["hires_fail"] += 1
-            # Shadow sidecar: record what the ring would have picked
+            if ring_meta.get("picked_wall_ms") is not None:
+                p["_ring_sidecar"] = ring_meta
+        else:
+            # Path 2 (default): cheap restore. Keep the detection-time 640x360
+            # frame + its bbox as-is. AIY classifies the crop the bird was
+            # actually in.
+            self.stats["hires_skipped"] = self.stats.get("hires_skipped", 0) + 1
+            if ring_frame is None:
+                self.stats["ring_pick_empty"] += 1
             if ring_meta.get("picked_wall_ms") is not None:
                 p["_ring_sidecar"] = ring_meta
 
