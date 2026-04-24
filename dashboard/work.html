@@ -435,7 +435,7 @@
     <div class="stat">
       <div class="label">Pre-Sonoma AIY top-1</div>
       <div class="val emerald">69.3%</div>
-      <div class="sub">the baseline to restore, not beat</div>
+      <div class="sub">restored today; flagship aims to exceed</div>
     </div>
   </div>
 
@@ -559,29 +559,25 @@ Artifact: tier2_eval/baseline.report.json</div>
 
   <div class="card" style="border-color: rgba(88,196,138,0.4); background: linear-gradient(180deg, rgba(88,196,138,0.05), var(--bg-card));">
     <div class="card-head">
-      <h3><span class="id">Cheap</span>Restore what already worked (new priority)</h3>
-      <div class="meta"><span class="pill review">review</span>new</div>
+      <h3><span class="id">Cheap</span>Restore what already worked <span class="pill verified" style="margin-left:6px">shipped</span></h3>
+      <div class="meta">e3e10cc</div>
     </div>
     <p class="desc">
-      Given the pre-vs-post-Sonoma split above, the fastest path to "<span class="jargon" data-plain="Your word from the chat: what the system was before Sonoma broke it. 69.3% top-1 accuracy — not perfect, but genuinely useful.">passable</span>"
-      is to undo the 2-5s hi-res wait and run AIY on the detection-time crop (like it used to). Two options:
+      Approved and shipped 2026-04-23. <code>SnapshotWriter</code> no longer waits for a 1080p frame 2-5 seconds
+      after detection; it runs AIY on the detection-time 640×360 crop — the same path that scored <strong>69.3% top-1</strong>
+      pre-Sonoma. Env gate <code>PIPELINE_HIRES_RECROP=1</code> re-enables the old behavior for A/B only.
     </p>
-    <div class="evidence">Option A  <span class="good">Quick</span>: Make SnapshotWriter skip _fetch_hires_frame entirely
-          and run AIY on the substream detection frame (640×360).
-          Smaller crops for the review queue, but accuracy returns.
-          ~20 lines of code; ships in one commit.
-
-Option B  <span class="good">Correct</span>: Flip 1b on Pi 5 when it comes online.
-          Ring buffer gives hi-res crops AT the detection moment.
-          Best of both: big clean crops + no stale bbox.
-          Zero production risk on Pi 5; the CPU is there.
-
-Option C  Both: A today on the iMac (cheap restore), B when Pi 5 lands.</div>
+    <div class="evidence">Status:   <span class="good">active in production</span>  (pipeline restarted 2026-04-23)
+Verify:   curl http://localhost:8100/api/pipeline/health \
+          | jq '.shared.snapshot_writer.hires_skipped'
+          Counter climbs when classifications fire.
+Next:     1b ring buffer supersedes on Pi 5 — hi-res crops AT
+          detection time (best of both worlds).</div>
   </div>
 
   <div class="card">
     <div class="card-head">
-      <h3><span class="id">Tier 2</span>Flagship training plan v1 (now optional?)</h3>
+      <h3><span class="id">Tier 2</span>Flagship training plan v1 — the long arc</h3>
       <div class="meta"><span class="pill review">review</span>229777d</div>
     </div>
     <p class="desc">
@@ -589,9 +585,15 @@ Option C  Both: A today on the iMac (cheap restore), B when Pi 5 lands.</div>
       <strong>EfficientNet-Lite0</strong> backbone (unanimous across three reviews), <strong>cleanlab-first cleaning</strong>
       of the 34K weak AIY labels, <strong>decoupled two-stage training</strong> (Kang 2020) with
       <span class="jargon" data-plain="A training trick for imbalanced data: instead of re-weighting the loss by class frequency (which destabilizes training), you shift the model's raw output scores before the softmax by the log of each class's frequency. Cleaner math, better results on long-tail benchmarks.">logit adjustment</span>,
-      <strong>Hairy/Downy specialist head</strong>,
+      <strong>Hairy/Downy specialist head</strong>, and an
       <span class="jargon" data-plain="A way to detect 'I've never seen this before' without adding a class. Based on the 'energy' of the model's output logits: high-energy = confident, low-energy = unknown. Cheap to compute, free at inference.">energy-based OOD gate</span>.
-      <strong>Given the pre-Sonoma 69% baseline, this is now OPTIONAL — a long-term flagship to eventually beat AIY rather than a required replacement.</strong>
+    </p>
+    <p class="desc" style="background: rgba(226,179,88,0.08); padding: 14px 18px; border-radius: 8px; border-left: 3px solid var(--gold); margin-top: 10px;">
+      <strong style="color: var(--gold);">The hybrid that makes sense long-term:</strong>
+      flagship handles the species it has strong training signal on; AIY is the
+      <span class="jargon" data-plain="The fallback model. Runs only when flagship's OOD gate says 'I don't know this.' AIY has 965 species classes trained by Google — it covers everything flagship hasn't grown into yet.">fallback for rare-bird cases</span>
+      via the <em>unknown</em> trigger. As more nodes come online and more data accumulates, flagship's coverage
+      expands and AIY's fallback role shrinks. Neither replaces the other — they complement.
     </p>
     <div class="evidence">Label set:    16 classes (14 species + not_a_bird + unknown)
 Targets:      top-1 ≥75%, macro-F1 ≥65%, ECE ≤5%, OOD AUROC ≥0.85
@@ -655,28 +657,28 @@ DATASET:
   <h2 class="section">Your decisions, ranked</h2>
   <p class="section-sub">Everything after these is unblocked.</p>
 
-  <div class="decision">
-    <h3>1. Restore-what-worked: Option A, B, or C?</h3>
-    <div class="q">Ship the quick restore (AIY on detection-time crop, ~20 lines), wait for Pi 5 + 1b, or both?</div>
-    <div class="opts">The pre-Sonoma 69.3% / post-Sonoma 41.8% split makes this the fastest win. My lean: <strong>C</strong> — A today gets accuracy back while we wait on Pi 5; then B supersedes A once the ring buffer has CPU room to breathe.</div>
+  <div class="decision" style="border-color: rgba(88,196,138,0.4); background: linear-gradient(135deg, rgba(88,196,138,0.10), rgba(88,196,138,0.02));">
+    <h3 style="color: var(--emerald);">✓ 1. Cheap restore — DECIDED: Option A, shipped</h3>
+    <div class="q">Run AIY on the detection-time 640×360 crop; skip the broken hi-res re-crop.</div>
+    <div class="opts">Shipped as <code>e3e10cc</code>. Watch <code>shared.snapshot_writer.hires_skipped</code> climb in <code>/api/pipeline/health</code>. 1b ring buffer remains the "correct" future fix — lands cleanly on Pi 5.</div>
   </div>
 
   <div class="decision">
-    <h3>2. Tier 2 flagship — still want it?</h3>
-    <div class="q">Given 69% AIY is "passable," is the flagship yard model still a priority or a long-term want?</div>
-    <div class="opts">Arguments for: improves beyond AIY's ceiling (Hairy/Downy, OOD); future-proofs for Pi 5+Hailo. Arguments against: AIY is 95% of what we need once the pipeline is fixed. Either way, Phase 0 harness already built and paid for — it stays.</div>
+    <h3>2. Flagship training — the long arc</h3>
+    <div class="q">Proceed with Tier 2 as planned, framing it as <em>additive</em> to AIY (not replacement)?</div>
+    <div class="opts"><strong>David's 2026-04-23 framing:</strong> "i do want the flagship model, especially thinking that at some point there is going to be more nodes, and we will keep training the model on way more data. but until we have data for rare birds, aiy will have to catch them as best it can." The hybrid is the answer: flagship for species it owns, AIY for everything its OOD gate rejects. Phase 0 harness is already built.</div>
   </div>
 
   <div class="decision">
     <h3>3. Airtight review-system: when?</h3>
-    <div class="q">Now (prevents future correction loss) or after the restore (ship accuracy first)?</div>
-    <div class="opts">The 6 bugs actively corrupt training signal every review. ~2 days of work. My lean: <strong>after</strong> the cheap restore — ship accuracy first, then harden the review pipe.</div>
+    <div class="q">Now (prevents future correction loss + becomes critical as more nodes join) or after first flagship train?</div>
+    <div class="opts">The 6 bugs actively corrupt training signal every review. <strong>Argues harder for "now"</strong> given the multi-node future — more reviewers = more chances for silent corruption = audit trail becomes non-negotiable. ~2 days of work.</div>
   </div>
 
   <div class="decision">
-    <h3>4. Restart uvicorn to pick up new routes</h3>
-    <div class="q"><code>/work</code> and <code>/review-ideas</code> need a dashboard restart.</div>
-    <div class="opts">30-second interruption. <code>launchctl kickstart -k gui/$(id -u)/com.vives.bird-dashboard</code>.</div>
+    <h3>4. 1b hi-res ring on Pi 5</h3>
+    <div class="q">When Pi 5 comes online, flip <code>PIPELINE_HIRES_RING=1</code> in shadow, then authoritative?</div>
+    <div class="opts">The "correct" fix — hi-res crops <em>at</em> detection time. Cheap restore keeps the iMac working in the meantime. Pi 5 has the CPU headroom the iMac doesn't.</div>
   </div>
 
   <!-- ═══ COMMIT LOG ═════════════════════════════════════ -->
