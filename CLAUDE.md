@@ -1,4 +1,15 @@
-# Bird Observatory — CLAUDE.md
+# Bird Observatory — CLAUDE.md (Pi-side repo)
+
+> **You are in the Pi-side repo at `/Users/vives/bird-classifier-pi/`.**
+> Pi-Claude commits live here. Edit files here and rsync to Pi (`vives@pi5.local:/home/vives/bird-classifier/`) for deployment.
+>
+> The iMac-side repo at `/Users/vives/bird-classifier/` is iMac-Claude's territory — don't push to it.
+>
+> Cross-cutting fixes (anything that benefits both sides) flow via patches in `docs/superpowers/progress/cross-claude-comms.md`. David relays.
+>
+> Both repos share git history through commit `5773551` (split point, 2026-04-25). They diverge from there.
+>
+> See `docs/superpowers/progress/2026-04-25-pi-repo-split.md` for the full split context (created in the next commit).
 
 ## Mission
 
