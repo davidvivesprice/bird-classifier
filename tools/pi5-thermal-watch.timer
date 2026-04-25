@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Pi 5 thermal/load sampler every minute
+Documentation=https://github.com/vives/bird-classifier (tools/pi5_thermal_watch.py)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=false
+Unit=pi5-thermal-watch.service
+
+[Install]
+WantedBy=timers.target

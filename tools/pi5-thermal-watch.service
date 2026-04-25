@@ -1,0 +1,10 @@
+[Unit]
+Description=Pi 5 thermal/load sampler — appends one row to ~/logs/pi5-thermal-watch.csv
+Documentation=https://github.com/vives/bird-classifier (tools/pi5_thermal_watch.py)
+
+[Service]
+Type=oneshot
+ExecStart=/home/vives/bird-classifier/venv/bin/python3 /home/vives/bird-classifier/tools/pi5_thermal_watch.py
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
