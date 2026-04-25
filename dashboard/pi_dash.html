@@ -227,6 +227,88 @@
     pointer-events: none;
   }
   canvas.overlay { width: 100%; height: 100%; }
+  /* Live view panel — go2rtc WebRTC + SSE labels with CSS-driven smoothing */
+  .live-panel { padding: 0; overflow: hidden; margin-bottom: var(--gap); }
+  .live-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .live-head h2 { margin: 0; }
+  .live-meta {
+    display: flex; gap: 10px; align-items: center;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent);
+    animation: live-pulse 2s ease-out infinite;
+  }
+  .live-dot.offline { background: var(--text-dim); animation: none; box-shadow: none; }
+  @keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 var(--accent-glow); }
+    70%  { box-shadow: 0 0 0 8px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .live-stage {
+    position: relative; aspect-ratio: 16 / 9;
+    background: #000;
+    overflow: hidden;
+  }
+  .live-video { display: block; width: 100%; height: 100%; }
+  .live-video video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .live-labels {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+  .live-bbox {
+    position: absolute; left: 0; top: 0;
+    border: 1.5px solid rgba(255, 255, 255, 0.85);
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
+                0 0 28px 6px var(--accent-glow);
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 200ms ease-out;
+    will-change: transform;
+  }
+  .live-bbox.locked {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
+                0 0 36px 8px var(--accent-glow);
+  }
+  .live-label {
+    position: absolute; left: 0; top: 0;
+    background: var(--accent);
+    color: var(--bg);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 200ms ease-out;
+    will-change: transform;
+    transform-origin: 50% 100%;
+  }
+  .live-label.pending {
+    background: rgba(255, 255, 255, 0.18);
+    color: var(--text);
+    backdrop-filter: blur(4px);
+    font-weight: 500;
+    font-style: italic;
+  }
+  .live-empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-family: var(--font-mono); font-size: 13px;
+    pointer-events: none;
+  }
+  .live-empty.hidden { display: none; }
+
   /* Recent classifications strip (replaces live feed on Pi) */
   .recent-grid {
     display: grid;
@@ -458,6 +540,23 @@
     <div class="stat-card">
       <div class="label">Tunnel</div>
       <div class="val" id="stat-tunnel">pi5.vivessato.com</div>
+    </div>
+  </div>
+
+  <div class="panel live-panel">
+    <div class="live-head">
+      <h2>Live</h2>
+      <div class="live-meta">
+        <span class="live-dot" id="live-dot"></span>
+        <span id="live-status">connecting…</span>
+        <span style="color: var(--text-dim)">·</span>
+        <span>Hailo YOLOv8s · AIY</span>
+      </div>
+    </div>
+    <div class="live-stage" id="live-stage">
+      <video-stream id="live-video" class="live-video" mode="webrtc,mse"></video-stream>
+      <div class="live-labels" id="live-labels"></div>
+      <div class="live-empty" id="live-empty">No birds in frame.</div>
     </div>
   </div>
 
@@ -746,10 +845,193 @@
     } catch (e) {}
   }
 
+  // ── Live view: WebRTC video + SSE labels with CSS-driven smoothing ──
+  // Architecture (compare iMac's /live.html — 600 lines, HLS+sidecar+two
+  // Gaussian kernels): we trade math smoothing for visual smoothing.
+  // - Video: go2rtc WebRTC, sub-second latency
+  // - Labels: SSE `/api/pipeline/events/sse?camera=feeder` (~5 events/sec)
+  // - Smoothing: CSS `transform` transitions (240ms cubic-bezier) — the
+  //   browser interpolates between SSE updates for free
+  // - Track lifecycle: lazy-create DOM nodes per track_id; GC after 1.5s
+  //   without an update; bbox + label fade out via opacity transition.
+  function setupLiveView() {
+    const stage = document.getElementById('live-stage');
+    const video = document.getElementById('live-video');
+    const labelsRoot = document.getElementById('live-labels');
+    const emptyEl = document.getElementById('live-empty');
+    const statusEl = document.getElementById('live-status');
+    const dotEl = document.getElementById('live-dot');
+
+    // Resolve go2rtc base URL: same host on LAN at :1984; or
+    // go2rtc.vivessato.com when accessed via the cloudflare tunnel.
+    const HOST = window.location.hostname;
+    let go2rtcHttp, go2rtcWs;
+    if (HOST === 'pi5.vivessato.com') {
+      go2rtcHttp = 'https://go2rtc.vivessato.com';
+      go2rtcWs   = 'wss://go2rtc.vivessato.com';
+    } else {
+      go2rtcHttp = `http://${HOST}:1984`;
+      go2rtcWs   = `ws://${HOST}:1984`;
+    }
+
+    // Load go2rtc's <video-stream> custom element (which depends on
+    // video-rtc.js). After defined, set the WebRTC src and let it
+    // negotiate. video-rtc.js handles WebRTC → MSE → MJPEG fallback.
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = `${go2rtcHttp}/video-stream.js`;
+    script.onerror = () => {
+      statusEl.textContent = 'video offline';
+      dotEl.classList.add('offline');
+    };
+    document.head.appendChild(script);
+
+    customElements.whenDefined('video-stream').then(() => {
+      video.src = `${go2rtcWs}/api/ws?src=feeder-main`;
+    });
+
+    // SSE → labels. Event shape:
+    //   {camera, wall_time_ms, tracks: [{track_id, bbox, frame_width,
+    //                                    frame_height, species,
+    //                                    species_confidence, is_locked}]}
+    // bbox is in detector frame coords (typ. 640x360); frame_width/height
+    // come in the event so we don't hardcode them.
+    const tracks = new Map();  // track_id → {bboxEl, labelEl, last_seen, last_data}
+    let lastEventTs = 0;
+
+    function ensureTrackEls(tid) {
+      let entry = tracks.get(tid);
+      if (entry) return entry;
+      const bboxEl = document.createElement('div');
+      bboxEl.className = 'live-bbox';
+      bboxEl.style.opacity = '0';
+      const labelEl = document.createElement('div');
+      labelEl.className = 'live-label pending';
+      labelEl.style.opacity = '0';
+      labelEl.textContent = '…';
+      labelsRoot.appendChild(bboxEl);
+      labelsRoot.appendChild(labelEl);
+      entry = { bboxEl, labelEl, last_seen: 0 };
+      tracks.set(tid, entry);
+      // Fade in on next frame so the transition fires
+      requestAnimationFrame(() => {
+        bboxEl.style.opacity = '1';
+        labelEl.style.opacity = '1';
+      });
+      return entry;
+    }
+
+    function updateTrack(t) {
+      const entry = ensureTrackEls(t.track_id);
+      entry.last_seen = performance.now();
+      entry.last_data = t;
+      const fw = t.frame_width || 640;
+      const fh = t.frame_height || 360;
+      const stageRect = stage.getBoundingClientRect();
+      // Account for object-fit: contain — the displayed video may be
+      // letterboxed inside the stage. Compute the rendered video rect
+      // and offset bbox into it.
+      const stageAR = stageRect.width / stageRect.height;
+      const videoAR = fw / fh;
+      let renderW, renderH, offX = 0, offY = 0;
+      if (videoAR > stageAR) {
+        // Pillarbox: width fills, height letterboxed (shouldn't happen on 16:9 vs 16:9)
+        renderW = stageRect.width;
+        renderH = stageRect.width / videoAR;
+        offY = (stageRect.height - renderH) / 2;
+      } else {
+        // Letterbox: height fills, width pillarboxed
+        renderH = stageRect.height;
+        renderW = stageRect.height * videoAR;
+        offX = (stageRect.width - renderW) / 2;
+      }
+      const sx = renderW / fw;
+      const sy = renderH / fh;
+
+      const [x1, y1, x2, y2] = t.bbox;
+      const dx = offX + x1 * sx;
+      const dy = offY + y1 * sy;
+      const w = Math.max(2, (x2 - x1) * sx);
+      const h = Math.max(2, (y2 - y1) * sy);
+
+      entry.bboxEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      entry.bboxEl.style.width = `${w}px`;
+      entry.bboxEl.style.height = `${h}px`;
+      entry.bboxEl.classList.toggle('locked', !!t.is_locked);
+
+      // Label position: centered above the bbox, clamped inside the stage.
+      const cx = dx + w / 2;
+      const labelTop = Math.max(4, dy - 28);
+      entry.labelEl.style.transform =
+        `translate(calc(${cx}px - 50%), ${labelTop}px)`;
+
+      if (t.species) {
+        const conf = Math.round((t.species_confidence || 0) * 100);
+        entry.labelEl.textContent = `${t.species} · ${conf}%`;
+        entry.labelEl.classList.toggle('pending', !t.is_locked);
+      } else {
+        entry.labelEl.textContent = 'identifying…';
+        entry.labelEl.classList.add('pending');
+      }
+    }
+
+    function gcTracks() {
+      const now = performance.now();
+      let alive = 0;
+      for (const [id, entry] of tracks.entries()) {
+        if (now - entry.last_seen > 1500) {
+          // Fade out, then remove
+          entry.bboxEl.style.opacity = '0';
+          entry.labelEl.style.opacity = '0';
+          setTimeout(() => {
+            entry.bboxEl.remove();
+            entry.labelEl.remove();
+          }, 220);
+          tracks.delete(id);
+        } else {
+          alive++;
+        }
+      }
+      emptyEl.classList.toggle('hidden', alive > 0);
+      // SSE liveness: if no event in 4s, mark stale
+      if (now - lastEventTs > 4000 && lastEventTs > 0) {
+        statusEl.textContent = 'paused (no recent events)';
+      }
+    }
+
+    let sse;
+    function connectSSE() {
+      sse = new EventSource('/api/pipeline/events/sse?camera=feeder');
+      sse.onopen = () => {
+        statusEl.textContent = 'live';
+        dotEl.classList.remove('offline');
+      };
+      sse.onmessage = (e) => {
+        try {
+          const evt = JSON.parse(e.data);
+          lastEventTs = performance.now();
+          if (Array.isArray(evt.tracks)) {
+            for (const t of evt.tracks) updateTrack(t);
+          }
+          const n = (evt.tracks || []).length;
+          statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
+        } catch (err) { /* ignore */ }
+      };
+      sse.onerror = () => {
+        statusEl.textContent = 'reconnecting…';
+        dotEl.classList.add('offline');
+        // EventSource auto-reconnects; we just update the status indicator.
+      };
+    }
+    connectSSE();
+    setInterval(gcTracks, 400);
+  }
+
   // ── Init ──────────────────────────────────────────────────────────
   loadModels();
   pollStats();
   loadRecent();
+  setupLiveView();
   setInterval(pollStats, 5000);
   setInterval(loadRecent, 10000);
 })();
