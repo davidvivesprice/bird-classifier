@@ -79,12 +79,11 @@ class HailoDetector:
 
         output = self._model.infer({self._input_name: x})
 
-        # Hailo's NMS postprocess returns a Python list-of-ndarrays: one array
-        # per class, each shape (num_detections, 5) with [y1, x1, y2, x2, conf]
-        # in normalized coords. Different classes have different lengths so
-        # np.asarray() bombs with "inhomogeneous shape". Parse as a list.
+        # InferModel's NMS-baked YOLO HEF returns a flat (N,) FLOAT32 buffer:
+        # densely packed [count_c0, det0_c0_5fl, det1_c0_5fl, ..., count_c1, ...]
+        # for 80 COCO classes. Parse with _parse_yolo_flat_output.
         raw_out = output[self._output_name]
-        detections = _parse_yolo_list_output(
+        detections = _parse_yolo_flat_output(
             raw_out,
             input_hw=(h_in, w_in),
             frame_hw=(bgr.shape[0], bgr.shape[1]),
@@ -123,6 +122,86 @@ def _letterbox(img, new_wh):
     off_y = (new_h - sh) // 2
     canvas[off_y:off_y + sh, off_x:off_x + sw] = resized
     return canvas
+
+
+def _parse_yolo_flat_output(raw_out,
+                            input_hw: tuple,
+                            frame_hw: tuple,
+                            confidence_threshold: float,
+                            accept_classes: set,
+                            num_classes: int = 80) -> List[dict]:
+    """Parse the InferModel flat NMS output.
+
+    The HailoRT InferModel.run_async path delivers NMS-baked YOLO output
+    as a single flat FLOAT32 ndarray, densely packed per class:
+
+        [count_c0, y1, x1, y2, x2, conf,        # det 0 of class 0
+                  y1, x1, y2, x2, conf,         # det 1 of class 0
+                  ...
+         count_c1, ...,
+         ...
+         count_c79, ...]
+
+    Each per-class block is variable length: 1 (count) + count*5. The
+    buffer is allocated with worst-case size on the Hailo side; trailing
+    bytes after the last detection of class 79 are zero.
+
+    Boxes are normalized [0, 1] in input-space coords. We rescale through
+    the letterbox transform back to frame coords. (Same final coord space
+    as the prior list-based parser.)
+    """
+    in_h, in_w = input_hw
+    f_h, f_w = frame_hw
+    scale = min(in_w / f_w, in_h / f_h)
+    pad_x = (in_w - f_w * scale) / 2
+    pad_y = (in_h - f_h * scale) / 2
+
+    arr = np.asarray(raw_out).ravel()
+    results: List[dict] = []
+    pos = 0
+    for cls_idx in range(num_classes):
+        if pos >= arr.size:
+            break
+        count = int(arr[pos])
+        pos += 1
+        if count <= 0:
+            continue
+        if pos + count * 5 > arr.size:
+            break
+        if cls_idx not in accept_classes:
+            pos += count * 5
+            continue
+        for _ in range(count):
+            y1n, x1n, y2n, x2n, conf = (
+                float(arr[pos]), float(arr[pos + 1]), float(arr[pos + 2]),
+                float(arr[pos + 3]), float(arr[pos + 4]),
+            )
+            pos += 5
+            if conf < confidence_threshold:
+                continue
+            if max(abs(x1n), abs(y1n), abs(x2n), abs(y2n)) > 1.5:
+                x1m, y1m, x2m, y2m = x1n, y1n, x2n, y2n
+            else:
+                x1m = x1n * in_w
+                y1m = y1n * in_h
+                x2m = x2n * in_w
+                y2m = y2n * in_h
+            x1 = (x1m - pad_x) / scale
+            y1 = (y1m - pad_y) / scale
+            x2 = (x2m - pad_x) / scale
+            y2 = (y2m - pad_y) / scale
+            x1 = max(0, min(f_w, x1))
+            x2 = max(0, min(f_w, x2))
+            y1 = max(0, min(f_h, y1))
+            y2 = max(0, min(f_h, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            results.append({
+                "box": [float(x1), float(y1), float(x2), float(y2)],
+                "confidence": conf,
+                "class": cls_idx,
+            })
+    return results
 
 
 def _parse_yolo_list_output(raw_out,

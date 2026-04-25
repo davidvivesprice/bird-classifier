@@ -68,7 +68,14 @@ class HailoModel:
                 out_buffers[name] = np.empty(spec.shape, dtype=np.float32)
             bindings = cim.create_bindings(output_buffers=out_buffers)
             for name, arr in inputs.items():
-                bindings.input(name).set_buffer(np.ascontiguousarray(arr))
+                # HailoRT's set_buffer requires a writable C-contiguous buffer.
+                # ascontiguousarray returns the input as-is when already
+                # C-contiguous, so a read-only source (e.g. PIL→numpy or a
+                # negative-stride slice) stays read-only. Force a fresh copy.
+                buf = np.ascontiguousarray(arr)
+                if not buf.flags.writeable:
+                    buf = buf.copy()
+                bindings.input(name).set_buffer(buf)
             cim.wait_for_async_ready(timeout_ms=10000)
             job = cim.run_async([bindings])
             job.wait(timeout_ms=10000)
