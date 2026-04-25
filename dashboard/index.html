@@ -1051,6 +1051,14 @@
   .btn-skip:hover { background: var(--border); color: var(--text-primary); }
   .btn-trash { background: #4b5563; color: #d1d5db; }
   .btn-trash:hover { background: #6b7280; color: #fff; }
+  @keyframes verdict-removed {
+    0%   { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-12px) scale(0.92); }
+  }
+  .verdict-removed {
+    animation: verdict-removed 0.22s ease-in forwards;
+    pointer-events: none;
+  }
   .btn-missed { background: var(--accent-amber); color: #000; }
   .btn-missed:hover { background: #f59e0b; }
   .btn-notbird { background: #7c3aed; color: #fff; }
@@ -3647,28 +3655,60 @@
     lightboxTab = 'annotated';  // reset for next fresh open
   };
 
-  function _updateGridCard(file, verdict, correctSpecies) {
-    // Update or remove the card in the classified/skipped grid
-    var cards = document.querySelectorAll('.skipped-grid .skipped-card, .skipped-grid [data-file]');
+  // Shared UI handler for what happens to a card after a verdict lands.
+  // Behavior is uniform across all review-tab grids:
+  //   trash, wrong → animate out + remove from DOM (gone, not grayed-out)
+  //                  Server moves the file (apply_verdict): trash→trash/,
+  //                  wrong+species→classified/<species>/. UI just removes
+  //                  from current view; refetch will reflect the new state.
+  //   correct       → green "Confirmed" badge, card stays
+  //   skip          → small "Skipped" badge, card stays
+  //   reclassify    → amber "Re-queued" badge, card stays
+  //   anything else → no visual change
+  //
+  // Returns true if the card was removed from DOM (caller may want to
+  // decrement a counter / refetch when the grid empties).
+  function applyVerdictToUI(file, verdict, correctSpecies) {
+    var cards = document.querySelectorAll('[data-file="' + file + '"]');
+    var removed = false;
     cards.forEach(function(card) {
-      if (card.dataset.file === file || card.innerHTML.indexOf(file) !== -1) {
-        if (verdict === 'trash' || verdict === 'wrong') {
-          card.style.opacity = '0.3';
-          card.style.pointerEvents = 'none';
-          var badge = document.createElement('div');
-          badge.style.cssText = 'position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:2px 6px;border-radius:4px;font-size:0.7rem;z-index:1;';
-          badge.textContent = correctSpecies ? '→ ' + correctSpecies : verdict;
-          card.style.position = 'relative';
-          card.appendChild(badge);
-        } else if (verdict === 'correct') {
-          var badge = document.createElement('div');
-          badge.style.cssText = 'position:absolute;top:4px;right:4px;background:#065f46;color:#6ee7b7;padding:2px 6px;border-radius:4px;font-size:0.7rem;z-index:1;';
-          badge.textContent = 'Confirmed';
-          card.style.position = 'relative';
-          card.appendChild(badge);
-        }
+      if (verdict === 'trash' || verdict === 'wrong') {
+        // Remove with a short animation, then prune from DOM.
+        card.classList.add('verdict-removed');
+        removed = true;
+        setTimeout(function() {
+          if (card.parentNode) card.parentNode.removeChild(card);
+        }, 240);  // matches keyframe duration + small buffer
+      } else if (verdict === 'correct') {
+        _appendBadge(card, 'Confirmed', '#065f46', '#6ee7b7');
+      } else if (verdict === 'skip') {
+        _appendBadge(card, 'Skipped', '#374151', '#d1d5db');
+      } else if (verdict === 'reclassify') {
+        _appendBadge(card, 'Re-queued', '#78350f', '#fcd34d');
       }
     });
+    return removed;
+  }
+
+  function _appendBadge(card, text, bg, fg) {
+    // Idempotent: don't double-badge if user clicks twice.
+    if (card.querySelector('.verdict-badge')) return;
+    var badge = document.createElement('div');
+    badge.className = 'verdict-badge';
+    badge.style.cssText = 'position:absolute;top:4px;right:4px;background:'
+      + bg + ';color:' + fg + ';padding:2px 6px;border-radius:4px;'
+      + 'font-size:0.7rem;z-index:1;';
+    badge.textContent = text;
+    if (getComputedStyle(card).position === 'static') {
+      card.style.position = 'relative';
+    }
+    card.appendChild(badge);
+  }
+
+  // Keep the old name as a thin alias so existing call sites that haven't
+  // migrated yet still work. New code should call applyVerdictToUI directly.
+  function _updateGridCard(file, verdict, correctSpecies) {
+    return applyVerdictToUI(file, verdict, correctSpecies);
   }
 
   window.saveSecondOpinion = async function(ev) {
