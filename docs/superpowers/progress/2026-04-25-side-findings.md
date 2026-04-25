@@ -33,6 +33,13 @@ Format per entry:
 **Why surface later:** When you want a clean review history (e.g., before exporting reviewer-confidence stats), this row is debug noise. Could keep, could delete, could rewrite client_id.
 **Status:** open.
 
+## 2026-04-25 — 4 pre-existing test_pipeline_classifier.py failures
+
+**Discovered while:** running RC3 Task 3 full pipeline test sweep.
+**Observation:** `tests/pipeline/test_pipeline_classifier.py` has 4 failing tests, all pre-existing (verified by `git checkout e553b09 -- pipeline tests` baseline run): `test_yard_useless_aiy_rescues`, `test_yard_uncertain_both_agree`, `test_disagreement_falls_through_to_unlabeled`, `test_no_confident_answer_returns_unlabeled`. These exercise the SmartClassifier's per-camera yard-first decision tree (yard threshold, AIY fallback, both-agree path).
+**Why it matters:** RC3 didn't touch SmartClassifier — these failures predate. But they ARE testing the live classifier's lock-time vote logic, which is the system that produced the ~30% noise rows. If the decision-tree tests are failing, behavior of the production classifier may have drifted from spec since these tests were written. Likely related to the `confident_threshold=0.25` / `uncertain_low=0.10` defaults that were tuned April 18 for the new yard softmax — tests may still assert old thresholds. Worth investigating before/during RC2.
+**Status:** open. Roll into RC2 or a "classifier test refresh" task.
+
 ## 2026-04-25 — iMac YOLO is 2× slower than docs claim
 
 **Noticed while:** pulling SnapshotWriter health stats during the detection+snapshot audit.
