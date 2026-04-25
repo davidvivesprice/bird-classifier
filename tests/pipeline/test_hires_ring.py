@@ -161,3 +161,50 @@ def test_score_near_zero_for_empty_conf():
     s = score_frame(f, bbox, detector_conf=0.0)
     # Floor of 0.1 means score is ~10% of the conf=1.0 case, not zero.
     assert s > 0
+
+
+# ── HiResCapture watchdog ──────────────────────────────────────────────────
+
+
+def test_hires_capture_watchdog_detects_dead_ffmpeg_before_first_frame(monkeypatch):
+    """Regression: HiResCapture watchdog must restart ffmpeg that died
+    before producing the first frame. Sibling of the FrameCapture
+    regression — same root cause (last_frame_ms-only check), same fix
+    (proc.poll() short-circuit). See test_frame_capture.py for the
+    incident write-up.
+    """
+    import time
+    from unittest.mock import MagicMock
+
+    from pipeline import hires_ring as hr_module
+
+    monkeypatch.setattr(hr_module, "_WATCHDOG_CHECK_S", 0.1)
+
+    spawn_count = {"n": 0}
+
+    def fake_spawn(self):
+        spawn_count["n"] += 1
+        proc = MagicMock()
+        proc.poll.return_value = 1
+        proc.returncode = 1
+        proc.stdout.read.return_value = b""
+        proc.wait.return_value = 1
+        self.proc = proc
+
+    monkeypatch.setattr(hr_module.HiResCapture, "_spawn_ffmpeg", fake_spawn)
+
+    ring = hr_module.HiResRingBuffer(max_seconds=2.0, expected_fps=5)
+    cap = hr_module.HiResCapture("test", "rtsp://fake/", ring=ring,
+                                   width=64, height=64, fps=5)
+    try:
+        cap.start()
+        time.sleep(0.6)
+    finally:
+        cap.stop()
+
+    assert spawn_count["n"] >= 2, (
+        f"HiResCapture watchdog must respawn ffmpeg that died before "
+        f"first frame; got spawn_count={spawn_count['n']}, "
+        f"ffmpeg_restarts={cap.stats['ffmpeg_restarts']}"
+    )
+    assert cap.stats["ffmpeg_restarts"] >= 1

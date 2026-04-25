@@ -85,6 +85,59 @@ def test_drops_oldest_when_queue_full():
         fc.stop()
 
 
+def test_watchdog_detects_dead_ffmpeg_before_first_frame(monkeypatch):
+    """Regression: watchdog must restart ffmpeg even when it dies before
+    the first frame is read.
+
+    Bug observed 2026-04-25 on Pi 5: post-startup at 05:45 EDT, both the
+    sub-stream and hi-res ffmpegs died ~5s after spawn (same window in
+    which the HLS recorder also died and successfully respawned). The
+    watchdog only fired on last_frame_ms-based stalls, so with
+    last_frame_ms still None the loop skipped every iteration and the
+    pipeline silently stalled for ~5 hours. Comparison case:
+    pipeline.hls_recorder._watchdog_loop uses ``proc.poll() is not None``
+    and recovered correctly.
+    """
+    import threading
+    from unittest.mock import MagicMock
+
+    from pipeline import frame_capture as fc_module
+
+    # Speed up the watchdog so the test runs in <1s.
+    monkeypatch.setattr(fc_module, "WATCHDOG_CHECK_S", 0.1)
+
+    spawn_count = {"n": 0}
+
+    def fake_spawn(self):
+        spawn_count["n"] += 1
+        proc = MagicMock()
+        # Simulate ffmpeg that exited immediately (dead before first frame)
+        proc.poll.return_value = 1
+        proc.returncode = 1
+        proc.stdout.read.return_value = b""
+        proc.wait.return_value = 1
+        self.proc = proc
+
+    monkeypatch.setattr(fc_module.FrameCapture, "_spawn_ffmpeg", fake_spawn)
+
+    q = queue.Queue(maxsize=2)
+    fc = fc_module.FrameCapture("test", "rtsp://fake/", out_queue=q,
+                                 width=64, height=64, fps=5)
+    try:
+        fc.start()
+        # Allow at least 3 watchdog ticks (0.1s each + start lag)
+        time.sleep(0.6)
+    finally:
+        fc.stop()
+
+    assert spawn_count["n"] >= 2, (
+        f"Watchdog must respawn ffmpeg that died before first frame; "
+        f"got spawn_count={spawn_count['n']}, ffmpeg_restarts="
+        f"{fc.stats['ffmpeg_restarts']}"
+    )
+    assert fc.stats["ffmpeg_restarts"] >= 1
+
+
 def test_restart_resets_last_frame_ms():
     """_restart() must update last_frame_ms so the watchdog doesn't immediately re-fire."""
     import queue

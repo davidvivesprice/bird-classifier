@@ -235,12 +235,37 @@ class HiResCapture:
             self.stats["frames"] += 1
             self.stats["last_frame_ms"] = wall_ms
 
+    def _restart(self):
+        proc = self.proc
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=3)
+            except Exception:
+                pass
+        try:
+            self._spawn_ffmpeg()
+            self.stats["ffmpeg_restarts"] += 1
+            self.stats["last_frame_ms"] = time.time() * 1000
+        except Exception as e:
+            _log.error("[%s-hires] failed to respawn ffmpeg: %s",
+                       self.camera_name, e)
+
     def _watchdog(self):
         while not self._stop.is_set():
             try:
                 time.sleep(_WATCHDOG_CHECK_S)
                 if self._stop.is_set():
                     break
+                # Catch ffmpeg that died before producing its first frame.
+                # The stall-age check below would skip forever in that case
+                # because last_frame_ms is still None.
+                proc = self.proc
+                if proc is not None and proc.poll() is not None:
+                    _log.warning("[%s-hires] ffmpeg exited (code=%s), restarting",
+                                 self.camera_name, proc.returncode)
+                    self._restart()
+                    continue
                 last = self.stats.get("last_frame_ms")
                 if last is None:
                     continue
@@ -248,16 +273,7 @@ class HiResCapture:
                 if age_ms > _WATCHDOG_STALL_MS:
                     _log.warning("[%s-hires] stalled %.0fms, restarting",
                                  self.camera_name, age_ms)
-                    proc = self.proc
-                    if proc is not None:
-                        try:
-                            proc.kill()
-                            proc.wait(timeout=3)
-                        except Exception:
-                            pass
-                    self._spawn_ffmpeg()
-                    self.stats["ffmpeg_restarts"] += 1
-                    self.stats["last_frame_ms"] = time.time() * 1000
+                    self._restart()
             except Exception:
                 _log.exception("[%s-hires] watchdog error", self.camera_name)
                 time.sleep(1.0)

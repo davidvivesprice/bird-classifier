@@ -169,6 +169,15 @@ class FrameCapture:
                 time.sleep(WATCHDOG_CHECK_S)
                 if self._stop_event.is_set():
                     break
+                # Catch ffmpeg that died before producing its first frame.
+                # The stall-age check below would skip forever in that case
+                # because last_frame_ms is still None.
+                proc = self.proc
+                if proc is not None and proc.poll() is not None:
+                    log.warning("[%s] ffmpeg exited (code=%s), restarting",
+                                self.camera_name, proc.returncode)
+                    self._restart()
+                    continue
                 last = self.stats.get("last_frame_ms")
                 if last is None:
                     continue
