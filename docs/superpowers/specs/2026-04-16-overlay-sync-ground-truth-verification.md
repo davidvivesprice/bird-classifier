@@ -1,7 +1,58 @@
 # Overlay Sync — Ground-Truth Verification Design
 
 **Date:** 2026-04-16
-**Status:** Verification phase — no production changes authorized
+**Status:** ⚠️ **SUPERSEDED 2026-04-17** — the architecture pivoted away from
+ffmpeg PDT-based sync to a Python-stamped sidecar manifest, sidestepping the
+entire verification cascade below. See "What changed and why" right below this
+banner before reading further.
+
+---
+
+## ⚠️ READ THIS FIRST — what changed since this doc was written
+
+This spec described a verification phase for an approach that the team
+**abandoned the next day** (2026-04-17). Anyone reading this in 2026-04-25+
+without this banner has gotten confused (literally happened to me). The
+header below preserves the original spec for historical context, but the
+critical updates are:
+
+1. **The `OVERLAY_LEAD_COMPENSATION_MS = 1000` band-aid mentioned in §1
+   was REMOVED.** Verify with `grep OVERLAY_LEAD_COMPENSATION
+   ~/bird-classifier/dashboard/live.html` — returns nothing.
+
+2. **PDT (`hls.playingDate`) is no longer used for overlay sync.** The
+   current architecture uses `pipeline/hls_recorder.py::_manifest_loop`
+   to write `segments.json` with `completed_ms = int(st.st_mtime * 1000)`
+   per .ts segment. The browser fetches that sidecar and derives the
+   displayed frame's wall-clock from `completed_ms - duration*1000 +
+   offset`. Both this `completed_ms` AND the SSE event `wall_time_ms`
+   are stamped by Python `time.time()` on the iMac at corresponding
+   pipeline stages, so they cancel for relative alignment regardless of
+   absolute clock truth.
+
+3. **Gate 1a's iMac-NTP-+180ms finding (still true) is NO LONGER in the
+   dependency chain.** The sidecar approach is NTP-independent by design.
+   The whole "no drift ever" requirement is now satisfied by sharing one
+   Python clock source for both stamps, not by chasing camera↔NTP truth.
+
+4. **Gates 0, 1b, 2, 3, 4, 4b — all "pending" below — were never run.**
+   They were obviated by the pivot. Status fields in §9 are stale.
+
+**For the current overlay sync architecture, read in this order:**
+- `2026-04-17-smooth-label-overlay-design.md` (the pivot to sidecar +
+  Catmull-Rom smoothing)
+- `~/docs/bird-observatory/31-label-motion-adaptive-lock.md` (April 18:
+  Catmull-Rom replaced by Adaptive Lock — Gaussian kernels + velocity
+  blend, the version currently shipping on `/live`)
+- `~/bird-classifier/docs/superpowers/specs/2026-04-25-imac-live-classify-as-built.md` §2
+  (the two clocks reconciliation, code-level citations)
+
+The original spec is preserved below for the record (and because the
+gate-by-gate verification methodology was sound; if we ever pivot BACK
+to PDT-based sync, this is how to verify it).
+
+---
+
 **Successor to:** `2026-04-15-delayed-playback-overlay-design.md`
 
 ## Execution checklist

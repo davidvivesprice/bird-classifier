@@ -1,13 +1,69 @@
 # Delayed Playback with Pre-Computed Overlays — Design Spec
 
 **Date:** 2026-04-15
-**Status:** REVISED — all critical assumptions verified from official documentation.
+**Status:** ⚠️ **PARTIALLY SUPERSEDED 2026-04-17** — the architecture
+(HLS @ ~10s delay + SSE event buffer + per-frame canvas overlay) shipped
+and is still in production. The CLOCK SOURCE was pivoted: `hls.playingDate`
+(PDT-based) was replaced by a Python-stamped sidecar manifest because PDT
+is anchored to ffmpeg start time, not frame arrival, and could not be
+drift-proof. Read the "What's still true / what changed" banner below
+before using this spec as a reference.
 **Author:** Claude (Opus 4.6) + David
 **Builds on:** v3 pipeline (working), Frigate research, live detection v3 design
 
 **Revision history:**
 - Draft 1: Assumed go2rtc native HLS + hls.js + rVFC mediaTime. **Three unverified assumptions, two were wrong.**
 - Draft 2 (this): Pipeline-generated HLS (ffmpeg `-c copy`) + hls.js + `hls.playingDate`. All critical paths verified from official docs.
+- **Draft 3 (2026-04-17, separate doc):** Pivoted clock source from
+  `hls.playingDate` to Python-stamped sidecar manifest. See
+  `2026-04-17-smooth-label-overlay-design.md` and the verification doc
+  `2026-04-16-overlay-sync-ground-truth-verification.md` (which is
+  itself superseded — read its top banner).
+
+---
+
+## ⚠️ What's still true / what changed
+
+**Still in production from this spec:**
+- ffmpeg HLS recorder with `-c copy -f hls -hls_time 2 -hls_list_size 15
+  -hls_flags delete_segments+program_date_time` — **shipped, current**
+  (see `pipeline/hls_recorder.py`)
+- hls.js with `liveSyncDuration: 8` for ~10s delay — **shipped, current**
+  (see `dashboard/live.html` line 198, with tightened drift recovery added
+  2026-04-23)
+- Browser-side `eventBuffer` of SSE events with `wall_time_ms`, ~120s
+  sliding window — **shipped, current**
+- Per-frame `requestVideoFrameCallback` overlay rendering — **shipped, current**
+
+**Replaced by the 2026-04-17 pivot:**
+- `hls.playingDate` as the clock source → REPLACED by sidecar manifest
+  (`/api/hls-live/feeder/segments.json`, written by
+  `pipeline/hls_recorder.py::_manifest_loop`, read by
+  `dashboard/live.html::displayedFrameWallMs()`)
+- Section 5c "Timestamp Sync via hls.playingDate" → no longer how it works
+- The PDT verification cascade in §3 → never executed; obviated by pivot
+
+**Why pivoted:**
+PDT is anchored to ffmpeg start time, not the wall-clock at which each
+frame physically arrived on the iMac. Verifying PDT was drift-proof
+against an external NTP reference required Gates 0-4 of
+`2026-04-16-overlay-sync-ground-truth-verification.md` — that work
+hit "iMac is +180ms ahead of NTP" at Gate 1a and stopped. The sidecar
+approach sidesteps the entire NTP question because both the segment
+`completed_ms` and the SSE `wall_time_ms` are stamped by Python
+`time.time()` on the iMac at corresponding stages — same clock source =
+internally consistent regardless of absolute truth.
+
+**For the current architecture, read:**
+- `2026-04-17-smooth-label-overlay-design.md` (the pivot)
+- `~/docs/bird-observatory/31-label-motion-adaptive-lock.md` (the
+  Adaptive Lock smoothing that ships on `/live` today; the Catmull-Rom
+  approach in 04-17 was itself replaced by Gaussian-kernel-based
+  smoothing on 04-18)
+- `~/bird-classifier/docs/superpowers/specs/2026-04-25-imac-live-classify-as-built.md` §2-3
+  (the two clocks reconciliation + Adaptive Lock math, code-level citations)
+
+Original Draft 2 spec preserved below for the record.
 
 ---
 
