@@ -279,9 +279,11 @@ class SnapshotWriter:
 
     def _authoritative_species(self, frame_bgr: np.ndarray, bbox) -> Optional[dict]:
         """Run AIY on the given frame+bbox crop, return {species, confidence,
-        model_source} or None. Used by `_write_one` to override the track's
-        live (yard-biased) label with AIY's 965-species verdict for the
-        classifications.db row.
+        model_source} or None. Used by `_write_one` to record an authoritative
+        second opinion alongside the lock-time label (see RC3 in
+        docs/superpowers/plans/2026-04-25-rc3-preserve-lock-time-vote.md). The
+        lock-time vote remains canonical; this result is metadata for review/
+        filtering.
         """
         if self.classifier is None:
             return None
