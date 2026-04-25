@@ -128,6 +128,42 @@ iMac YOLO is at 212ms avg, 542ms p99. Doc says expected ~98ms with CoreML. Eithe
 | RC3 | `authoritative_classify` overwrites lock-time vote info with write-time noise | 100% aiy_relabel rate; saved row's species/conf reflects write-time AIY only; lock-time evidence is lost | Preserve both: save the lock-time vote winner AND the authoritative result; flag disagreement; let reviewer see both. |
 | RC4 | Annotated JPG only marks one bbox in multi-bird frames | Pipeline + DB capture multi-bird (N rows per frame); JPG annotation has only the snapshot's track | Annotation should draw all active-track bboxes with the snapshot's track highlighted distinctly. Review UI should also surface "this snapshot belongs to a multi-bird frame, see also rows X, Y." |
 
+## RC3 watershed — 2026-04-25 14:06:38 ET (commits 00dd8bc + 7f1634b + 2bb9a55)
+
+iMac `bird-pipeline` restarted at ~14:06:30 ET to load Task-1 + Task-2 of the
+RC3 plan. First post-watershed classifications row = **id 756294** (`source_timestamp 2026-04-25T14:06:38.886018`, `House Finch`).
+
+**Pre-watershed rows (id ≤ 756293):** opaque noise. Saved species/confidence
+reflect write-time AIY only; lock-time vote info is lost.
+
+**Post-watershed rows (id ≥ 756294):** every row carries:
+- `extra_json.lock_time.{species,confidence,source}` — the live pipeline's
+  vote-lock decision (canonical "what the system thought" record)
+- `extra_json.authoritative.{species,confidence,source}` — write-time AIY
+  second opinion (metadata, not canonical)
+- `extra_json.disagreement` — bool, true iff lock-time and authoritative
+  disagree on species
+
+**First 7-row sample disagreement rate: 14.3%** (1 disagreement out of 7).
+That one disagreement is the textbook noise case — yard locked
+"Dark-eyed Junco" at conf 0.488, AIY at write time says "House Finch" at
+conf 0.04. Both can't be right; AIY's confidence is essentially noise; the
+crop probably doesn't cleanly contain the bird the yard model thought it saw.
+
+**SQL filter to identify suspect rows going forward:**
+```sql
+SELECT * FROM classifications
+WHERE id >= 756294 AND action='classified'
+  AND json_extract(extra_json,'$.disagreement') = 1
+  AND json_extract(extra_json,'$.authoritative.confidence') < 0.1;
+```
+
+This is the foundation for RC2 (confidence floor at write boundary, will
+likely surface these same rows automatically) and any cleanlab work.
+
+**Use commit hash `2bb9a55` as the cutoff** for any cleanup or
+training-pool filtering — pre-2bb9a55 rows have no provenance.
+
 ## What I'm NOT proposing yet
 
 No fixes. Per systematic-debugging Phase 1, we keep gathering evidence until the picture is complete enough to make ONE focused fix at a time. This doc is the evidence record; future entries will track fix attempts + verification.
