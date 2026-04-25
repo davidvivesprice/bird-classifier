@@ -2280,8 +2280,12 @@ def _get_model_registry():
 
 
 def _get_pipeline_view_registry():
-    """Registry reflecting the PIPELINE's constraints: on Pi, the pipeline
-    owns the Hailo detector, so Hailo classifiers are shown as unavailable."""
+    """Registry reflecting the PIPELINE's constraints. With HailoEngine
+    cohabitation (playbook §9 Path 1), Hailo classifiers can run alongside
+    the live Hailo detector, so this is now structurally identical to
+    _get_model_registry — kept as a separate state holder to preserve the
+    cache lifetime semantics callers depend on (and so we can re-introduce
+    pipeline-specific filtering later if needed)."""
     global _pipeline_view_registry
     if _pipeline_view_registry is None:
         import sys
@@ -2290,13 +2294,7 @@ def _get_pipeline_view_registry():
         if str(repo) not in sys.path:
             sys.path.insert(0, str(repo))
         from pipeline.model_registry import build_default_registry
-        # On Pi, pipeline has hailo detector → exclude hailo classifiers.
-        # On iMac, no hailo at all, so exclude_hailo is a no-op (no hailo
-        # candidates are available anyway).
-        exclude = os.environ.get("PI_MODE", "0") == "1"
-        _pipeline_view_registry = build_default_registry(
-            str(repo / "models"), exclude_hailo=exclude,
-        )
+        _pipeline_view_registry = build_default_registry(str(repo / "models"))
     return _pipeline_view_registry
 
 

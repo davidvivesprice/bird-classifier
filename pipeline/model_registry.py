@@ -152,7 +152,7 @@ def load_hailo_classifier(path: str):
 # ── Default registry builder (Pi-specific) ────────────────────────────────
 
 
-def build_default_registry(models_dir: str, exclude_hailo: bool = False) -> ModelRegistry:
+def build_default_registry(models_dir: str) -> ModelRegistry:
     """Build a registry with the candidate set for the Pi observatory.
 
     - AIY Birds V1 (ONNX CPU) — the primary classifier, benchmarked at 7.4ms.
@@ -161,12 +161,10 @@ def build_default_registry(models_dir: str, exclude_hailo: bool = False) -> Mode
     - MobileNet-V2 (Hailo) — if available.
     - Flagship placeholder — pending Tier 2 training, shows as "coming soon".
 
-    `exclude_hailo`: when True, marks all hailo-type candidates as
-    `available=False`. Use this in the PIPELINE process which also owns a
-    Hailo detector slot — the Hailo-8L has exactly ONE vdevice, so having
-    both a Hailo detector AND a Hailo classifier fails with
-    HAILO_OUT_OF_PHYSICAL_DEVICES. Dashboard lab upload-test leaves this
-    False (classifier runs alone when the Lab is exercised).
+    Hailo candidates are marked `available` purely on HEF presence; the
+    Hailo-8L's single VDevice slot is shared via HailoEngine + the
+    HailoRT scheduler (see pipeline/hailo_engine.py and playbook §9
+    Path 1), so detector + classifier can coexist in one process.
     """
     root = Path(models_dir)
     hailo_root = Path("/usr/share/hailo-models")
@@ -186,15 +184,14 @@ def build_default_registry(models_dir: str, exclude_hailo: bool = False) -> Mode
 
     # 2. ResNet50 on Hailo — 1000-class ImageNet, demonstrates Hailo classification.
     resnet = hailo_root / "resnet_v1_50_h8l.hef"
-    _hailo_conflict_note = " · Unavailable while Hailo detector is active (8L has 1 vdevice slot)" if exclude_hailo else ""
     reg.register(CandidateModel(
         name="resnet50_hailo",
         description="ResNet-50 on Hailo — ImageNet (1000 classes, some birds)",
         type_="hailo",
         path=str(resnet),
         loader=load_hailo_classifier,
-        available=resnet.exists() and not exclude_hailo,
-        notes="ImageNet baseline — demonstrates Hailo classifier path." + _hailo_conflict_note,
+        available=resnet.exists(),
+        notes="ImageNet baseline — demonstrates Hailo classifier path.",
     ))
 
     # 3-4. YOLO-derived Hailo models for coarse "is it a bird at all" signals.
@@ -215,8 +212,8 @@ def build_default_registry(models_dir: str, exclude_hailo: bool = False) -> Mode
             type_="hailo",
             path=str(p),
             loader=load_hailo_classifier,
-            available=p.exists() and not exclude_hailo,
-            notes=h_notes + _hailo_conflict_note,
+            available=p.exists(),
+            notes=h_notes,
         ))
 
     # 5. Flagship placeholder — the Tier 2 custom-trained model, not yet built.
