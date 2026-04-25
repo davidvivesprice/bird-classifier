@@ -89,8 +89,10 @@ def main():
     det = eng.acquire_model(args.det)
     cls = eng.acquire_model(args.cls)
 
+    # Both detector and classifier HEFs from /usr/share/hailo-models bake
+    # any required normalization into the graph; pass raw UINT8 0-255 pixels.
     det_in = np.zeros(det.input_shape(), dtype=np.uint8)
-    cls_in = np.zeros(cls.input_shape(), dtype=np.float32)
+    cls_in = np.zeros(cls.input_shape(), dtype=np.uint8)
 
     print(f"\n=== Single-model isolated (warmup={args.warmup}, n={args.n}) ===")
     for label, m, x in (("DET", det, det_in), ("CLS", cls, cls_in)):

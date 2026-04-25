@@ -118,9 +118,12 @@ class HailoClassifier:
             arr = np.stack([arr] * 3, axis=-1)
         if arr.shape[-1] == 4:
             arr = arr[..., :3]
-        # Normalize to float32 [0, 1] — matches quantized=False setup
-        x = arr.astype(np.float32) / 255.0
-        x = x[np.newaxis, ...]  # (1, H, W, 3)
+        # Pre-compiled HEFs from Hailo's model zoo bake the normalization
+        # layer into the graph (e.g. EfficientNet's
+        # normalization([127,127,127],[128,128,128]) per playbook §5.1).
+        # Pass raw UINT8 0-255 pixels and let the HEF handle it. Matches
+        # HailoDetector's UINT8 input contract.
+        x = arr[np.newaxis, ...]  # (1, H, W, 3) uint8
 
         input_name = self._model.input_names[0]
         output = self._model.infer({input_name: x})

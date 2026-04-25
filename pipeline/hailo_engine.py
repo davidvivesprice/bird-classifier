@@ -44,6 +44,15 @@ class HailoModel:
     def _ensure_configured(self):
         if self._cim is not None:
             return
+        # Force outputs to FLOAT32 so HailoRT dequantizes internally — keeps
+        # callers simple (they always read FLOAT32 logits / NMS coords).
+        # Must happen BEFORE configure().
+        try:
+            import hailo_platform as hp
+            for name in self._infer_model.output_names:
+                self._infer_model.output(name).set_format_type(hp.FormatType.FLOAT32)
+        except Exception as e:
+            log.debug("HailoModel output set_format_type FLOAT32 skipped: %s", e)
         cim = self._infer_model.configure()
         cim.__enter__()
         self._cim = cim
