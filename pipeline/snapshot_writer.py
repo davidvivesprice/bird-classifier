@@ -401,19 +401,24 @@ class SnapshotWriter:
             if ring_meta.get("picked_wall_ms") is not None:
                 p["_ring_sidecar"] = ring_meta
 
-        # Re-classify with AIY on the (now hi-res, ideally) crop. This is the
-        # authority for classifications.db — yard's 12-species label set is
-        # not durable enough for the review queue.
+        # Capture lock-time classification values BEFORE auth call. RC3:
+        # the live pipeline's vote-lock decision (yard / AIY / both_agree at
+        # lock moment) is the canonical "what the system thought" record.
+        # The authoritative AIY second opinion below is metadata, not a
+        # replacement. See docs/superpowers/plans/2026-04-25-rc3-*.md
+        lock_time_species = p["species"]
+        lock_time_confidence = p["species_confidence"]
+        lock_time_source = p["model_source"]
+
+        # Re-classify with AIY on the (now hi-res, ideally) crop. Result is
+        # stored as METADATA (not as a replacement for lock-time). This lets
+        # us see in review whether AIY at write time agrees with what the
+        # live pipeline decided. Disagreement + low auth confidence = noise
+        # marker for retrospective filtering.
         auth = self._authoritative_species(p["frame"], p["bbox"])
         if auth is not None:
-            p["species"] = auth["species"]
-            p["species_confidence"] = auth["confidence"]
-            p["model_source"] = auth["model_source"]
             self.stats["aiy_relabel"] += 1
         else:
-            # Keep track's live (yard) label as a fallback. In practice
-            # reviewers correct it anyway; the important thing is the JPG
-            # is preserved and the row goes into the queue.
             self.stats["aiy_none"] += 1
 
         wall_time_ms = p["wall_time_ms"]
@@ -489,6 +494,20 @@ class SnapshotWriter:
             "track_id": int(track_id),
             "vote_history_len": len(p.get("vote_history") or []),
             "model_source": str(p.get("model_source") or ""),
+            # RC3: lock-time + authoritative + disagreement, all stored in
+            # extra_json (classifications_db packs unknown fields automatically
+            # — see classifications_db.py:149).
+            "lock_time": {
+                "species": lock_time_species,
+                "confidence": lock_time_confidence,
+                "source": lock_time_source,
+            },
+            "authoritative": {
+                "species": auth["species"] if auth else None,
+                "confidence": auth["confidence"] if auth else None,
+                "source": auth["model_source"] if auth else None,
+            } if auth else None,
+            "disagreement": bool(auth and auth["species"] != lock_time_species),
         }
 
         try:
