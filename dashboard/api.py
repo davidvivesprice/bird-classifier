@@ -2360,6 +2360,19 @@ def _pi_update_env_classifier(name: str) -> dict:
     Returns {ok: True, restart_in_progress: True} on success, or raises.
     """
     import subprocess
+    # Defense-in-depth: refuse to set the live classifier to a model that
+    # isn't actually a classifier. The dashboard UI should already gate
+    # this, but a curl-to-the-API caller could still hit it.
+    reg = _get_pipeline_view_registry()
+    cand = reg.candidates.get(name)
+    if cand is None:
+        raise HTTPException(status_code=400, detail=f"unknown model: {name}")
+    if not getattr(cand, "is_classifier", True):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{name} is a detector — selectable in the Lab for "
+                    "upload-test, but not as the live pipeline classifier."),
+        )
     env_path = Path.home() / ".bird-observatory-env"
     if not env_path.exists():
         # First-time: create with just the classifier line.
@@ -2379,16 +2392,30 @@ def _pi_update_env_classifier(name: str) -> dict:
             new_lines.append(f"PI_CLASSIFIER={name}")
         env_path.write_text("\n".join(new_lines) + "\n")
     # Restart the pipeline via systemd-user.
+    # Fire non-blocking: graceful pipeline shutdown can take 5-15 seconds
+    # (Hailo VDevice release, queue drain, ffmpeg termination), which would
+    # repeatedly hit the old subprocess.run(timeout=10) and surface as a 500
+    # to the user even though the env file IS written and the restart DOES
+    # happen in the background. The UI polls /api/models/list until the new
+    # active model shows, so we don't need to block on the systemctl call.
     try:
-        subprocess.run(
+        proc = subprocess.Popen(
             ["systemctl", "--user", "restart", "bird-pipeline"],
-            check=True, capture_output=True, timeout=10,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"systemctl restart failed: {e.stderr.decode('utf-8', 'replace')[:200]}"
-        )
+        # Brief poll — surface immediate spawn errors (e.g. systemctl missing)
+        # but don't wait for the restart to complete.
+        try:
+            rc = proc.wait(timeout=1.5)
+            if rc != 0:
+                err = (proc.stderr.read() if proc.stderr else b"").decode("utf-8", "replace")[:200]
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"systemctl restart failed (rc={rc}): {err}",
+                )
+        except subprocess.TimeoutExpired:
+            # Restart in progress — expected, return success.
+            pass
     except FileNotFoundError:
         raise HTTPException(
             status_code=500, detail="systemctl not available on this host"

@@ -602,17 +602,32 @@
       modelList.innerHTML = '';
       for (const c of d.candidates) {
         const row = document.createElement('div');
+        // is_classifier=false → detector model. Lab-only; not a live-classifier
+        // candidate. Render as visually-distinct "DETECTOR" badge and disable
+        // the click-to-switch interaction.
+        const isDetector = c.is_classifier === false;
+        const isSwitchable = c.available && !c.active && !isDetector;
         row.className = 'model-row' + (c.active ? ' active' : '');
-        if (!c.available) row.setAttribute('disabled', '');
+        if (!c.available || isDetector) row.setAttribute('disabled', '');
+        let badge;
+        if (c.active) {
+          badge = '<span class="badge">ACTIVE</span>';
+        } else if (isDetector) {
+          badge = '<span class="badge" style="background:transparent;border:1px solid var(--text-dim);color:var(--text-dim)">DETECTOR · LAB ONLY</span>';
+        } else if (!c.available) {
+          badge = '<span class="badge" style="background:transparent;border:1px solid var(--text-dim);color:var(--text-dim)">coming soon</span>';
+        } else {
+          badge = '';
+        }
         row.innerHTML = `
           <span class="dot"></span>
           <div>
             <div class="name">${c.name}</div>
             <div class="desc">${c.description}${c.notes ? ' · <span style="color:var(--text-dim)">' + c.notes + '</span>' : ''}</div>
           </div>
-          ${c.active ? '<span class="badge">ACTIVE</span>' : (c.available ? '' : '<span class="badge" style="background:transparent;border:1px solid var(--text-dim);color:var(--text-dim)">coming soon</span>')}
+          ${badge}
         `;
-        if (c.available && !c.active) {
+        if (isSwitchable) {
           row.addEventListener('click', () => switchModel(c.name));
         }
         modelList.appendChild(row);

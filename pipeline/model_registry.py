@@ -36,6 +36,11 @@ class CandidateModel:
     loader: Optional[Callable] = None  # callable(path) -> obj with .classify()
     available: bool = True             # False = shows in UI but disabled
     notes: str = ""                    # extra info for the UI (e.g. "4.3 ms/frame")
+    is_classifier: bool = True         # False = detector (COCO classes) — not
+                                       # selectable as the live pipeline
+                                       # classifier (would emit COCO labels
+                                       # like "bird"/"cat" instead of species).
+                                       # Still loadable via Lab upload-test.
 
     def is_placeholder(self) -> bool:
         return self.type_ == "placeholder" or self.loader is None
@@ -61,6 +66,7 @@ class ModelRegistry:
                 "available": c.available and not c.is_placeholder(),
                 "active": c.name == self.current_name,
                 "notes": c.notes,
+                "is_classifier": c.is_classifier,
             }
             for c in self.candidates.values()
         ]
@@ -194,16 +200,21 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
         notes="ImageNet baseline — demonstrates Hailo classifier path.",
     ))
 
-    # 3-4. YOLO-derived Hailo models for coarse "is it a bird at all" signals.
+    # 3-4. YOLO-derived Hailo models. These are DETECTORS (COCO 80-class),
+    # exposed here for Lab upload-test only. Marked is_classifier=False so
+    # the live-classifier slot can't accidentally be set to one — picking
+    # them would emit COCO labels ("bird"/"cat"/"dog") instead of species
+    # names, which is a UX trap when the user is looking for, say, "Northern
+    # Cardinal" in the live overlay.
     for h_name, h_desc, h_filename, h_notes in [
         ("yolov8s_hailo",
          "YOLOv8-S on Hailo — COCO 80-class detector",
          "yolov8s_h8l.hef",
-         "58.67 FPS, 12.96 ms. Detector, not classifier — shown here for quick comparison."),
+         "58.67 FPS, 12.96 ms. Detector — Lab upload-test only."),
         ("yolov6n_hailo",
          "YOLOv6-N on Hailo — COCO 80-class detector (smaller)",
          "yolov6n_h8l.hef",
-         "Smaller variant. Detector."),
+         "Smaller variant. Detector — Lab upload-test only."),
     ]:
         p = hailo_root / h_filename
         reg.register(CandidateModel(
@@ -214,6 +225,7 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
             loader=load_hailo_classifier,
             available=p.exists(),
             notes=h_notes,
+            is_classifier=False,
         ))
 
     # 5. Flagship placeholder — the Tier 2 custom-trained model, not yet built.
