@@ -468,7 +468,10 @@ Named paths for the multi-model problem, ranked cheapest → most work.
 
 Neither research pass nailed these down. Flag-and-test:
 
-1. **Actual detector FPS when classifier is co-scheduled on Hailo-8L.** Zoo numbers are single-model. YOLOv8s alone is 58 FPS on 8L; what's it after adding EfficientNet-Lite0 via scheduler? Need to measure.
+1. **[MEASURED 2026-04-25]** Actual detector FPS when classifier is co-scheduled on Hailo-8L. Bench: `tools/bench_hailo_multimodel.py` (YOLOv8s_h8l + ResNet50_h8l, 200 iters, dummy zeros, ROUND_ROBIN scheduler).
+   - **Isolated:** YOLOv8s p50=16.97 ms (58.9 FPS); ResNet50 p50=20.97 ms (47.7 FPS). Detector matches the Zoo's 58.67 FPS table.
+   - **Co-scheduled (interleaved DET→CLS):** YOLOv8s mean=22.0 ms (45.5 FPS, **−23%**); ResNet50 mean=22.6 ms (44.2 FPS, **−7%**). Aggregate 22.4 iters/s = 44.6 ms per (det+cls) pair → ~6 ms scheduler overhead per iter.
+   - **What this means:** Hailo-8L can comfortably host both YOLOv8s AND a ~25 ms classifier with the live pipeline's 5 FPS sub-stream target (we're 9× over budget). Multi-model Path 1 (playbook §9) is unblocked at the throughput level. Bursty bird events that need rapid classification will tax the chip more than the steady-state bench (still well within margin).
 2. **Scheduler `threshold` / `timeout` values for bursty workloads** (a bird appears → classifier bursts for ~10 frames → idle). hailonet exposes them; no guidance on values.
 3. **Pi 5 CPU cost of GStreamer pipeline vs raw HailoRT Python for same workload.** `hailo-apps` uses GStreamer + C++ post-process .so files. Our code is raw HailoRT Python. Moving to GStreamer might free CPU or burn it — unknown.
 4. **8L network-group capacity limit.** We know it's "lower than 8" but no source quantifies it. Practical: a detector + 1 classifier is fine; haven't seen 3+ models on 8L documented.
