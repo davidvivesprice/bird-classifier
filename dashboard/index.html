@@ -3669,7 +3669,21 @@
   // Returns true if the card was removed from DOM (caller may want to
   // decrement a counter / refetch when the grid empties).
   function applyVerdictToUI(file, verdict, correctSpecies) {
-    var cards = document.querySelectorAll('[data-file="' + file + '"]');
+    // During the Task 1→9 migration, some grids haven't been updated to
+    // expose data-file yet. Match the new attribute first; fall back to the
+    // legacy .skipped-grid .skipped-card selector with innerHTML matching
+    // (used by Classified/Skipped/Missed cards that share that grid class).
+    // After all grids gain data-file (per plan), drop the legacy half.
+    var byAttr = document.querySelectorAll('[data-file="' + file + '"]');
+    var legacyCandidates = document.querySelectorAll('.skipped-grid .skipped-card');
+    var cards = [];
+    byAttr.forEach(function(c) { cards.push(c); });
+    legacyCandidates.forEach(function(c) {
+      // Only include if not already matched by data-file (avoid double-process)
+      if (cards.indexOf(c) !== -1) return;
+      if (c.dataset && c.dataset.file === file) { cards.push(c); return; }
+      if (c.innerHTML && c.innerHTML.indexOf(file) !== -1) { cards.push(c); }
+    });
     var removed = false;
     cards.forEach(function(card) {
       if (verdict === 'trash' || verdict === 'wrong') {
