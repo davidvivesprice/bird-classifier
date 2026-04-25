@@ -43,6 +43,13 @@ We started today on Pi 5 work (overnight build verification) and pivoted multipl
 
 ---
 
+## Network fact (David corrected me)
+
+iMac and Pi are **both wired to the same LAN**. No Tailscale needed for any
+iMac↔Pi communication (rsync, ssh, curl, etc). Pi is reachable at `pi5.local`
+from iMac and vice versa. iMac's LAN IP is `192.168.4.200`. The earlier
+version of the Pi handoff suggested rsync over Tailscale — that's been fixed.
+
 ## What's settled (don't re-litigate)
 
 - **Snapshot architecture decision: still OPEN.** I proposed extracting hi-res frames from the existing HLS recorder buffer (`segments.json` + on-demand .ts decode) instead of running the redundant 1080p ring buffer ffmpeg. David hasn't said go/no-go. Pi has the ring on (it's a testing ground); iMac has neither ring nor the proposed HLS-extract path — it's still on cheap restore (640×360 snaps).
