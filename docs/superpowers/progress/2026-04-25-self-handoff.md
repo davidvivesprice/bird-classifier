@@ -50,6 +50,22 @@ iMac↔Pi communication (rsync, ssh, curl, etc). Pi is reachable at `pi5.local`
 from iMac and vice versa. iMac's LAN IP is `192.168.4.200`. The earlier
 version of the Pi handoff suggested rsync over Tailscale — that's been fixed.
 
+## Cross-Claude comms channel
+
+If David spawns a parallel Pi-side Claude, our shared message bus lives at:
+
+  **`docs/superpowers/progress/cross-claude-comms.md`**
+
+Protocol at the top of that file. Append-only, both sides poll it. David
+is the relay — when you post something that needs the other Claude's input,
+flag it in your reply to him so he can nudge them ("check comms"). Use for
+cross-cutting decisions / blocking questions / fyi heads-ups. Routine work
+stays in handoffs + git commits.
+
+Read the file when David says "check comms" or when you want to coordinate
+something cross-cutting on your own initiative. There's already a hello
+message there from this session that Pi-Claude will see when they spin up.
+
 ## What's settled (don't re-litigate)
 
 - **Snapshot architecture decision: still OPEN.** I proposed extracting hi-res frames from the existing HLS recorder buffer (`segments.json` + on-demand .ts decode) instead of running the redundant 1080p ring buffer ffmpeg. David hasn't said go/no-go. Pi has the ring on (it's a testing ground); iMac has neither ring nor the proposed HLS-extract path — it's still on cheap restore (640×360 snaps).
