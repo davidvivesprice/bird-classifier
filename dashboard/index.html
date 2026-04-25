@@ -3847,7 +3847,10 @@
       await reviewSubmit2(lightboxFile, payload);
       var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
-      _updateGridCard(lightboxFile, verdict, correctSpecies);
+      var removed = applyVerdictToUI(lightboxFile, verdict, correctSpecies);
+      if (typeof classifiedQueueState !== 'undefined') {
+        recordVerdictOnQueue(classifiedQueueState, removed);
+      }
       loadGoalsDebounced();
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
@@ -3896,7 +3899,10 @@
     try {
       await reviewSubmit2(lightboxFile, { verdict: 'wrong', correct_species: species });
       showToast('Corrected to: ' + species, 'success');
-      _updateGridCard(lightboxFile, 'wrong', species);
+      var removed = applyVerdictToUI(lightboxFile, 'wrong', species);
+      if (typeof classifiedQueueState !== 'undefined') {
+        recordVerdictOnQueue(classifiedQueueState, removed);
+      }
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
       } else {
@@ -5950,103 +5956,104 @@
   window.toggleStatusDropdown = toggleStatusDropdown;
 
   // ── Classified Review Tab ──
+  var classifiedQueueState = {
+    endpoint: '/bird-api/review/classified',
+    pageSize: 24,
+    offset: 0,
+    verdictsSinceFetch: 0,
+    params: { species: '', verdict: '' },
+    lastResp: null,
+  };
   var classifiedLoaded = false;
-  var classifiedItems = [];
-  var classifiedTotal = 0;
-  var classifiedOffset = 0;
-  var CLASSIFIED_PAGE_SIZE = 24;
+  var classifiedItems = [];  // thin reflection of lastResp.items — kept for lightbox call sites
 
-  window.loadClassifiedItems = async function(resetOffset) {
-    if (resetOffset !== false) classifiedOffset = 0;
+  window.loadClassifiedItems = function(resetOffset) {
+    if (resetOffset !== false) classifiedQueueState.offset = 0;
+    classifiedQueueState.params.species =
+      document.getElementById('classified-species-filter').value || '';
+    classifiedQueueState.params.verdict =
+      document.getElementById('classified-verdict-filter').value || '';
     var grid = document.getElementById('classified-grid');
     grid.innerHTML = '<div class="loading-msg">Loading classified items...</div>';
-    var speciesFilter = document.getElementById('classified-species-filter').value;
-    var verdictFilter = document.getElementById('classified-verdict-filter').value;
-    try {
-      var url = '/bird-api/review/classified?limit=' + CLASSIFIED_PAGE_SIZE + '&offset=' + classifiedOffset;
-      if (speciesFilter) url += '&species=' + encodeURIComponent(speciesFilter);
-      if (verdictFilter) url += '&verdict=' + encodeURIComponent(verdictFilter);
-      var resp = await apiFetch(url);
-      classifiedItems = resp.items || [];
-      classifiedTotal = resp.total || 0;
+    return loadQueue(classifiedQueueState, function(resp) {
       classifiedLoaded = true;
+      _renderClassifiedGrid(resp);
+    }).catch(function(e) {
+      grid.innerHTML = '<div class="loading-msg" style="color:var(--danger)">Error: '
+        + (e && e.message ? e.message : 'load failed') + '</div>';
+    });
+  };
 
-      // Update species dropdown (only on first load or when no filter active)
-      if (!speciesFilter) {
-        var sel = document.getElementById('classified-species-filter');
-        var current = sel.value;
-        var opts = '<option value="">All Species</option>';
-        (resp.species_list || []).forEach(function(sp) {
-          opts += '<option value="' + escAttr(sp) + '"' + (sp === current ? ' selected' : '') + '>' + escHtml(sp) + '</option>';
-        });
-        sel.innerHTML = opts;
-      }
+  function _renderClassifiedGrid(resp) {
+    var items = resp.items || [];
+    var total = resp.total || 0;
+    classifiedItems = items;  // keep thin reflection so lightbox call sites still work
 
-      // Update badge
-      var badge = document.getElementById('classified-count-badge');
-      if (badge) {
-        badge.textContent = classifiedTotal.toLocaleString();
-        badge.style.display = classifiedTotal > 0 ? 'inline' : 'none';
-      }
-
-      renderClassifiedGrid();
-      updateClassifiedNav();
-    } catch (e) {
-      grid.innerHTML = '<div class="loading-msg">Failed to load classified items.</div>';
+    // Update species dropdown (only when no species filter active)
+    if (!classifiedQueueState.params.species) {
+      var sel = document.getElementById('classified-species-filter');
+      var current = sel.value;
+      var opts = '<option value="">All Species</option>';
+      (resp.species_list || []).forEach(function(sp) {
+        opts += '<option value="' + escAttr(sp) + '"' + (sp === current ? ' selected' : '') + '>' + escHtml(sp) + '</option>';
+      });
+      sel.innerHTML = opts;
     }
-  }
 
-  function renderClassifiedGrid() {
+    // Update badge
+    var badge = document.getElementById('classified-count-badge');
+    if (badge) {
+      badge.textContent = total.toLocaleString();
+      badge.style.display = total > 0 ? 'inline' : 'none';
+    }
+
     var grid = document.getElementById('classified-grid');
-    if (classifiedItems.length === 0) {
+    if (items.length === 0) {
       grid.innerHTML = '<div class="loading-msg">No classified items found.</div>';
-      return;
-    }
-    grid.innerHTML = classifiedItems.map(function(item) {
-      var ts = item.source_timestamp || '';
-      var dateStr = ts ? ts.split(' ')[0] : '';
-      var timeStr = ts ? ts.split(' ')[1] || '' : '';
-      var speciesDisplay = item.is_corrected
-          ? item.species + ' (was: ' + item.original_species + ')'
-          : item.species;
-      var verdictClass = item.verdict === 'correct' ? 'color:#22c55e'
-          : item.is_corrected ? 'color:#f59e0b'
-          : item.verdict === 'wrong' ? 'color:#ef4444'
-          : 'color:#f59e0b';
-      var verdictLabel = item.verdict === 'correct' ? 'Correct'
-          : item.is_corrected ? 'Corrected'
-          : item.verdict === 'wrong' ? 'Wrong'
-          : item.verdict === 'skip' ? 'Skipped'
-          : item.verdict === 'reclassify' ? 'Missed Birds'
-          : item.verdict;
-      return '<div class="skipped-card" data-file="' + escAttr(item.file) + '" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
-        '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy" onerror="this.style.display=\'none\'">' +
-        '<div class="skipped-card-info stacked">' +
-          '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">' + escHtml(speciesDisplay) + '</span>' +
-          '<div style="display:flex;justify-content:space-between;width:100%;align-items:center;">' +
-            '<span style="font-size:0.75rem;font-weight:600;' + verdictClass + ';">' + verdictLabel + '</span>' +
-            '<span class="skipped-card-time">' + escHtml(formatTimestamp(ts)) + '</span>' +
+    } else {
+      grid.innerHTML = items.map(function(item) {
+        var ts = item.source_timestamp || '';
+        var speciesDisplay = item.is_corrected
+            ? item.species + ' (was: ' + item.original_species + ')'
+            : item.species;
+        var verdictClass = item.verdict === 'correct' ? 'color:#22c55e'
+            : item.is_corrected ? 'color:#f59e0b'
+            : item.verdict === 'wrong' ? 'color:#ef4444'
+            : 'color:#f59e0b';
+        var verdictLabel = item.verdict === 'correct' ? 'Correct'
+            : item.is_corrected ? 'Corrected'
+            : item.verdict === 'wrong' ? 'Wrong'
+            : item.verdict === 'skip' ? 'Skipped'
+            : item.verdict === 'reclassify' ? 'Missed Birds'
+            : item.verdict;
+        return '<div class="skipped-card" data-file="' + escAttr(item.file) + '" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
+          '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy" onerror="this.style.display=\'none\'">' +
+          '<div class="skipped-card-info stacked">' +
+            '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">' + escHtml(speciesDisplay) + '</span>' +
+            '<div style="display:flex;justify-content:space-between;width:100%;align-items:center;">' +
+              '<span style="font-size:0.75rem;font-weight:600;' + verdictClass + ';">' + verdictLabel + '</span>' +
+              '<span class="skipped-card-time">' + escHtml(formatTimestamp(ts)) + '</span>' +
+            '</div>' +
           '</div>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }
+        '</div>';
+      }).join('');
+    }
 
-  function updateClassifiedNav() {
-    var pageNum = Math.floor(classifiedOffset / CLASSIFIED_PAGE_SIZE) + 1;
-    var totalPages = Math.max(1, Math.ceil(classifiedTotal / CLASSIFIED_PAGE_SIZE));
-    document.getElementById('classified-page-info').textContent = pageNum + ' / ' + totalPages + ' (' + classifiedTotal.toLocaleString() + ' items)';
-    document.getElementById('classified-prev-btn').disabled = classifiedOffset === 0;
-    document.getElementById('classified-next-btn').disabled = classifiedOffset + CLASSIFIED_PAGE_SIZE >= classifiedTotal;
+    document.getElementById('classified-page-info').textContent =
+      (classifiedQueueState.offset + 1) + '–'
+      + Math.min(classifiedQueueState.offset + items.length, total)
+      + ' of ' + total;
+    document.getElementById('classified-prev-btn').disabled = classifiedQueueState.offset === 0;
+    document.getElementById('classified-next-btn').disabled =
+      (classifiedQueueState.offset + items.length) >= total;
   }
 
   window.loadClassifiedPage = function(dir) {
     if (dir === 'next') {
-      classifiedOffset += CLASSIFIED_PAGE_SIZE;
-    } else {
-      classifiedOffset = Math.max(0, classifiedOffset - CLASSIFIED_PAGE_SIZE);
+      queueNextPage(classifiedQueueState, _renderClassifiedGrid);
+    } else if (dir === 'prev') {
+      queuePrevPage(classifiedQueueState, _renderClassifiedGrid);
     }
-    loadClassifiedItems(false);
   };
 
   window.openClassifiedLightbox = function(filename) {
