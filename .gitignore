@@ -2,7 +2,7 @@ venv/
 venv-coral/
 wildlife-venv/
 dashboard/species_images_backup/
-models/
+models/*
 !models/*.txt
 __pycache__/
 *.pyc
