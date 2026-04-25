@@ -10,8 +10,6 @@ contract, returns a list of Detection(box=[x1,y1,x2,y2], confidence=float).
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
@@ -40,35 +38,12 @@ class HailoDetector:
         self.confidence = confidence
         self.accept_classes = accept_classes if accept_classes is not None else ACCEPT_CLASSES
 
-        import hailo_platform as hp
-        self._hp = hp
-        self._hef = hp.HEF(hef_path)
-
-        # Resolve input shape (typically 640x640x3)
-        ins = list(self._hef.get_input_vstream_infos())
-        outs = list(self._hef.get_output_vstream_infos())
-        self._input_name = ins[0].name
-        self._input_shape = ins[0].shape  # (h, w, c)
-        self._output_name = outs[0].name
-        self._output_shape = outs[0].shape
-
-        self._vdevice = hp.VDevice()
-        configure_params = hp.ConfigureParams.create_from_hef(
-            hef=self._hef, interface=hp.HailoStreamInterface.PCIe,
-        )
-        self._network_groups = self._vdevice.configure(self._hef, configure_params)
-        self._network_group = self._network_groups[0]
-        self._network_group_params = self._network_group.create_params()
-
-        # Use UINT8 for input (YOLOv8 HEFs expect normalized 0-255 on input)
-        # and FLOAT32 for output so we get box coords + confidences directly.
-        self._input_vstreams_params = hp.InputVStreamParams.make_from_network_group(
-            self._network_group, quantized=False, format_type=hp.FormatType.UINT8,
-        )
-        self._output_vstreams_params = hp.OutputVStreamParams.make_from_network_group(
-            self._network_group, quantized=False, format_type=hp.FormatType.FLOAT32,
-        )
-        # Stats
+        from pipeline.hailo_engine import HailoEngine
+        self._model = HailoEngine.get().acquire_model(hef_path)
+        self._input_name = self._model.input_names[0]
+        self._output_name = self._model.output_names[0]
+        self._input_shape = self._model.input_shape()    # (h, w, c)
+        self._output_shape = self._model.output_shape()
         self.stats = {
             "detect_calls": 0,
             "total_detections": 0,
@@ -102,14 +77,7 @@ class HailoDetector:
         rgb = resized[..., ::-1]  # BGR -> RGB
         x = rgb.astype(np.uint8)[np.newaxis, ...]  # (1, H, W, 3)
 
-        hp = self._hp
-        with self._network_group.activate(self._network_group_params):
-            with hp.InferVStreams(
-                self._network_group,
-                self._input_vstreams_params,
-                self._output_vstreams_params,
-            ) as pipeline:
-                output = pipeline.infer({self._input_name: x})
+        output = self._model.infer({self._input_name: x})
 
         # Hailo's NMS postprocess returns a Python list-of-ndarrays: one array
         # per class, each shape (num_detections, 5) with [y1, x1, y2, x2, conf]
@@ -132,14 +100,9 @@ class HailoDetector:
         return [Detection(box=d["box"], confidence=d["confidence"]) for d in detections]
 
     def close(self):
-        try:
-            if self._vdevice is not None:
-                self._vdevice.release()
-        except Exception:
-            pass
-
-    def __del__(self):
-        self.close()
+        # Engine owns the VDevice; per-model cleanup happens via
+        # HailoEngine.shutdown() at process exit.
+        pass
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
