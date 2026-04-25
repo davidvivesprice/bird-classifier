@@ -5966,7 +5966,7 @@
           : item.verdict === 'skip' ? 'Skipped'
           : item.verdict === 'reclassify' ? 'Missed Birds'
           : item.verdict;
-      return '<div class="skipped-card" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
+      return '<div class="skipped-card" data-file="' + escAttr(item.file) + '" onclick="openClassifiedLightbox(\'' + escAttr(item.file) + '\')" style="cursor:pointer;">' +
         '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Classified" loading="lazy" onerror="this.style.display=\'none\'">' +
         '<div class="skipped-card-info stacked">' +
           '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">' + escHtml(speciesDisplay) + '</span>' +
