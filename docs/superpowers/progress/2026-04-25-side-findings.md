@@ -45,6 +45,13 @@ Format per entry:
 - (c) Standing checklist: "after dashboard/api.py edit → restart dashboard"
 **Status:** open. (c) is free and would have caught this. Worth adding to the gotchas doc.
 
+## 2026-04-25 ~11:35 — iMac YOLO is 2× slower than docs claim
+
+**Discovered while:** pulling SnapshotWriter health stats during the detection+snapshot audit.
+**Observation:** `yolo_ms_avg: 212`, `yolo_ms_p99: 542` on iMac. The `~/docs/bird-observatory/08-classify-pipeline.md` doc says expected ~98ms with CoreML acceleration. We're at 2.2× that average and 5.5× at p99.
+**Why it matters:** Either (a) CoreML isn't actually being used (silent fallback to CPU), (b) iMac CPU is heavily loaded by something else, (c) the doc figure was for a different model variant. If we're actually running on CPU instead of CoreML, every detection costs 3-4× more — affects throughput on bursty multi-bird scenes and could be why the tracker is sometimes coasting (no fresh detection in time).
+**Status:** open. Quick check: `grep -i 'coreml\|provider' ~/bird-snapshots/logs/bird-pipeline-stdout.log | head` to see what onnxruntime actually used. Or instrument BirdDetector to log providers on init.
+
 ## 2026-04-25 ~11:00 — Pi-Claude shipped multi-model Hailo + watchdog fix
 
 **Discovered while:** comms channel + repo state inspection.
