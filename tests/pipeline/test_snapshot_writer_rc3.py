@@ -74,3 +74,74 @@ def test_lock_time_values_captured_before_auth_overwrite(monkeypatch):
     )
     assert captured_entry["lock_time"]["confidence"] == 0.5
     assert captured_entry["lock_time"]["source"] == "yard"
+
+
+def test_disagreement_flag_true_when_species_differ(monkeypatch):
+    monkeypatch.setattr("cv2.imencode", lambda *a, **kw: (True, np.zeros(10, dtype=np.uint8)))
+    monkeypatch.setattr("pathlib.Path.mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.write_bytes", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.unlink", lambda *a, **kw: None)
+
+    captured_entry = {}
+    import classifications_db as cdb
+    monkeypatch.setattr(cdb, "insert_classification",
+                        lambda e: captured_entry.update(e))
+
+    fake_classifier = MagicMock()
+    fake_classifier.authoritative_classify = MagicMock(return_value=type(
+        "R", (), {"species": "American Goldfinch", "confidence": 0.01,
+                  "model_source": "aiy"})())
+
+    writer = SnapshotWriter(classifier=fake_classifier)
+    writer._write_one(_make_payload(species="Northern Cardinal"))
+
+    assert captured_entry["disagreement"] is True
+    assert captured_entry["authoritative"]["species"] == "American Goldfinch"
+    assert captured_entry["authoritative"]["confidence"] == 0.01
+
+
+def test_disagreement_flag_false_when_species_match(monkeypatch):
+    monkeypatch.setattr("cv2.imencode", lambda *a, **kw: (True, np.zeros(10, dtype=np.uint8)))
+    monkeypatch.setattr("pathlib.Path.mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.write_bytes", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.unlink", lambda *a, **kw: None)
+
+    captured_entry = {}
+    import classifications_db as cdb
+    monkeypatch.setattr(cdb, "insert_classification",
+                        lambda e: captured_entry.update(e))
+
+    fake_classifier = MagicMock()
+    fake_classifier.authoritative_classify = MagicMock(return_value=type(
+        "R", (), {"species": "Northern Cardinal", "confidence": 0.85,
+                  "model_source": "aiy"})())
+
+    writer = SnapshotWriter(classifier=fake_classifier)
+    writer._write_one(_make_payload(species="Northern Cardinal"))
+
+    assert captured_entry["disagreement"] is False
+    assert captured_entry["authoritative"]["confidence"] == 0.85
+
+
+def test_authoritative_none_when_classifier_returns_none(monkeypatch):
+    monkeypatch.setattr("cv2.imencode", lambda *a, **kw: (True, np.zeros(10, dtype=np.uint8)))
+    monkeypatch.setattr("pathlib.Path.mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.write_bytes", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.unlink", lambda *a, **kw: None)
+
+    captured_entry = {}
+    import classifications_db as cdb
+    monkeypatch.setattr(cdb, "insert_classification",
+                        lambda e: captured_entry.update(e))
+
+    fake_classifier = MagicMock()
+    fake_classifier.authoritative_classify = MagicMock(return_value=None)
+
+    writer = SnapshotWriter(classifier=fake_classifier)
+    writer._write_one(_make_payload(species="Northern Cardinal"))
+
+    # authoritative is None → disagreement is False (no second opinion to disagree with)
+    assert captured_entry["authoritative"] is None
+    assert captured_entry["disagreement"] is False
+    # Lock-time values still preserved
+    assert captured_entry["lock_time"]["species"] == "Northern Cardinal"
