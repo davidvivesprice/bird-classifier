@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List
 
 import numpy as np
 
@@ -65,13 +65,8 @@ class HailoClassifier:
         self.hef_path = hef_path
         self.kind = self._infer_kind(hef_path)
         self.labels = self._labels_for_kind(self.kind)
-        self._hef = None
-        self._target = None
-        self._vdevice = None
-        self._network_group = None
-        self._input_vstreams_params = None
-        self._output_vstreams_params = None
-        self._input_shape = (224, 224)  # common default; overridden below
+        self._model = None  # pipeline.hailo_engine.HailoModel
+        self._input_shape = (224, 224)  # PIL-order (w, h); overridden below
         self._setup()
 
     # ── kind detection ─────────────────────────────────────────────────
@@ -97,38 +92,16 @@ class HailoClassifier:
     # ── setup ──────────────────────────────────────────────────────────
 
     def _setup(self):
-        try:
-            import hailo_platform as hp
-            self._hp = hp
-        except Exception as e:
-            raise RuntimeError(f"hailo_platform not importable: {e}")
-
-        hp = self._hp
-        self._hef = hp.HEF(self.hef_path)
-        try:
-            self._vdevice = hp.VDevice()
-            configure_params = hp.ConfigureParams.create_from_hef(
-                hef=self._hef, interface=hp.HailoStreamInterface.PCIe
-            )
-            self._network_groups = self._vdevice.configure(self._hef, configure_params)
-            self._network_group = self._network_groups[0]
-            self._network_group_params = self._network_group.create_params()
-            self._input_vstreams_params = hp.InputVStreamParams.make_from_network_group(
-                self._network_group, quantized=False, format_type=hp.FormatType.FLOAT32,
-            )
-            self._output_vstreams_params = hp.OutputVStreamParams.make_from_network_group(
-                self._network_group, quantized=False, format_type=hp.FormatType.FLOAT32,
-            )
-            # Extract input shape
-            ins = self._hef.get_input_vstream_infos()
-            if ins:
-                s = ins[0].shape  # (h, w, c) usually
-                self._input_shape = (s[1], s[0])  # PIL-order: (w, h)
-            log.info("HailoClassifier[%s] ready. Input shape: %s",
-                     self.kind, self._input_shape)
-        except Exception as e:
-            log.exception("Hailo setup failed for %s: %s", self.hef_path, e)
-            raise
+        from pipeline.hailo_engine import HailoEngine
+        self._model = HailoEngine.get().acquire_model(self.hef_path)
+        in_shape = self._model.input_shape()
+        if len(in_shape) == 3:
+            h, w, _ = in_shape
+            self._input_shape = (w, h)  # PIL-order (w, h)
+        else:
+            self._input_shape = (224, 224)
+        log.info("HailoClassifier[%s] ready. Input shape: %s",
+                 self.kind, self._input_shape)
 
     # ── inference ──────────────────────────────────────────────────────
 
@@ -149,17 +122,8 @@ class HailoClassifier:
         x = arr.astype(np.float32) / 255.0
         x = x[np.newaxis, ...]  # (1, H, W, 3)
 
-        hp = self._hp
-        input_info = list(self._hef.get_input_vstream_infos())[0]
-        input_name = input_info.name
-
-        with self._network_group.activate(self._network_group_params):
-            with hp.InferVStreams(
-                self._network_group,
-                self._input_vstreams_params,
-                self._output_vstreams_params,
-            ) as pipeline:
-                output = pipeline.infer({input_name: x})
+        input_name = self._model.input_names[0]
+        output = self._model.infer({input_name: x})
 
         # ── Parse output per kind ──────────────────────────────────────
         out_name, out_val = next(iter(output.items()))
@@ -212,11 +176,6 @@ class HailoClassifier:
                  "raw_score": 0}]
 
     def close(self):
-        try:
-            if self._vdevice is not None:
-                self._vdevice.release()
-        except Exception:
-            pass
-
-    def __del__(self):
-        self.close()
+        # Engine owns the VDevice; per-model cleanup happens via
+        # HailoEngine.shutdown() at process exit.
+        pass
