@@ -363,6 +363,7 @@
     display: grid; gap: 10px;
   }
   .model-row {
+    position: relative;
     display: grid;
     grid-template-columns: auto 1fr auto;
     gap: 12px; align-items: center;
@@ -391,6 +392,101 @@
     letter-spacing: 0.04em; text-transform: uppercase;
   }
   body[data-theme="minimalist"] .model-row .badge { border-radius: 0; border: 1px solid var(--accent); }
+
+  /* Info icon (per-model "more detail" affordance) */
+  .info-icon {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 18px; height: 18px;
+    border: 1px solid var(--text-dim);
+    color: var(--text-dim);
+    border-radius: 50%;
+    font-size: 11px;
+    font-family: var(--font-serif);
+    font-style: italic;
+    line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    background: transparent;
+    padding: 0;
+    transition: border-color 0.15s, color 0.15s, transform 0.15s;
+    pointer-events: auto;
+  }
+  .info-icon:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: scale(1.1);
+  }
+  body[data-theme="minimalist"] .info-icon { border-radius: 0; font-family: var(--font-mono); font-style: normal; }
+  .model-row[disabled] .info-icon { pointer-events: auto; opacity: 0.85; }
+
+  /* Lightbox modal — "deep if you investigate" */
+  .info-modal {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 24px;
+    animation: info-fade-in 0.18s ease-out;
+  }
+  .info-modal.open { display: flex; }
+  @keyframes info-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .info-modal-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: calc(var(--radius) * 1.4);
+    max-width: 620px;
+    width: 100%;
+    max-height: 82vh;
+    overflow-y: auto;
+    padding: 28px 32px 24px;
+    position: relative;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    animation: info-card-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes info-card-in {
+    from { transform: translateY(12px) scale(0.97); opacity: 0; }
+    to   { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  body[data-theme="minimalist"] .info-modal-card { border-radius: 0; border-width: 2px; }
+  .info-modal-close {
+    position: absolute; top: 12px; right: 12px;
+    width: 32px; height: 32px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .info-modal-close:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+    border-color: var(--border);
+  }
+  body[data-theme="minimalist"] .info-modal-close { border-radius: 0; }
+  .info-modal-title {
+    font-size: 20px; font-weight: 600;
+    margin: 0 0 4px;
+    padding-right: 32px;
+  }
+  .info-modal-subtitle {
+    font-size: 12px; color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin: 0 0 20px;
+  }
+  .info-modal-body {
+    font-size: 14px; line-height: 1.62;
+    color: var(--text);
+  }
+  .info-modal-body p { margin: 0 0 14px; }
+  .info-modal-body p:last-child { margin-bottom: 0; }
+  .info-modal-body strong { color: var(--accent); font-weight: 600; }
 
   /* Model test area */
   .test-area {
@@ -565,7 +661,7 @@
     <div>
       <div class="panel">
         <h2>Recent classifications</h2>
-        <div class="sub">Last 8 birds the pipeline classified. Hi-res snapshots stored for review + training.</div>
+        <div class="sub">Last 8 birds. Click any thumbnail for the full hi-res snapshot.</div>
         <div class="recent-grid" id="recent-grid">
           <div style="padding: 18px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 12px;">Loading…</div>
         </div>
@@ -584,7 +680,7 @@
     <div>
       <div class="panel">
         <h2>Model Lab</h2>
-        <div class="sub">Switch between classifier candidates — all classify the bird region detected by YOLOv8s on Hailo. The active one drives live labels. All run on this Pi — no Coral.</div>
+        <div class="sub">Each classifies the YOLOv8s-detected bird crop. The active one drives live labels.</div>
         <div class="switch-banner" id="switch-banner">
           <span id="switch-msg">Restarting pipeline</span><span class="dots"></span>
         </div>
@@ -595,8 +691,8 @@
         </div>
 
         <div class="test-area" id="test-area">
-          <div style="font-weight: 600; margin-bottom: 4px;">Try the active model on an image</div>
-          <div>Drag + drop a JPEG/PNG here, or click to pick a file</div>
+          <div style="font-weight: 600; margin-bottom: 4px;">Test the active classifier</div>
+          <div>Drop a JPEG, or click to pick.</div>
           <input type="file" id="test-file" accept="image/*">
         </div>
         <div class="predictions" id="predictions"></div>
@@ -604,7 +700,7 @@
 
       <div class="panel">
         <h2>Quick links</h2>
-        <div class="sub">All of the Pi's dashboard surfaces.</div>
+        <div class="sub">Other dashboard surfaces.</div>
         <div style="display: grid; gap: 10px; font-family: var(--font-mono); font-size: 13px;">
           <a href="/work" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">📋 /work — the revamp log</a>
           <a href="/ideas" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">💡 /ideas — UX proposals</a>
@@ -615,6 +711,15 @@
     </div>
   </div>
 
+</div>
+
+<div class="info-modal" id="info-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="info-modal-title">
+  <div class="info-modal-card" role="document">
+    <button class="info-modal-close" id="info-modal-close" aria-label="Close">×</button>
+    <h3 class="info-modal-title" id="info-modal-title">…</h3>
+    <div class="info-modal-subtitle" id="info-modal-subtitle">…</div>
+    <div class="info-modal-body" id="info-modal-body"></div>
+  </div>
 </div>
 
 <div class="toast-layer" id="toasts"></div>
@@ -718,16 +823,35 @@
         } else {
           badge = '';
         }
+        // Build description line (notes are the at-a-glance tail).
+        const desc = c.description + (c.notes ? ' · <span style="color:var(--text-dim)">' + c.notes + '</span>' : '');
+        // Info icon — only render if the model has lightbox copy.
+        const infoBtn = c.info
+          ? `<button class="info-icon" type="button" data-info-name="${c.name}" aria-label="More about ${c.name}">i</button>`
+          : '';
         row.innerHTML = `
           <span class="dot"></span>
           <div>
             <div class="name">${c.name}</div>
-            <div class="desc">${c.description}${c.notes ? ' · <span style="color:var(--text-dim)">' + c.notes + '</span>' : ''}</div>
+            <div class="desc">${desc}</div>
           </div>
           ${badge}
+          ${infoBtn}
         `;
         if (isSwitchable) {
-          row.addEventListener('click', () => switchModel(c.name));
+          row.addEventListener('click', (e) => {
+            // Don't trigger switch if the info icon was clicked.
+            if (e.target.closest('.info-icon')) return;
+            switchModel(c.name);
+          });
+        }
+        // Wire the info icon (works for any candidate, including disabled).
+        const infoEl = row.querySelector('.info-icon');
+        if (infoEl) {
+          infoEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showInfoModal(c);
+          });
         }
         modelList.appendChild(row);
       }
@@ -844,6 +968,42 @@
       document.getElementById('chip-uptime').textContent = `uptime: ${hrs}h ${min}m`;
     } catch (e) {}
   }
+
+  // ── Info modal — populated per-candidate from /api/models/list `info` ──
+  const infoModal = document.getElementById('info-modal');
+  const infoModalTitle = document.getElementById('info-modal-title');
+  const infoModalSubtitle = document.getElementById('info-modal-subtitle');
+  const infoModalBody = document.getElementById('info-modal-body');
+  const infoModalClose = document.getElementById('info-modal-close');
+
+  function showInfoModal(c) {
+    infoModalTitle.textContent = c.name;
+    const subBits = [c.description];
+    if (c.notes) subBits.push(c.notes);
+    infoModalSubtitle.textContent = subBits.join(' · ');
+    // Render info as paragraphs, plain text, blank lines = paragraph breaks.
+    infoModalBody.innerHTML = '';
+    const paragraphs = (c.info || '').split(/\n\s*\n/);
+    for (const p of paragraphs) {
+      const el = document.createElement('p');
+      el.textContent = p.trim();
+      infoModalBody.appendChild(el);
+    }
+    infoModal.classList.add('open');
+    infoModal.setAttribute('aria-hidden', 'false');
+  }
+  function hideInfoModal() {
+    infoModal.classList.remove('open');
+    infoModal.setAttribute('aria-hidden', 'true');
+  }
+  infoModalClose.addEventListener('click', hideInfoModal);
+  infoModal.addEventListener('click', (e) => {
+    // Backdrop click only — don't dismiss when clicking the card itself.
+    if (e.target === infoModal) hideInfoModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && infoModal.classList.contains('open')) hideInfoModal();
+  });
 
   // ── Live view: WebRTC video + SSE labels with CSS-driven smoothing ──
   // Architecture (compare iMac's /live.html — 600 lines, HLS+sidecar+two

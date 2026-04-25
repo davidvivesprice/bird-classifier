@@ -28,14 +28,24 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class CandidateModel:
-    """Metadata + lazy loader for one candidate classifier."""
+    """Metadata + lazy loader for one candidate classifier.
+
+    UX convention (David: "simple at a glance, deep if you investigate"):
+    - ``description`` + ``notes`` are the at-a-glance copy shown in the
+      Model Lab row. Keep them ONE phrase each, no duplication.
+    - ``info`` is the lightbox/modal body — multi-paragraph detail on
+      what the model is, how it runs on the Pi, and why we keep it as
+      a candidate. Plain text, blank lines between paragraphs.
+    """
     name: str
     description: str
     type_: str           # "onnx_cpu" | "hailo" | "tflite_cpu" | "placeholder"
     path: str
     loader: Optional[Callable] = None  # callable(path) -> obj with .classify()
     available: bool = True             # False = shows in UI but disabled
-    notes: str = ""                    # extra info for the UI (e.g. "4.3 ms/frame")
+    notes: str = ""                    # one-phrase metadata for the UI row
+    info: str = ""                     # multi-paragraph deep-dive for the
+                                       # info-icon lightbox
     is_classifier: bool = True         # False = detector (COCO classes) — not
                                        # selectable as the live pipeline
                                        # classifier (would emit COCO labels
@@ -66,6 +76,7 @@ class ModelRegistry:
                 "available": c.available and not c.is_placeholder(),
                 "active": c.name == self.current_name,
                 "notes": c.notes,
+                "info": c.info,
                 "is_classifier": c.is_classifier,
             }
             for c in self.candidates.values()
@@ -176,67 +187,137 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
     hailo_root = Path("/usr/share/hailo-models")
     reg = ModelRegistry()
 
-    # 1. AIY ONNX on CPU — the baseline, known working
+    # 1. AIY Birds V1 (ONNX on CPU) — the primary classifier.
     aiy_onnx = root / "aiy_birds_v1.onnx"
     reg.register(CandidateModel(
         name="aiy_onnx",
-        description="AIY Birds V1 — 965 species, ONNX on Pi CPU",
+        description="AIY Birds V1 · 965 bird species",
         type_="onnx_cpu",
         path=str(aiy_onnx),
         loader=load_aiy_onnx,
         available=aiy_onnx.exists(),
-        notes="7.4 ms/frame (134 FPS) on Pi 5 CPU. Primary classifier.",
+        notes="ONNX on Pi CPU · 7.4 ms / crop · primary",
+        info=(
+            "Google's AIY Birds V1 — a MobileNet-V1 trained on iNaturalist "
+            "Birds, outputting probabilities across 965 species.\n\n"
+            "How it runs on the Pi: ONNX runtime on the CPU. Each bird-region "
+            "crop costs ~7.4 ms (~134 FPS) — well above the pipeline's 5 FPS "
+            "detection rate, so we never wait on it.\n\n"
+            "Why it's primary: best species coverage on the planet for North "
+            "American birds, and fast enough on CPU that we don't compete "
+            "with the YOLOv8s detector for the Hailo NPU slot.\n\n"
+            "The label you see in the Live view (e.g. 'Carolina Chickadee · "
+            "60%') is this model's top prediction on the bbox YOLOv8s detected."
+        ),
     ))
 
-    # 2. ResNet50 on Hailo — 1000-class ImageNet, demonstrates Hailo classification.
+    # 2. ResNet-50 on Hailo — 1000-class ImageNet baseline.
     resnet = hailo_root / "resnet_v1_50_h8l.hef"
     reg.register(CandidateModel(
         name="resnet50_hailo",
-        description="ResNet-50 on Hailo — ImageNet (1000 classes, some birds)",
+        description="ResNet-50 · ImageNet 1000 classes",
         type_="hailo",
         path=str(resnet),
         loader=load_hailo_classifier,
         available=resnet.exists(),
-        notes="ImageNet baseline — demonstrates Hailo classifier path.",
+        notes="Hailo NPU · baseline · few birds in classes",
+        info=(
+            "The classic 50-layer residual CNN, trained on ImageNet's 1000 "
+            "classes — only ~50 of which are bird species, mostly Eurasian.\n\n"
+            "How it runs on the Pi: compiled as a Hailo HEF and run on the "
+            "NPU. Cohabits with the YOLOv8s detector on the same Hailo-8L "
+            "VDevice via the HailoRT ROUND_ROBIN scheduler (see playbook §9 "
+            "Path 1). Per-call latency ~21 ms when co-scheduled.\n\n"
+            "Why it's here: demonstrates the Hailo classifier path works in "
+            "production, and serves as a sanity check before we drop our "
+            "Tier 2 flagship onto the same path. Not great for fine-grained "
+            "North American bird ID — switching the live pipeline to it "
+            "makes labels read like 'magpie' or 'great grey owl'."
+        ),
     ))
 
     # 3-4. YOLO-derived Hailo models. These are DETECTORS (COCO 80-class),
-    # exposed here for Lab upload-test only. Marked is_classifier=False so
-    # the live-classifier slot can't accidentally be set to one — picking
-    # them would emit COCO labels ("bird"/"cat"/"dog") instead of species
-    # names, which is a UX trap when the user is looking for, say, "Northern
-    # Cardinal" in the live overlay.
-    for h_name, h_desc, h_filename, h_notes in [
-        ("yolov8s_hailo",
-         "YOLOv8-S on Hailo — COCO 80-class detector",
-         "yolov8s_h8l.hef",
-         "58.67 FPS, 12.96 ms. Detector — Lab upload-test only."),
-        ("yolov6n_hailo",
-         "YOLOv6-N on Hailo — COCO 80-class detector (smaller)",
-         "yolov6n_h8l.hef",
-         "Smaller variant. Detector — Lab upload-test only."),
-    ]:
-        p = hailo_root / h_filename
+    # exposed here for Lab upload-test only. is_classifier=False blocks the
+    # live-classifier slot from being set to one — picking them would emit
+    # COCO labels ("bird"/"cat") instead of species names.
+    yolo_specs = [
+        {
+            "name": "yolov8s_hailo",
+            "description": "YOLOv8-S · COCO 80-class detector",
+            "filename": "yolov8s_h8l.hef",
+            "notes": "Hailo NPU · 17 ms · Lab only",
+            "info": (
+                "YOLOv8-Small — Ultralytics' object detector trained on COCO's "
+                "80 classes. THIS is the detector running constantly in the "
+                "live pipeline; the bbox you see in the Live view is its "
+                "output.\n\n"
+                "How it runs on the Pi: pre-compiled HEF with NMS baked in, "
+                "on the Hailo-8L NPU at ~17 ms / frame (~58 FPS) when alone, "
+                "~22 ms (~45 FPS) when co-scheduled with a Hailo classifier.\n\n"
+                "Why it's listed under classifiers: as a Lab upload-test "
+                "convenience — feeding it a single image returns the "
+                "highest-confidence COCO class found (almost always 'bird' "
+                "on a feeder shot). The 'DETECTOR · LAB ONLY' badge means we "
+                "don't allow switching the live pipeline to it: you'd get "
+                "'bird' as your label instead of a species."
+            ),
+        },
+        {
+            "name": "yolov6n_hailo",
+            "description": "YOLOv6-N · COCO 80-class detector (smaller)",
+            "filename": "yolov6n_h8l.hef",
+            "notes": "Hailo NPU · smaller variant · Lab only",
+            "info": (
+                "YOLOv6-Nano — Meituan's smaller, faster YOLO variant, also "
+                "trained on COCO's 80 classes.\n\n"
+                "How it runs on the Pi: same Hailo path as YOLOv8-S but "
+                "smaller — faster inference, slightly less accurate.\n\n"
+                "Why it's here: alternative detector candidate for benchmark "
+                "comparison. We keep YOLOv8-S as the live detector because "
+                "per-frame budget isn't the bottleneck — the sub-stream is "
+                "already capped at 5 FPS for downstream classification."
+            ),
+        },
+    ]
+    for s in yolo_specs:
+        p = hailo_root / s["filename"]
         reg.register(CandidateModel(
-            name=h_name,
-            description=h_desc,
+            name=s["name"],
+            description=s["description"],
             type_="hailo",
             path=str(p),
             loader=load_hailo_classifier,
             available=p.exists(),
-            notes=h_notes,
+            notes=s["notes"],
+            info=s["info"],
             is_classifier=False,
         ))
 
     # 5. Flagship placeholder — the Tier 2 custom-trained model, not yet built.
     reg.register(CandidateModel(
         name="flagship_pending",
-        description="Flagship yard model (trained on our data) — coming soon",
+        description="Flagship yard model · coming soon",
         type_="placeholder",
         path="",
         loader=None,
         available=False,
-        notes="Tier 2 training not yet started. 16-class, Hairy/Downy specialist, energy-OOD gate.",
+        notes="Tier 2 · not yet trained",
+        info=(
+            "The model we're building specifically for our feeder, replacing "
+            "AIY's 965 generic species with a tight set tuned to what we "
+            "actually see.\n\n"
+            "Plan:\n"
+            "• 16 classes (the species in our snapshot history, no long tail)\n"
+            "• Hairy/Downy woodpecker specialist head — those two get "
+            "confused often and a dedicated head can use the bill-length "
+            "and back-pattern features the main head dilutes\n"
+            "• Energy-based OOD gate so 'this is not a bird I know' is a "
+            "first-class output, not a low-confidence guess\n"
+            "• EfficientNet-Lite0 backbone — Hailo-Zoo first-class, baked-"
+            "in normalization, ~2 ms / crop on Hailo\n\n"
+            "Status: dataset audit in progress. Not yet trained. See "
+            "project_yard_model_revamp.md and the tier2_eval/ harness."
+        ),
     ))
 
     # 2026-04-25: honor PI_CLASSIFIER env var for startup selection so
