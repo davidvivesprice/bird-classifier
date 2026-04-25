@@ -93,6 +93,21 @@ class BirdAPIRewriteMiddleware:
 app.add_middleware(BirdAPIRewriteMiddleware)
 
 
+# Pi-native review surface — mounted only on Pi (PI_MODE=1). Standalone
+# from the iMac-side review2 system (separate DB, separate endpoints).
+if os.environ.get("PI_MODE", "0") == "1":
+    try:
+        from dashboard.pi_review import (
+            router as _pi_review_router,
+            init_db as _pi_review_init_db,
+        )
+        _pi_review_init_db()
+        app.include_router(_pi_review_router)
+    except Exception as _e:
+        import logging as _logging
+        _logging.warning("pi_review mount failed: %s", _e)
+
+
 @app.on_event("startup")
 def warm_cache():
     """Verify SQLite DB is accessible on startup. Creates tables on empty DBs."""

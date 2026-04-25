@@ -328,9 +328,49 @@
   }
   .recent-card:hover { transform: translateY(-1px); border-color: var(--accent); }
   .recent-card img { width: 100%; height: 90px; object-fit: cover; display: block; background: var(--bg-elev); }
-  .recent-meta { padding: 6px 8px; }
+  .recent-thumb { display: block; }
+  .recent-meta { padding: 6px 8px 4px; }
   .recent-sp { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .recent-ts { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+  /* Verdict buttons (Pi-native review) */
+  .recent-verdict {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    border-top: 1px solid var(--border);
+    background: var(--border);
+  }
+  .recent-btn {
+    background: var(--bg-card);
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 0;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    font-family: var(--font-mono);
+  }
+  .recent-btn:hover { color: var(--text); background: var(--bg-hover); }
+  .recent-btn.yes:hover, .recent-btn.yes.active { background: rgba(76, 175, 80, 0.18); color: #6dd07a; }
+  .recent-btn.no:hover, .recent-btn.no.active { background: rgba(244, 67, 54, 0.18); color: #e57373; }
+  body[data-theme="fieldguide"] .recent-btn.yes:hover,
+  body[data-theme="fieldguide"] .recent-btn.yes.active { background: rgba(76, 142, 80, 0.22); color: #3c6e3f; }
+  body[data-theme="fieldguide"] .recent-btn.no:hover,
+  body[data-theme="fieldguide"] .recent-btn.no.active { background: rgba(180, 60, 50, 0.22); color: #8b3027; }
+  body[data-theme="dusk"] .recent-btn.yes:hover,
+  body[data-theme="dusk"] .recent-btn.yes.active { background: rgba(80, 160, 100, 0.18); color: #487d4c; }
+  body[data-theme="dusk"] .recent-btn.no:hover,
+  body[data-theme="dusk"] .recent-btn.no.active { background: rgba(200, 80, 70, 0.18); color: #a34137; }
+  body[data-theme="minimalist"] .recent-btn.active { outline: 1px solid currentColor; outline-offset: -3px; }
+  /* Reviewed-card visual state */
+  .recent-card.reviewed.verdict-yes {
+    border-color: rgba(76, 175, 80, 0.45);
+    box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.18);
+  }
+  .recent-card.reviewed.verdict-no {
+    border-color: rgba(244, 67, 54, 0.45);
+    box-shadow: 0 0 0 1px rgba(244, 67, 54, 0.18);
+  }
+  .recent-card.reviewed { opacity: 0.92; }
 
   /* Model switch / restart banner */
   .switch-banner {
@@ -661,7 +701,8 @@
     <div>
       <div class="panel">
         <h2>Recent classifications</h2>
-        <div class="sub">Last 8 birds. Click any thumbnail for the full hi-res snapshot.</div>
+        <div class="sub">Click ✓ or ✗ on each card to mark the species — accuracy tracked per classifier.</div>
+        <div class="recent-stats" id="recent-stats" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; min-height: 16px;">Loading review stats…</div>
         <div class="recent-grid" id="recent-grid">
           <div style="padding: 18px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 12px;">Loading…</div>
         </div>
@@ -759,31 +800,106 @@
 
   // ── Recent classifications strip ──────────────────────────────────
   // Shows the last 8 classified birds as thumbnails. Refreshed every 10s.
-  // Replaces the Pi's live-feed panel (HLS was flaky, not worth debugging
-  // when the real signal is "what's the pipeline classifying right now").
+  // Each card has a ✓ / ✗ pair (Pi-native review at /api/pi-review).
+  // David clicks to mark the classification correct/wrong; we record
+  // the verdict + which classifier produced the row, so per-model
+  // accuracy stats are stable across reclassifications. (Standalone
+  // from the iMac-side review2 system per the post-split architecture.)
   const recentGrid = document.getElementById('recent-grid');
+  const recentStats = document.getElementById('recent-stats');
+
+  function recentCardHTML(it) {
+    const sp = it.species || '—';
+    const conf = Math.round((it.confidence || 0) * 100);
+    const ts = (it.source_timestamp || '').slice(11, 19); // HH:MM:SS
+    const verdict = it.verdict || '';
+    const yesActive = verdict === 'yes' ? ' active' : '';
+    const noActive  = verdict === 'no'  ? ' active' : '';
+    const cardCls = verdict ? ' reviewed verdict-' + verdict : '';
+    const fileEnc = encodeURIComponent(it.file);
+    return `
+      <div class="recent-card${cardCls}" data-file="${it.file}">
+        <a class="recent-thumb" href="/bird-api/image/${fileEnc}" target="_blank">
+          <img src="/bird-api/image-crop/${fileEnc}" loading="lazy" alt="${sp}">
+        </a>
+        <div class="recent-meta">
+          <div class="recent-sp">${sp}</div>
+          <div class="recent-ts">${ts} · ${conf}%</div>
+        </div>
+        <div class="recent-verdict">
+          <button class="recent-btn yes${yesActive}" type="button" data-verdict="yes" aria-label="Correct">✓</button>
+          <button class="recent-btn no${noActive}" type="button" data-verdict="no" aria-label="Wrong">✗</button>
+        </div>
+      </div>`;
+  }
+
   async function loadRecent() {
     try {
-      const r = await fetch('/api/review2/queue?limit=8');
+      const r = await fetch('/api/pi-review/recent?limit=8');
       const d = await r.json();
       if (!d.items || d.items.length === 0) {
-        recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No pending birds yet. Pipeline warming up?</div>';
+        recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No birds yet. Pipeline warming up?</div>';
         return;
       }
-      recentGrid.innerHTML = d.items.map(it => {
-        const sp = it.species || '—';
-        const conf = Math.round((it.confidence || 0) * 100);
-        const ts = (it.source_timestamp || '').slice(11, 19); // HH:MM:SS
-        return '<a href="/bird-api/image/' + encodeURIComponent(it.file)
-          + '" target="_blank" class="recent-card">'
-          + '<img src="/bird-api/image-crop/' + encodeURIComponent(it.file) + '" loading="lazy">'
-          + '<div class="recent-meta"><div class="recent-sp">' + sp
-          + '</div><div class="recent-ts">' + ts + ' · ' + conf + '%</div></div>'
-          + '</a>';
-      }).join('');
+      recentGrid.innerHTML = d.items.map(recentCardHTML).join('');
+      // Wire verdict buttons
+      recentGrid.querySelectorAll('.recent-card').forEach((card) => {
+        const file = card.getAttribute('data-file');
+        card.querySelectorAll('.recent-btn').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const verdict = btn.getAttribute('data-verdict');
+            // If this verdict is already active, toggle it off (DELETE).
+            const alreadyActive = btn.classList.contains('active');
+            try {
+              if (alreadyActive) {
+                await fetch('/api/pi-review/' + encodeURIComponent(file), { method: 'DELETE' });
+                card.classList.remove('reviewed', 'verdict-yes', 'verdict-no');
+                card.querySelectorAll('.recent-btn').forEach(b => b.classList.remove('active'));
+              } else {
+                const resp = await fetch('/api/pi-review/' + encodeURIComponent(file), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ verdict }),
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                card.classList.remove('verdict-yes', 'verdict-no');
+                card.classList.add('reviewed', 'verdict-' + verdict);
+                card.querySelectorAll('.recent-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+              }
+              loadReviewStats();
+            } catch (err) {
+              btn.style.borderColor = 'var(--danger)';
+              setTimeout(() => { btn.style.borderColor = ''; }, 1200);
+            }
+          });
+        });
+      });
     } catch (e) {
       recentGrid.innerHTML = '<div style="padding:18px;color:var(--danger);font-size:12px;">Error: ' + e.message + '</div>';
     }
+  }
+
+  async function loadReviewStats() {
+    if (!recentStats) return;
+    try {
+      const r = await fetch('/api/pi-review/stats');
+      const d = await r.json();
+      if (d.total_reviewed === 0) {
+        recentStats.textContent = 'No reviews yet — click ✓ or ✗ on any card.';
+        return;
+      }
+      const overall = Math.round((d.overall_accuracy || 0) * 100);
+      const parts = [`${d.total_reviewed} reviewed · ${overall}% correct overall`];
+      for (const m of (d.by_model || [])) {
+        if (m.total === 0) continue;
+        const acc = Math.round((m.accuracy || 0) * 100);
+        parts.push(`${m.model_source}: ${acc}% (${m.yes}/${m.total})`);
+      }
+      recentStats.textContent = parts.join(' · ');
+    } catch (e) { /* silent — non-critical */ }
   }
 
   // ── Model Lab ─────────────────────────────────────────────────────
@@ -1191,9 +1307,11 @@
   loadModels();
   pollStats();
   loadRecent();
+  loadReviewStats();
   setupLiveView();
   setInterval(pollStats, 5000);
   setInterval(loadRecent, 10000);
+  setInterval(loadReviewStats, 30000);
 })();
 </script>
 </body>
