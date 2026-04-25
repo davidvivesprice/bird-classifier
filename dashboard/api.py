@@ -36,17 +36,22 @@ from bird_inference import SPECIES_ALIASES, normalize_species
 from classifications_db import _safe_json
 
 # --- Paths ---
-BASE_DIR = Path("/Users/vives/bird-snapshots")
+# Derive from runtime locations so iMac (~/= /Users/vives) and
+# Pi 5 (~/= /home/vives) both work without environmental hacks.
+# Snapshots live under the user's home dir on both hosts; repo-internal
+# assets are anchored relative to this file's location in the repo.
+BASE_DIR = Path.home() / "bird-snapshots"
 CLASSIFIED_DIR = BASE_DIR / "classified"
 ANNOTATED_DIR = BASE_DIR / "annotated"
 SKIPPED_DIR = BASE_DIR / "skipped"
 TRASH_DIR = BASE_DIR / "trash"
 BACKGROUND_DIR = BASE_DIR / "classified" / "background"
-REGIONAL_SPECIES_PATH = Path("/Users/vives/bird-classifier/models/chilmark_feeder_species.txt")
-SPECIES_INFO_PATH = Path("/Users/vives/bird-classifier/dashboard/species_info.json")
-SPECIES_IMAGES_DIR = Path("/Users/vives/bird-classifier/dashboard/species_images")
-SPECIES_GALLERY_PATH = Path("/Users/vives/bird-classifier/dashboard/species_gallery.json")
-CULL_CONFIG_PATH = Path("/Users/vives/bird-classifier/config/cull_config.json")
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+REGIONAL_SPECIES_PATH = _REPO_ROOT / "models" / "chilmark_feeder_species.txt"
+SPECIES_INFO_PATH = _REPO_ROOT / "dashboard" / "species_info.json"
+SPECIES_IMAGES_DIR = _REPO_ROOT / "dashboard" / "species_images"
+SPECIES_GALLERY_PATH = _REPO_ROOT / "dashboard" / "species_gallery.json"
+CULL_CONFIG_PATH = _REPO_ROOT / "config" / "cull_config.json"
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
@@ -1764,7 +1769,9 @@ def get_image_crop(filename: str, box: str = ""):
         # No box available, return the full raw image
         return FileResponse(str(path), media_type="image/jpeg")
     try:
-        coords = [int(x) for x in box.split(",")]
+        # Boxes from the classifications DB come back as floats (YOLO box
+        # coords are floats); accept both int- and float-string forms.
+        coords = [int(float(x)) for x in box.split(",")]
         x1, y1, x2, y2 = coords[:4]
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="Invalid box format. Use x1,y1,x2,y2")
@@ -3322,10 +3329,11 @@ def birdnet_clip_enhanced(clip_path: str):
 
     # Process: bandpass 300-15kHz + dynamic loudness normalization
     cache_path.parent.mkdir(parents=True, exist_ok=True)
+    _ffmpeg_path = shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
     try:
         result = subprocess.run(
             [
-                "/usr/local/bin/ffmpeg",
+                _ffmpeg_path,
                 "-loglevel", "error",
                 "-i", str(raw_path),
                 "-af", "highpass=f=300,lowpass=f=15000,loudnorm=I=-16:LRA=11:TP=-1.5",
