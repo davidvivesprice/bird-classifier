@@ -3297,6 +3297,59 @@
     }
   }
 
+  // Shared queue/pagination handler. Used by Skipped, Classified, Missed,
+  // Batch, and any future paginated review grid.
+  //
+  // Why this exists: each grid had its own offset+limit logic. When a user
+  // applied verdicts (trash/wrong/etc.) and items left the result set on
+  // the server, advancing offset by PAGE_SIZE skipped rows that pulled up
+  // from the next page. This helper tracks "how many verdicts since last
+  // fetch" and adjusts offset accordingly when the user clicks Next.
+  //
+  // state shape: { endpoint, pageSize, offset, verdictsSinceFetch, params }
+  // Returns: a state object with methods (refetch, nextPage, prevPage,
+  // recordVerdict). Caller provides a renderFn to draw the items.
+  function loadQueue(state, renderFn) {
+    var params = Object.assign({}, state.params || {}, {
+      limit: state.pageSize,
+      offset: state.offset,
+    });
+    var qs = Object.keys(params)
+      .filter(function(k) { return params[k] !== '' && params[k] != null; })
+      .map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
+      .join('&');
+    var url = state.endpoint + (qs ? '?' + qs : '');
+    return apiFetch(url).then(function(resp) {
+      state.verdictsSinceFetch = 0;
+      state.lastResp = resp;
+      if (typeof renderFn === 'function') renderFn(resp);
+      return resp;
+    });
+  }
+
+  // Call this from the verdict-handler whenever a card is removed via
+  // applyVerdictToUI. The caller (per-tab) tracks its own state object.
+  function recordVerdictOnQueue(state, removed) {
+    if (removed) state.verdictsSinceFetch = (state.verdictsSinceFetch || 0) + 1;
+  }
+
+  // Advance to the next page. Adjusts offset by (pageSize - verdictsSinceFetch)
+  // so items that pulled up from the next page when verdicts were applied
+  // are not skipped.
+  function queueNextPage(state, renderFn) {
+    var advance = state.pageSize - (state.verdictsSinceFetch || 0);
+    if (advance < 1) advance = 1;  // always advance at least one
+    state.offset += advance;
+    return loadQueue(state, renderFn);
+  }
+
+  // Go back one full page (verdicts on previous pages are already reflected
+  // server-side; the simple offset rewind is correct for "Newer" navigation).
+  function queuePrevPage(state, renderFn) {
+    state.offset = Math.max(0, state.offset - state.pageSize);
+    return loadQueue(state, renderFn);
+  }
+
   // ── Live Feed: mute toggle ──
   // Ground cam mic is better quality — use it for audio in ALL views.
   var _groundAudioEl = null; // hidden audio element for ground stream
