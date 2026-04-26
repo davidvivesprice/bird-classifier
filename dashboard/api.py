@@ -2504,8 +2504,8 @@ def review_classified(species: str = "", verdict: str = "", camera: str = "",
       species   — exact common_name match
       verdict   — 'correct' | 'wrong' | 'reclassify' | (empty = all)
       camera    — 'feeder' | 'ground' | (empty = all)
-      multibird — 'only' (multi-bird frames), 'exclude' (single-bird only),
-                  '' (all)
+      multibird — 'only' / '1' / 'true' (multi-bird frames),
+                  'exclude' (single-bird only), '' / '0' (all)
 
     Uses SQL JOIN via reviews_db instead of batch file lookup.
     """

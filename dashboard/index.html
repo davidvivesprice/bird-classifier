@@ -3350,7 +3350,9 @@
   // are not skipped.
   function queueNextPage(state, renderFn) {
     var advance = state.pageSize - (state.verdictsSinceFetch || 0);
-    if (advance < 1) advance = 1;  // always advance at least one
+    if (advance < 0) advance = 0;  // a fully-trashed page means the next page
+                                   // is already at the current offset; don't
+                                   // jump past it.
     state.offset += advance;
     return loadQueue(state, renderFn);
   }
