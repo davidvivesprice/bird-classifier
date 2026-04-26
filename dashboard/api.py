@@ -1822,7 +1822,7 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
     Uses SQL LEFT JOIN via reviews_db — no in-memory cross-reference needed.
     """
     sp = species or None
-    mb = bool(multibird)
+    mb = multibird or None
     cam = camera or None
 
     rows = rdb.get_classifications(status="pending", species=sp, multibird=mb, camera=cam, offset=offset, limit=limit)
@@ -2496,15 +2496,28 @@ def review2_undo(history_id: int, body: dict = Body(default=None)):
 
 
 @app.get("/api/review/classified")
-def review_classified(species: str = "", verdict: str = "", limit: int = 50, offset: int = 0):
+def review_classified(species: str = "", verdict: str = "", camera: str = "",
+                      multibird: str = "", limit: int = 50, offset: int = 0):
     """Get reviewed classifications (correct, wrong, reclassify verdicts).
+
+    Filters:
+      species   — exact common_name match
+      verdict   — 'correct' | 'wrong' | 'reclassify' | (empty = all)
+      camera    — 'feeder' | 'ground' | (empty = all)
+      multibird — 'only' (multi-bird frames), 'exclude' (single-bird only),
+                  '' (all)
 
     Uses SQL JOIN via reviews_db instead of batch file lookup.
     """
     sp = species or None
     v = verdict or None
-    rows = rdb.get_classifications(status="reviewed", species=sp, verdict=v, offset=offset, limit=limit)
-    total = rdb.count_classifications(status="reviewed", species=sp, verdict=v)
+    cam = camera or None
+    mb = multibird or None
+    rows = rdb.get_classifications(status="reviewed", species=sp, verdict=v,
+                                    camera=cam, multibird=mb,
+                                    offset=offset, limit=limit)
+    total = rdb.count_classifications(status="reviewed", species=sp, verdict=v,
+                                       camera=cam, multibird=mb)
     species_list = rdb.list_classification_species(status="reviewed")
 
     items = []

@@ -544,7 +544,13 @@ def _build_classification_query(status, species=None, verdict=None,
         where.append("c.source_date = ?")
         params.append(date)
 
-    if multibird:
+    # multibird tri-state:
+    #   "exclude" → single-bird only (json_array_length <= 1, including NULL)
+    #   any other truthy ("only" / True / non-empty str) → only multi-bird frames
+    #   falsy ("" / None / False / 0) → no filter
+    if multibird == "exclude":
+        where.append("(c.birds_json IS NULL OR json_array_length(c.birds_json) <= 1)")
+    elif multibird:
         where.append("json_array_length(c.birds_json) > 1")
 
     return " AND ".join(where), params
