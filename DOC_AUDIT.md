@@ -2,16 +2,17 @@
 
 **Date:** 2026-04-26
 **Repo:** /Users/vives/bird-classifier-pi (Pi-side)
-**Docs audited:** CLAUDE.md, GUIDE.md, docs/00-overview.md … docs/08-deployment.md, docs/README.md
+**Book:** ~/docs/bird-observatory-pi/ (chapters live outside the repo per David's directive — parallel to iMac's ~/docs/bird-observatory/)
+**Docs audited:** CLAUDE.md, GUIDE.md, ~/docs/bird-observatory-pi/00-overview.md … 08-deployment.md, ~/docs/bird-observatory-pi/README.md, docs/README.md (in-repo stub)
 **Code roots scanned:** bird_pipeline_v3.py, pipeline/ (frame_capture, hires_ring, hailo_engine, hailo_detector, hailo_classifier, model_registry, pi_classifier, process_thread, motion_gate, tracker, snapshot_writer, classifier), dashboard/api.py, dashboard/pi_dash.html, dashboard/pi_review.py, tools/pi5_thermal_watch.py, tools/bench_hailo_multimodel.py, models/, ~/.config/systemd/user/* on pi5.local, runtime state via ssh
 
 ## What was reorganised
 
 Beyond claim-level fixes, the full docs/ tree was restructured (Phase 1):
 
-- **CLAUDE.md** — preamble path drift fixed (comms file moved); body rewritten from iMac architecture to Pi architecture (services count, Coral → Hailo NPU + AIY-CPU, two cameras → one, vote-lock now lists the conf threshold, ground-cam removed, references to chapter docs added).
-- **GUIDE.md** — full rewrite (was the iMac Reference Guide top to bottom — Docker go2rtc, LaunchAgents, two cameras, Coral USB, defunct `live_detector.py`). Replaced with a chapter index pointing at the new `docs/` tree.
-- **9 reference chapters authored** at `docs/00-overview.md` through `docs/08-deployment.md` (Phase 2). 759 lines total.
+- **CLAUDE.md** — preamble path drift fixed (comms file moved); body rewritten from iMac architecture to Pi architecture (services count, Coral → Hailo NPU + AIY-CPU, two cameras → one, vote-lock now lists the conf threshold, ground-cam removed, references to the chapter book added).
+- **GUIDE.md** — full rewrite (was the iMac Reference Guide top to bottom — Docker go2rtc, LaunchAgents, two cameras, Coral USB, defunct `live_detector.py`). Replaced with a Pi-side guide pointing at the chapter book + the in-repo working/historical docs.
+- **9 reference chapters authored** at `~/docs/bird-observatory-pi/00-overview.md` through `08-deployment.md` (Phase 2). 759 lines total. Originally drafted in-repo at `docs/`, then moved to `~/docs/bird-observatory-pi/` per David's "the docs for the book need to live in ~/docs/bird-observatory-pi" directive (mirroring iMac's `~/docs/bird-observatory/` setup).
 - **62 docs reorganised** (Phase 1):
   - `docs/superpowers/{plans,specs,progress,reviews}/` flattened into:
     - `docs/working/{plans,specs,progress}/` — 4 active reference docs
@@ -20,9 +21,10 @@ Beyond claim-level fixes, the full docs/ tree was restructured (Phase 1):
 - **`docs/README.md` created** as the chapter-index entry point.
 
 **Active doc set after audit:**
-- Root: CLAUDE.md, GUIDE.md, DOC_AUDIT.md
-- docs/: 9 chapters (00-08) + README.md
-- docs/working/: 1 spec (hailo-playbook), 0 plans, 3 progress (pi5-handoff, pi-repo-split, cross-claude-comms)
+- Repo root: CLAUDE.md, GUIDE.md, DOC_AUDIT.md
+- Repo docs/: README.md (stub pointing at the book), working/, historical/
+- Repo docs/working/: 1 spec (hailo-playbook), 0 plans, 3 progress (pi5-handoff, pi-repo-split, cross-claude-comms)
+- Book at `~/docs/bird-observatory-pi/`: 9 chapters (00-08) + README.md
 
 ---
 

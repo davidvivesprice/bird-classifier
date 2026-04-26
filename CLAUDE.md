@@ -9,7 +9,8 @@
 >
 > Both repos share git history through commit `5773551` (split point, 2026-04-25). They diverge from there.
 >
-> See `docs/working/progress/2026-04-25-pi-repo-split.md` for the full split context, and `docs/README.md` for the Pi reference chapters (00-08).
+> See `docs/working/progress/2026-04-25-pi-repo-split.md` for the full split context.
+> The Pi reference book (chapters 00-08) lives at `~/docs/bird-observatory-pi/`, parallel to iMac's at `~/docs/bird-observatory/`.
 
 ## Mission
 
@@ -43,7 +44,7 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 Raspberry Pi 5 + Hailo-8L AI Hat + Crucial P3 2 TB NVMe (USB-3) + UniFi G3 Dome over LAN. Raspberry Pi OS Lite (Debian Trixie, Python 3.13).
 SQLite is the sole data store: `~/bird-snapshots/logs/classifications.db` (per-classification rows), `pipeline.db` (event store), `pi_reviews.db` (Pi-native ✓/✗ verdicts).
 
-For the full reference, see the chapters in `docs/` (00-overview through 08-deployment).
+For the full reference, see the chapter book at `~/docs/bird-observatory-pi/` (00-overview through 08-deployment).
 
 ### Services (4 systemd-user units + 1 timer)
 
