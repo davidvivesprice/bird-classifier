@@ -3736,21 +3736,9 @@
   // Returns true if the card was removed from DOM (caller may want to
   // decrement a counter / refetch when the grid empties).
   function applyVerdictToUI(file, verdict, correctSpecies) {
-    // During the Task 1→9 migration, some grids haven't been updated to
-    // expose data-file yet. Match the new attribute first; fall back to the
-    // legacy .skipped-grid .skipped-card selector with innerHTML matching
-    // (used by Classified/Skipped/Missed cards that share that grid class).
-    // After all grids gain data-file (per plan), drop the legacy half.
-    var byAttr = document.querySelectorAll('[data-file="' + file + '"]');
-    var legacyCandidates = document.querySelectorAll('.skipped-grid .skipped-card');
-    var cards = [];
-    byAttr.forEach(function(c) { cards.push(c); });
-    legacyCandidates.forEach(function(c) {
-      // Only include if not already matched by data-file (avoid double-process)
-      if (cards.indexOf(c) !== -1) return;
-      if (c.dataset && c.dataset.file === file) { cards.push(c); return; }
-      if (c.innerHTML && c.innerHTML.indexOf(file) !== -1) { cards.push(c); }
-    });
+    // All grids set data-file on their card root (Classified, Skipped, Missed,
+    // Batch, Classify). Single attribute selector is enough.
+    var cards = document.querySelectorAll('[data-file="' + file + '"]');
     var removed = false;
     cards.forEach(function(card) {
       if (verdict === 'trash' || verdict === 'wrong') {
@@ -3790,6 +3778,20 @@
   // migrated yet still work. New code should call applyVerdictToUI directly.
   function _updateGridCard(file, verdict, correctSpecies) {
     return applyVerdictToUI(file, verdict, correctSpecies);
+  }
+
+  // applyVerdictToUI + recordVerdictOnQueue across every known queue state.
+  // Call this from any verdict click handler that touches a card which might
+  // appear in any review-tab grid; new sub-tabs should add their queue state
+  // to the list below.
+  function applyVerdictAndRecord(file, verdict, correctSpecies) {
+    var removed = applyVerdictToUI(file, verdict, correctSpecies);
+    var queues = [
+      typeof classifiedQueueState !== 'undefined' ? classifiedQueueState : null,
+      typeof skippedQueueState    !== 'undefined' ? skippedQueueState    : null,
+    ];
+    queues.forEach(function(q) { if (q) recordVerdictOnQueue(q, removed); });
+    return removed;
   }
 
   window.saveSecondOpinion = async function(ev) {
@@ -3861,13 +3863,7 @@
       await reviewSubmit2(lightboxFile, payload);
       var msgs = {correct: 'Confirmed: ' + lightboxSpeciesName, wrong: 'Marked: Not a Bird', trash: 'Trashed', skip: 'Skipped', reclassify: 'Flagged for reclassification'};
       showToast(msgs[verdict] || 'Reviewed', 'success');
-      var removed = applyVerdictToUI(lightboxFile, verdict, correctSpecies);
-      if (typeof classifiedQueueState !== 'undefined') {
-        recordVerdictOnQueue(classifiedQueueState, removed);
-      }
-      if (typeof skippedQueueState !== 'undefined') {
-        recordVerdictOnQueue(skippedQueueState, removed);
-      }
+      applyVerdictAndRecord(lightboxFile, verdict, correctSpecies);
       loadGoalsDebounced();
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
@@ -3916,13 +3912,7 @@
     try {
       await reviewSubmit2(lightboxFile, { verdict: 'wrong', correct_species: species });
       showToast('Corrected to: ' + species, 'success');
-      var removed = applyVerdictToUI(lightboxFile, 'wrong', species);
-      if (typeof classifiedQueueState !== 'undefined') {
-        recordVerdictOnQueue(classifiedQueueState, removed);
-      }
-      if (typeof skippedQueueState !== 'undefined') {
-        recordVerdictOnQueue(skippedQueueState, removed);
-      }
+      applyVerdictAndRecord(lightboxFile, 'wrong', species);
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
       } else {
@@ -5399,9 +5389,7 @@
       try {
         await reviewSubmit2(lightboxFile, payload);
         showToast(verdict === 'correct' ? 'Confirmed: ' + species : 'Corrected to: ' + species, 'success');
-        var removed = applyVerdictToUI(lightboxFile, verdict, verdict === 'wrong' ? species : undefined);
-        if (typeof classifiedQueueState !== 'undefined') recordVerdictOnQueue(classifiedQueueState, removed);
-        if (typeof skippedQueueState !== 'undefined') recordVerdictOnQueue(skippedQueueState, removed);
+        applyVerdictAndRecord(lightboxFile, verdict, verdict === 'wrong' ? species : undefined);
         // Auto-advance to next detection in lightbox
         if (lightboxDetectionList.length > 1) {
           lightboxDetectionIndex++;
@@ -5855,7 +5843,7 @@
 
   // ── Skipped Frames Review ──
   var skippedLoaded = false;
-  var skippedFiles = [];  // kept as a thin reflection for any consumers that read it
+  // openSkippedLightbox reads from skippedQueueState.lastResp.files directly.
   var skippedQueueState = {
     endpoint: '/bird-api/skipped',
     pageSize: 24,
@@ -5880,7 +5868,6 @@
   function _renderSkippedGrid(resp) {
     var files = resp.files || [];
     var total = resp.total || 0;
-    skippedFiles = files;  // reflect for openSkippedLightbox lookup
 
     // Update badge
     var badge = document.getElementById('skipped-count-badge');
@@ -5924,8 +5911,8 @@
 
 
   window.openSkippedLightbox = function(filename) {
-    // Find species from skippedFiles
-    var item = skippedFiles.find(function(f) { return f.file === filename; });
+    var files = (skippedQueueState.lastResp && skippedQueueState.lastResp.files) || [];
+    var item = files.find(function(f) { return f.file === filename; });
     var species = item ? item.species : 'Unknown';
     openLightbox(filename, species, '', 0, item ? item.source_timestamp : '');
   };
@@ -5992,7 +5979,8 @@
     lastResp: null,
   };
   var classifiedLoaded = false;
-  var classifiedItems = [];  // thin reflection of lastResp.items — kept for lightbox call sites
+  // Lightbox / nav read from classifiedQueueState.lastResp.items directly —
+  // single source of truth, no shadow array to keep in sync.
 
   window.loadClassifiedItems = function(resetOffset) {
     if (resetOffset !== false) classifiedQueueState.offset = 0;
@@ -6018,7 +6006,6 @@
   function _renderClassifiedGrid(resp) {
     var items = resp.items || [];
     var total = resp.total || 0;
-    classifiedItems = items;  // keep thin reflection so lightbox call sites still work
 
     // Update species dropdown (only when no species filter active)
     if (!classifiedQueueState.params.species) {
@@ -6088,15 +6075,16 @@
   };
 
   window.openClassifiedLightbox = function(filename) {
-    var item = classifiedItems.find(function(it) { return it.file === filename; });
+    var items = (classifiedQueueState.lastResp && classifiedQueueState.lastResp.items) || [];
+    var item = items.find(function(it) { return it.file === filename; });
     if (!item) return;
     // Show effective species (server-computed) in lightbox title
     var displaySpecies = item.species;
-    // Set up navigation list from current (filtered) classifiedItems
-    lightboxDetectionList = classifiedItems.map(function(ci) {
+    // Set up navigation list from current (filtered) page
+    lightboxDetectionList = items.map(function(ci) {
       return { file: ci.file, name: ci.species, sci: '', conf: ci.confidence || 0, ts: ci.source_timestamp };
     });
-    lightboxDetectionIndex = classifiedItems.findIndex(function(ci) { return ci.file === filename; });
+    lightboxDetectionIndex = items.findIndex(function(ci) { return ci.file === filename; });
     lightboxListSpecies = displaySpecies;
     lightboxListSciName = '';
     openLightbox(item.file, displaySpecies, '', item.confidence || 0, item.source_timestamp);
