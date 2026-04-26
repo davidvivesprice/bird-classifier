@@ -509,7 +509,14 @@ class SnapshotWriter:
                 "confidence": auth["confidence"] if auth else None,
                 "source": auth["model_source"] if auth else None,
             } if auth else None,
-            "disagreement": bool(auth and auth["species"] != lock_time_species),
+            # Case-insensitive + whitespace-tolerant: yard's 12-class label set
+            # and AIY's 965-class label set were trained independently, so
+            # capitalization mismatches ("Northern Cardinal" vs
+            # "northern cardinal") shouldn't be flagged as a real disagreement.
+            "disagreement": bool(auth and (
+                (auth["species"] or "").strip().casefold()
+                != (lock_time_species or "").strip().casefold()
+            )),
         }
 
         try:
