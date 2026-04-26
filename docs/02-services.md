@@ -9,7 +9,7 @@ Four systemd-user services hold the system up, plus a thermal-watch timer. Every
 | `go2rtc.service` | RTSP-in (UniFi) → WebRTC / MSE / HLS-out | `:1984` | `systemctl --user restart go2rtc` |
 | `bird-pipeline.service` | `python3 -u bird_pipeline_v3.py` with `PI_MODE=1` — the detection pipeline (see `03-pipeline.md`) | `:8100` health, `:8105` SSE | `systemctl --user restart bird-pipeline` |
 | `bird-dashboard.service` | uvicorn `dashboard.api:app` — the Pi-native dashboard (see `05-dashboard.md`) | `:8099` | `systemctl --user restart bird-dashboard` |
-| `cloudflared.service` | Cloudflare tunnel `pi5-observatory` (UUID `bf725288-989b-4ae4-9d71-ea457310a8d4`) → `pi5.vivessato.com` | — | `systemctl --user restart cloudflared` |
+| `cloudflared.service` | Cloudflare tunnel UUID `bf725288-989b-4ae4-9d71-ea457310a8d4` (config at `~/.cloudflared/config.yml`) → `pi5.vivessato.com` | — | `systemctl --user restart cloudflared` |
 
 Health-check one-liner:
 

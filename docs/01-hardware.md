@@ -17,13 +17,13 @@ The whole observatory runs on one Pi 5 + Hailo-8L combination plus a USB NVMe an
 
 ## Boot order
 
-The Pi 5 boots from the USB NVMe first, then the SD card:
+The Pi 5 boots from the USB NVMe first, then falls through:
 
 ```
-BOOT_ORDER = 0xf41
+BOOT_ORDER = 0xf14
 ```
 
-This order is required for the Realtek RTL9210 USB-NVMe bridge — see the Pi 5 EEPROM bootloader docs. Verify after any EEPROM update with `vcgencmd bootloader_config | grep BOOT_ORDER`.
+(USB-MSD first; this is the order required for the Realtek RTL9210 USB-NVMe bridge per the Pi 5 EEPROM bootloader docs.) Verify after any EEPROM update with `vcgencmd bootloader_config | grep BOOT_ORDER`.
 
 ## What's NOT on the Pi
 
