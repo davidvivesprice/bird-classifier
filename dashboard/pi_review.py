@@ -133,11 +133,16 @@ def clear_verdict(filename: str):
 def recent_classifications(limit: int = 8):
     """Last N rows from classifications.db, joined with their
     pi_reviews verdict (None if unreviewed). Drives the Recent
-    Classifications strip on the Pi dashboard."""
+    Classifications strip on the Pi dashboard.
+
+    The dashboard's "Load more" affordance bumps `limit` in 8-card
+    increments — bumped the cap to 400 so a focused review session
+    can burn through a whole afternoon's classifications without
+    paging the API."""
     if limit < 1:
         limit = 1
-    if limit > 50:
-        limit = 50
+    if limit > 400:
+        limit = 400
     rows = []
     try:
         with sqlite3.connect(str(CLASSIFICATIONS_DB_PATH), timeout=2.0) as cls_c:

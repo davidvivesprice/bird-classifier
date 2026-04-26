@@ -706,6 +706,10 @@
         <div class="recent-grid" id="recent-grid">
           <div style="padding: 18px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 12px;">Loading…</div>
         </div>
+        <div class="recent-pager" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
+          <span id="recent-count">Showing 0</span>
+          <button id="recent-more" type="button" style="background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 18px; font-family: inherit; font-size: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;">Load older →</button>
+        </div>
       </div>
 
       <div class="panel">
@@ -807,6 +811,26 @@
   // from the iMac-side review2 system per the post-split architecture.)
   const recentGrid = document.getElementById('recent-grid');
   const recentStats = document.getElementById('recent-stats');
+  const recentCount = document.getElementById('recent-count');
+  const recentMoreBtn = document.getElementById('recent-more');
+  // visibleLimit grows on "Load older" — auto-refresh keeps fetching the
+  // latest visibleLimit, so new birds appear at top while loaded history
+  // stays put at the bottom.
+  let visibleLimit = 8;
+  if (recentMoreBtn) {
+    recentMoreBtn.addEventListener('mouseenter', () => {
+      recentMoreBtn.style.background = 'var(--bg-hover)';
+      recentMoreBtn.style.borderColor = 'var(--accent)';
+    });
+    recentMoreBtn.addEventListener('mouseleave', () => {
+      recentMoreBtn.style.background = 'var(--bg-elev)';
+      recentMoreBtn.style.borderColor = 'var(--border)';
+    });
+    recentMoreBtn.addEventListener('click', () => {
+      visibleLimit = Math.min(visibleLimit + 8, 400);
+      loadRecent();
+    });
+  }
 
   function recentCardHTML(it) {
     const sp = it.species || '—';
@@ -835,13 +859,24 @@
 
   async function loadRecent() {
     try {
-      const r = await fetch('/api/pi-review/recent?limit=8');
+      const r = await fetch('/api/pi-review/recent?limit=' + visibleLimit);
       const d = await r.json();
       if (!d.items || d.items.length === 0) {
         recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No birds yet. Pipeline warming up?</div>';
+        if (recentCount) recentCount.textContent = 'Showing 0';
         return;
       }
       recentGrid.innerHTML = d.items.map(recentCardHTML).join('');
+      if (recentCount) {
+        const n = d.items.length;
+        const reviewed = d.items.filter(it => it.verdict).length;
+        recentCount.textContent = `Showing ${n} · ${reviewed} reviewed`;
+      }
+      // If we requested visibleLimit but got fewer, we've hit the end —
+      // hide the "Load older" button.
+      if (recentMoreBtn) {
+        recentMoreBtn.style.display = (d.items.length < visibleLimit) ? 'none' : '';
+      }
       // Wire verdict buttons
       recentGrid.querySelectorAll('.recent-card').forEach((card) => {
         const file = card.getAttribute('data-file');
