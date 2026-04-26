@@ -5384,6 +5384,9 @@
       try {
         await reviewSubmit2(lightboxFile, payload);
         showToast(verdict === 'correct' ? 'Confirmed: ' + species : 'Corrected to: ' + species, 'success');
+        var removed = applyVerdictToUI(lightboxFile, verdict, verdict === 'wrong' ? species : undefined);
+        if (typeof classifiedQueueState !== 'undefined') recordVerdictOnQueue(classifiedQueueState, removed);
+        if (typeof skippedQueueState !== 'undefined') recordVerdictOnQueue(skippedQueueState, removed);
         // Auto-advance to next detection in lightbox
         if (lightboxDetectionList.length > 1) {
           lightboxDetectionIndex++;
