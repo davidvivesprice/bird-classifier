@@ -48,3 +48,21 @@ Format per entry:
 **Status:** open. Quick check: `grep -i 'coreml\|provider' ~/bird-snapshots/logs/bird-pipeline-stdout.log | head` to see what onnxruntime actually used at startup.
 
 ---
+
+## 2026-04-26 — `auth.confidence > 1` in 504 post-watershed rows
+
+Found while writing the RC2-from-calibration plan
+(`docs/superpowers/plans/2026-04-26-rc2-from-calibration.md`).
+
+```
+SELECT COUNT(*), MAX(...), MIN(...) FROM classifications
+WHERE id >= 756294 AND auth.confidence > 1;
+→ 504 rows, max=2.5, min=1.01
+```
+
+AIY softmax can't return >1. So `_authoritative_species` is returning either
+a `raw_score` on some code path or there's a numpy-scalar serialization
+issue. Doesn't break RC2 (the bucket logic uses `>= 0.1` / `>= 0.5` which
+those rows still satisfy correctly), but the disagreement-flag thresholds
+are nonsense for those rows. Worth a 15-min audit of
+`pipeline/snapshot_writer.py:_authoritative_species` before RC2 ships.
