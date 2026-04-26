@@ -1792,14 +1792,37 @@ def get_image_crop(filename: str, box: str = ""):
         raise HTTPException(status_code=400, detail="Invalid box format. Use x1,y1,x2,y2")
     img = PILImage.open(path)
     w, h = img.size
-    # Add 15% padding
     bw, bh = x2 - x1, y2 - y1
-    pad_x, pad_y = int(bw * 0.15), int(bh * 0.15)
-    x1 = max(0, x1 - pad_x)
-    y1 = max(0, y1 - pad_y)
-    x2 = min(w, x2 + pad_x)
-    y2 = min(h, y2 + pad_y)
-    cropped = img.crop((x1, y1, x2, y2))
+    # Pad 25% around the bbox for breathing room, then expand to a SQUARE
+    # crop centered on the bird so portrait birds (most perched birds) keep
+    # their head visible when the thumbnail is rendered in a square cell.
+    # Without this, the previous 15%-padded variable-aspect crop +
+    # client-side `object-fit: cover` was chopping top/bottom on tall
+    # birds — the head specifically went missing.
+    pad_x, pad_y = int(bw * 0.25), int(bh * 0.25)
+    x1p, y1p = x1 - pad_x, y1 - pad_y
+    x2p, y2p = x2 + pad_x, y2 + pad_y
+    side = max(x2p - x1p, y2p - y1p)
+    cx, cy = (x1p + x2p) // 2, (y1p + y2p) // 2
+    sx1, sy1 = cx - side // 2, cy - side // 2
+    sx2, sy2 = sx1 + side, sy1 + side
+    # Shift the square back inside image bounds where possible, so we
+    # preserve squareness rather than blindly clamp.
+    if sx1 < 0:
+        sx2 -= sx1
+        sx1 = 0
+    if sy1 < 0:
+        sy2 -= sy1
+        sy1 = 0
+    if sx2 > w:
+        sx1 -= (sx2 - w)
+        sx2 = w
+    if sy2 > h:
+        sy1 -= (sy2 - h)
+        sy2 = h
+    sx1 = max(0, sx1)
+    sy1 = max(0, sy1)
+    cropped = img.crop((sx1, sy1, sx2, sy2))
     buf = io.BytesIO()
     cropped.save(buf, format="JPEG", quality=90)
     buf.seek(0)
