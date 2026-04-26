@@ -5940,7 +5940,7 @@
 
       grid.innerHTML = missedItems.map(function(item) {
         var ts = item.source_timestamp || '';
-        return '<div class="skipped-card" onclick="openLightbox(\'' + escAttr(item.file) + '\',\'' + escAttr(item.species) + '\',\'\',0,\'' + escAttr(ts) + '\')" style="cursor:pointer;">' +
+        return '<div class="skipped-card" data-file="' + escAttr(item.file) + '" onclick="openLightbox(\'' + escAttr(item.file) + '\',\'' + escAttr(item.species) + '\',\'\',0,\'' + escAttr(ts) + '\')" style="cursor:pointer;">' +
           '<img src="/bird-api/image/' + encodeURIComponent(item.file) + '" alt="Missed" loading="lazy" onerror="this.style.display=\'none\'">' +
           '<div class="skipped-card-info stacked">' +
             '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;">' + escHtml(item.species) + '</span>' +
