@@ -2516,6 +2516,36 @@
             <option value="exclude">Single-bird only</option>
             <option value="only">Multi-bird only</option>
           </select>
+          <select id="classify-bucket-filter" onchange="onCalibrationBucketChange()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;" title="RC3 calibration: focus the queue on one of the 4 disagreement-flag strata. Verdicts feed into the calibration stats panel.">
+            <option value="">(no calibration bucket)</option>
+            <option value="A">A — disagree + low-auth (noise candidates)</option>
+            <option value="B">B — disagree + high-auth (interesting)</option>
+            <option value="C">C — agree + low-auth (false negatives?)</option>
+            <option value="D">D — agree + high-auth (happy path)</option>
+          </select>
+        </div>
+        <div id="calibration-stats-panel" style="display:none;margin:8px 0;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:0.82rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <strong style="color:var(--text-primary);">RC3 Calibration Stats</strong>
+            <button class="btn-sm" onclick="loadCalibrationStats()" style="font-size:0.75rem;">Refresh</button>
+          </div>
+          <table id="calibration-stats-table" style="width:100%;border-collapse:collapse;color:var(--text-secondary);">
+            <thead>
+              <tr style="text-align:left;border-bottom:1px solid var(--border);">
+                <th style="padding:4px 6px;">Bucket</th>
+                <th style="padding:4px 6px;text-align:right;">Total</th>
+                <th style="padding:4px 6px;text-align:right;">Reviewed</th>
+                <th style="padding:4px 6px;text-align:right;">Correct</th>
+                <th style="padding:4px 6px;text-align:right;">Wrong-bird</th>
+                <th style="padding:4px 6px;text-align:right;">Not-a-bird</th>
+                <th style="padding:4px 6px;text-align:right;">Precision</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);">
+            <em>Precision</em> = correct / reviewed. Sample ~20 per bucket for tight estimates. Pick a bucket above to focus the queue.
+          </div>
         </div>
         <div class="goals-panel" id="goals-panel" style="display:none;">
           <div class="goals-header" onclick="toggleGoalsPanel()">
@@ -4813,11 +4843,13 @@
       var speciesFilter = document.getElementById('classify-species-filter').value;
       var multibirdFilter = document.getElementById('classify-multibird-filter').value;
       var cameraFilter = document.getElementById('classify-camera-filter').value;
+      var bucketFilter = (document.getElementById('classify-bucket-filter') || {}).value || '';
       var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
       var mbEffective = (speciesFilter === '__multibird__') ? 'only' : multibirdFilter;
       if (mbEffective) url += '&multibird=' + encodeURIComponent(mbEffective);
       if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
+      if (bucketFilter) url += '&bucket=' + encodeURIComponent(bucketFilter);
       const data = await apiFetch(url, { timeout: 30000, retries: 2 });
       pendingReview = data.pending || [];
       _reviewOffset = data.pending ? data.pending.length : 0;
@@ -4898,6 +4930,42 @@
       if (toggle) toggle.textContent = '▸ show';
     }
     loadReviewData();
+  };
+
+  // RC3 calibration bucket: focus the Classify queue on one of the 4 strata
+  // and reveal the live precision-stats panel. See:
+  //   docs/superpowers/progress/2026-04-25-detection-snapshot-audit-findings.md
+  //   docs/superpowers/specs/2026-04-25-review-ui-helpers.md
+  window.onCalibrationBucketChange = function() {
+    var bucket = document.getElementById('classify-bucket-filter').value;
+    var panel = document.getElementById('calibration-stats-panel');
+    if (panel) panel.style.display = bucket ? '' : 'none';
+    if (bucket) loadCalibrationStats();
+    loadReviewData();
+  };
+
+  window.loadCalibrationStats = async function() {
+    var tbody = document.querySelector('#calibration-stats-table tbody');
+    if (!tbody) return;
+    try {
+      var data = await apiFetch('/bird-api/review/calibration-stats');
+      var rows = ['A','B','C','D'].map(function(k) {
+        var b = (data.buckets || {})[k] || {};
+        var prec = b.reviewed ? ((b.correct / b.reviewed) * 100).toFixed(0) + '%' : '—';
+        return '<tr>'
+          + '<td style="padding:4px 6px;"><strong>' + k + '</strong> <span style="color:var(--text-muted);font-size:0.75rem;">' + escHtml(b.label || '') + '</span></td>'
+          + '<td style="padding:4px 6px;text-align:right;">' + (b.total || 0) + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;">' + (b.reviewed || 0) + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;color:#6ee7b7;">' + (b.correct || 0) + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;color:#fcd34d;">' + (b.wrong_bird || 0) + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;color:#fca5a5;">' + (b.not_a_bird || 0) + '</td>'
+          + '<td style="padding:4px 6px;text-align:right;font-weight:600;">' + prec + '</td>'
+          + '</tr>';
+      }).join('');
+      tbody.innerHTML = rows;
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:6px;color:var(--danger);">Failed to load stats: ' + (e && e.message ? e.message : '') + '</td></tr>';
+    }
   };
 
   window.filterToSpecies = function(species) {
@@ -5417,6 +5485,12 @@
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      // If a calibration bucket is active, refresh stats so the user sees
+      // their precision tally tick up live.
+      var bucketEl = document.getElementById('classify-bucket-filter');
+      if (bucketEl && bucketEl.value && typeof loadCalibrationStats === 'function') {
+        loadCalibrationStats();
+      }
       selectedBirdIndex = 0;
       reviewIndex++;
       renderReviewItem();
@@ -5675,11 +5749,13 @@
       var speciesFilter = document.getElementById('classify-species-filter').value;
       var multibirdFilter = document.getElementById('classify-multibird-filter').value;
       var cameraFilter = document.getElementById('classify-camera-filter').value;
+      var bucketFilter = (document.getElementById('classify-bucket-filter') || {}).value || '';
       var url = '/bird-api/review/pending?offset=' + _reviewOffset + '&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
       var mbEffective = (speciesFilter === '__multibird__') ? 'only' : multibirdFilter;
       if (mbEffective) url += '&multibird=' + encodeURIComponent(mbEffective);
       if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
+      if (bucketFilter) url += '&bucket=' + encodeURIComponent(bucketFilter);
       var data = await apiFetch(url);
       var newItems = data.pending || [];
       if (newItems.length > 0) {
@@ -5705,6 +5781,12 @@
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      // If a calibration bucket is active, refresh stats so the user sees
+      // their precision tally tick up live.
+      var bucketEl = document.getElementById('classify-bucket-filter');
+      if (bucketEl && bucketEl.value && typeof loadCalibrationStats === 'function') {
+        loadCalibrationStats();
+      }
       var toastMsg = verdict === 'correct' ? 'Marked correct' : correctSpecies === 'not_a_bird' ? 'Marked: Not a Bird' : verdict === 'skip' ? 'Skipped' : verdict === 'trash' ? 'Moved to trash' : verdict === 'reclassify' ? 'Flagged: missed birds' : 'Submitted';
       // Fix B16: Multi-bird confirm dialog — don't auto-advance for per-bird actions
       var mbBirds = item.birds || [];
@@ -5779,6 +5861,12 @@
       reviewStats.total_reviewed++;
       reviewStats.remaining = Math.max(0, reviewStats.remaining - 1);
       updateReviewProgress();
+      // If a calibration bucket is active, refresh stats so the user sees
+      // their precision tally tick up live.
+      var bucketEl = document.getElementById('classify-bucket-filter');
+      if (bucketEl && bucketEl.value && typeof loadCalibrationStats === 'function') {
+        loadCalibrationStats();
+      }
       // Fix B14: Update bird label immediately on correction
       var correctedBirds = item.birds || [];
       if (correctedBirds.length > 1 && selectedBirdIndex < correctedBirds.length) {

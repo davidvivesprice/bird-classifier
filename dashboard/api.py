@@ -1816,17 +1816,25 @@ def list_second_opinions():
 
 
 @app.get("/api/review/pending")
-def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibird: str = "", camera: str = ""):
+def review_pending(species: str = "", offset: int = 0, limit: int = 50,
+                   multibird: str = "", camera: str = "", bucket: str = ""):
     """Get unreviewed classifications for the annotation GUI (paginated).
 
     Uses SQL LEFT JOIN via reviews_db — no in-memory cross-reference needed.
+
+    bucket: 'A'|'B'|'C'|'D' restricts to post-watershed RC3-instrumented rows
+            in one of the calibration strata (see reviews_db.RC3_BUCKETS).
     """
     sp = species or None
     mb = multibird or None
     cam = camera or None
+    bk = bucket or None
 
-    rows = rdb.get_classifications(status="pending", species=sp, multibird=mb, camera=cam, offset=offset, limit=limit)
-    remaining = rdb.count_classifications(status="pending", species=sp, multibird=mb, camera=cam)
+    rows = rdb.get_classifications(status="pending", species=sp, multibird=mb,
+                                    camera=cam, bucket=bk,
+                                    offset=offset, limit=limit)
+    remaining = rdb.count_classifications(status="pending", species=sp,
+                                           multibird=mb, camera=cam, bucket=bk)
 
     # Build response items from SQL rows, with audio corroboration check
     bconn = _birdnet_db()
@@ -1903,6 +1911,56 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50, multibir
         "limit": limit,
         "has_more": (offset + limit) < remaining,
     }
+
+
+@app.get("/api/review/calibration-stats")
+def calibration_stats():
+    """Per-bucket precision tally for the RC3 disagreement-flag calibration.
+
+    For each of the 4 strata (see reviews_db.RC3_BUCKETS) returns:
+      total      — post-watershed rows in this bucket
+      reviewed   — rows where you've recorded a verdict
+      correct    — verdict='correct' (yard's lock-time species was right)
+      wrong_bird — verdict='wrong' AND correct_species != 'not_a_bird'
+                   (a real bird, but the lock-time species was wrong)
+      not_a_bird — verdict='wrong' AND correct_species='not_a_bird'
+                   OR verdict='trash' (no bird in bbox)
+      reclassify — verdict='reclassify' (multi-bird flag etc.)
+
+    Plus a summary that turns this into precision figures useful for picking
+    the RC2 confidence threshold.
+    """
+    import sqlite3
+    db_path = rdb.DB_PATH
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    conn.row_factory = sqlite3.Row
+    out = {"watershed_id": rdb.RC3_WATERSHED_ID, "buckets": {}}
+    for key, (label, predicate) in rdb.RC3_BUCKETS.items():
+        sql = f"""
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN r.verdict IS NOT NULL THEN 1 ELSE 0 END) AS reviewed,
+          SUM(CASE WHEN r.verdict='correct' THEN 1 ELSE 0 END) AS correct,
+          SUM(CASE WHEN r.verdict='wrong'
+                   AND COALESCE(r.correct_species,'') NOT IN ('','not_a_bird')
+                   THEN 1 ELSE 0 END) AS wrong_bird,
+          SUM(CASE WHEN r.verdict='trash'
+                   OR (r.verdict='wrong'
+                       AND COALESCE(r.correct_species,'')='not_a_bird')
+                   THEN 1 ELSE 0 END) AS not_a_bird,
+          SUM(CASE WHEN r.verdict='reclassify' THEN 1 ELSE 0 END) AS reclassify
+        FROM classifications c
+        LEFT JOIN reviews r ON c.file = r.file
+        WHERE c.action='classified' AND c.id >= {rdb.RC3_WATERSHED_ID}
+          AND ({predicate})
+        """
+        row = conn.execute(sql).fetchone()
+        d = dict(row) if row else {}
+        d = {k: (v or 0) for k, v in d.items()}
+        d["label"] = label
+        out["buckets"][key] = d
+    conn.close()
+    return out
 
 
 INCOMING_DIR = BASE_DIR / "incoming"

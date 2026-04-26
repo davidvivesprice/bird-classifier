@@ -510,9 +510,30 @@ ELSE c.common_name
 END
 """
 
+# RC3 calibration buckets — see
+# docs/superpowers/progress/2026-04-25-detection-snapshot-audit-findings.md.
+# Each bucket is a SQL predicate over the post-watershed extra_json metadata.
+# The bucket also implies the watershed cutoff (id >= RC3_WATERSHED_ID).
+RC3_WATERSHED_ID = 756294
+RC3_BUCKETS = {
+    "A": ("disagree + low-auth (obvious noise candidates)",
+          "json_extract(c.extra_json,'$.disagreement')=1 "
+          "AND json_extract(c.extra_json,'$.authoritative.confidence')<0.1"),
+    "B": ("disagree + high-auth (interesting cases)",
+          "json_extract(c.extra_json,'$.disagreement')=1 "
+          "AND json_extract(c.extra_json,'$.authoritative.confidence')>=0.1"),
+    "C": ("agree + low-auth (potential false negatives)",
+          "json_extract(c.extra_json,'$.disagreement')=0 "
+          "AND json_extract(c.extra_json,'$.authoritative.confidence')<0.1"),
+    "D": ("agree + high-auth (happy-path ground truth)",
+          "json_extract(c.extra_json,'$.disagreement')=0 "
+          "AND json_extract(c.extra_json,'$.authoritative.confidence')>=0.5"),
+}
+
 
 def _build_classification_query(status, species=None, verdict=None,
-                                 camera=None, date=None, multibird=False):
+                                 camera=None, date=None, multibird=False,
+                                 bucket=None):
     """Build WHERE clause + params for unified classification queries."""
     where = ["c.action = 'classified'", "c.common_name IS NOT NULL"]
     params = []
@@ -553,12 +574,18 @@ def _build_classification_query(status, species=None, verdict=None,
     elif multibird in ("only", True, "1", 1, "true"):
         where.append("json_array_length(c.birds_json) > 1")
 
+    # RC3 calibration bucket: restricts to post-watershed rows + the bucket
+    # predicate. See RC3_BUCKETS above.
+    if bucket and bucket in RC3_BUCKETS:
+        where.append(f"c.id >= {RC3_WATERSHED_ID}")
+        where.append(f"({RC3_BUCKETS[bucket][1]})")
+
     return " AND ".join(where), params
 
 
 def get_classifications(status="pending", species=None, verdict=None,
                         camera=None, date=None, multibird=False,
-                        offset=0, limit=50):
+                        bucket=None, offset=0, limit=50):
     """Unified query for all classification views.
 
     Args:
@@ -571,7 +598,7 @@ def get_classifications(status="pending", species=None, verdict=None,
         offset/limit: Pagination
     """
     where_clause, params = _build_classification_query(
-        status, species, verdict, camera, date, multibird
+        status, species, verdict, camera, date, multibird, bucket
     )
 
     # Order: pending by classification time, reviewed by review time
@@ -599,10 +626,11 @@ def get_classifications(status="pending", species=None, verdict=None,
 
 
 def count_classifications(status="pending", species=None, verdict=None,
-                          camera=None, date=None, multibird=False):
+                          camera=None, date=None, multibird=False,
+                          bucket=None):
     """Count classifications — same filters as get_classifications."""
     where_clause, params = _build_classification_query(
-        status, species, verdict, camera, date, multibird
+        status, species, verdict, camera, date, multibird, bucket
     )
 
     sql = (
