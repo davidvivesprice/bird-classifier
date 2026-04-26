@@ -3851,6 +3851,9 @@
       if (typeof classifiedQueueState !== 'undefined') {
         recordVerdictOnQueue(classifiedQueueState, removed);
       }
+      if (typeof skippedQueueState !== 'undefined') {
+        recordVerdictOnQueue(skippedQueueState, removed);
+      }
       loadGoalsDebounced();
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
@@ -3902,6 +3905,9 @@
       var removed = applyVerdictToUI(lightboxFile, 'wrong', species);
       if (typeof classifiedQueueState !== 'undefined') {
         recordVerdictOnQueue(classifiedQueueState, removed);
+      }
+      if (typeof skippedQueueState !== 'undefined') {
+        recordVerdictOnQueue(skippedQueueState, removed);
       }
       if (lightboxDetectionList.length > 1) {
         setTimeout(function() { lightboxNav(1); }, 400);
@@ -5830,69 +5836,71 @@
 
   // ── Skipped Frames Review ──
   var skippedLoaded = false;
-  var skippedFiles = [];
-  var skippedTotal = 0;
-  var skippedOffset = 0;
-  var SKIPPED_PAGE_SIZE = 24;
+  var skippedFiles = [];  // kept as a thin reflection for any consumers that read it
+  var skippedQueueState = {
+    endpoint: '/bird-api/skipped',
+    pageSize: 24,
+    offset: 0,
+    verdictsSinceFetch: 0,
+    params: {},
+    lastResp: null,
+  };
 
   async function loadSkippedFrames() {
     var grid = document.getElementById('skipped-grid');
     grid.innerHTML = '<div class="loading-msg">Loading skipped frames...</div>';
-    try {
-      var resp = await apiFetch('/bird-api/skipped?limit=' + SKIPPED_PAGE_SIZE + '&offset=' + skippedOffset);
-      skippedFiles = resp.files || [];
-      skippedTotal = resp.total || 0;
+    return loadQueue(skippedQueueState, function(resp) {
       skippedLoaded = true;
-
-      // Update badge
-      var badge = document.getElementById('skipped-count-badge');
-      if (badge) {
-        badge.textContent = skippedTotal.toLocaleString();
-        badge.style.display = skippedTotal > 0 ? 'inline' : 'none';
-      }
-
-      renderSkippedGrid();
-      updateSkippedNav();
-    } catch (e) {
-      grid.innerHTML = '<div class="loading-msg">Failed to load skipped frames.</div>';
-    }
+      _renderSkippedGrid(resp);
+    }).catch(function(e) {
+      grid.innerHTML = '<div class="loading-msg" style="color:var(--danger)">Error: '
+        + (e && e.message ? e.message : 'load failed') + '</div>';
+    });
   }
 
-  function renderSkippedGrid() {
+  function _renderSkippedGrid(resp) {
+    var files = resp.files || [];
+    var total = resp.total || 0;
+    skippedFiles = files;  // reflect for openSkippedLightbox lookup
+
+    // Update badge
+    var badge = document.getElementById('skipped-count-badge');
+    if (badge) {
+      badge.textContent = total.toLocaleString();
+      badge.style.display = total > 0 ? 'inline' : 'none';
+    }
+
     var grid = document.getElementById('skipped-grid');
-    if (skippedFiles.length === 0) {
+    if (files.length === 0) {
       grid.innerHTML = '<div class="loading-msg">No skipped frames.</div>';
-      return;
+    } else {
+      grid.innerHTML = files.map(function(f) {
+        var ts = f.source_timestamp || '';
+        var dateStr = ts ? ts.split(' ')[0] : '';
+        var timeStr = ts ? ts.split(' ')[1] || '' : '';
+        return '<div class="skipped-card" id="skip-' + escAttr(f.file) + '" data-file="' + escAttr(f.file) + '">' +
+          '<img src="/bird-api/image/' + encodeURIComponent(f.file) + '" alt="Skipped frame" loading="lazy" onclick="openSkippedLightbox(\'' + escAttr(f.file) + '\')" onerror="this.style.display=\'none\'">' +
+          '<div class="skipped-card-info">' +
+            '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;">' + escHtml(f.species || 'Unknown') + '</span>' +
+            '<span class="skipped-card-time">' + escHtml(dateStr) + ' ' + escHtml(timeStr) + '</span>' +
+          '</div>' +
+        '</div>';
+      }).join('');
     }
-    grid.innerHTML = skippedFiles.map(function(f) {
-      var ts = f.source_timestamp || '';
-      var dateStr = ts ? ts.split(' ')[0] : '';
-      var timeStr = ts ? ts.split(' ')[1] || '' : '';
-      return '<div class="skipped-card" id="skip-' + escAttr(f.file) + '">' +
-        '<img src="/bird-api/image/' + encodeURIComponent(f.file) + '" alt="Skipped frame" loading="lazy" onclick="openSkippedLightbox(\'' + escAttr(f.file) + '\')" onerror="this.style.display=\'none\'">' +
-        '<div class="skipped-card-info">' +
-          '<span style="font-weight:600;color:var(--text-primary);font-size:0.85rem;">' + escHtml(f.species || 'Unknown') + '</span>' +
-          '<span class="skipped-card-time">' + escHtml(dateStr) + ' ' + escHtml(timeStr) + '</span>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }
 
-  function updateSkippedNav() {
-    var pageNum = Math.floor(skippedOffset / SKIPPED_PAGE_SIZE) + 1;
-    var totalPages = Math.ceil(skippedTotal / SKIPPED_PAGE_SIZE);
-    document.getElementById('skipped-page-info').textContent = pageNum + ' / ' + totalPages + ' (' + skippedTotal.toLocaleString() + ' frames)';
-    document.getElementById('skipped-prev-btn').disabled = skippedOffset === 0;
-    document.getElementById('skipped-next-btn').disabled = skippedOffset + SKIPPED_PAGE_SIZE >= skippedTotal;
+    // Update pagination nav
+    var pageSize = skippedQueueState.pageSize;
+    var offset = skippedQueueState.offset;
+    var pageNum = Math.floor(offset / pageSize) + 1;
+    var totalPages = Math.ceil(total / pageSize) || 1;
+    document.getElementById('skipped-page-info').textContent = pageNum + ' / ' + totalPages + ' (' + total.toLocaleString() + ' frames)';
+    document.getElementById('skipped-prev-btn').disabled = offset === 0;
+    document.getElementById('skipped-next-btn').disabled = offset + files.length >= total;
   }
 
   window.loadSkippedPage = function(dir) {
-    if (dir === 'next') {
-      skippedOffset += SKIPPED_PAGE_SIZE;
-    } else {
-      skippedOffset = Math.max(0, skippedOffset - SKIPPED_PAGE_SIZE);
-    }
-    loadSkippedFrames();
+    if (dir === 'next') queueNextPage(skippedQueueState, _renderSkippedGrid);
+    else if (dir === 'prev') queuePrevPage(skippedQueueState, _renderSkippedGrid);
   };
 
 
