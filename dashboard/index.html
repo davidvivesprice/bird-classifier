@@ -2511,9 +2511,11 @@
             <option value="feeder">Feeder</option>
             <option value="ground">Ground</option>
           </select>
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-muted);white-space:nowrap;cursor:pointer;">
-            <input type="checkbox" id="classify-multibird-filter" onchange="filterClassifyBySpecies()"> Multi-bird
-          </label>
+          <select id="classify-multibird-filter" onchange="filterClassifyBySpecies()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
+            <option value="">All Shots</option>
+            <option value="exclude">Single-bird only</option>
+            <option value="only">Multi-bird only</option>
+          </select>
         </div>
         <div class="goals-panel" id="goals-panel" style="display:none;">
           <div class="goals-header" onclick="toggleGoalsPanel()">
@@ -2577,6 +2579,16 @@
               <option value="">All Verdicts</option>
               <option value="correct">Correct</option>
               <option value="wrong">Corrected</option>
+            </select>
+            <select id="classified-camera-filter" onchange="loadClassifiedItems()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
+              <option value="">All Cameras</option>
+              <option value="feeder">Feeder</option>
+              <option value="ground">Ground</option>
+            </select>
+            <select id="classified-multibird-filter" onchange="loadClassifiedItems()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:0.85rem;">
+              <option value="">All Shots</option>
+              <option value="exclude">Single-bird only</option>
+              <option value="only">Multi-bird only</option>
             </select>
           </div>
           <div class="skipped-nav">
@@ -4807,11 +4819,12 @@
 
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
-      var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
+      var multibirdFilter = document.getElementById('classify-multibird-filter').value;
       var cameraFilter = document.getElementById('classify-camera-filter').value;
       var url = '/bird-api/review/pending?offset=0&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
-      if (multibirdFilter || speciesFilter === '__multibird__') url += '&multibird=1';
+      var mbEffective = (speciesFilter === '__multibird__') ? 'only' : multibirdFilter;
+      if (mbEffective) url += '&multibird=' + encodeURIComponent(mbEffective);
       if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
       const data = await apiFetch(url, { timeout: 30000, retries: 2 });
       pendingReview = data.pending || [];
@@ -4883,7 +4896,7 @@
   window.filterClassifyBySpecies = function() {
     var val = document.getElementById('classify-species-filter').value;
     if (val === '__multibird__') {
-      document.getElementById('classify-multibird-filter').checked = true;
+      document.getElementById('classify-multibird-filter').value = 'only';
     }
     // Auto-collapse goals panel when species is selected (progress bar shows species info now)
     if (val) {
@@ -5670,11 +5683,12 @@
     _fetchingMore = true;
     try {
       var speciesFilter = document.getElementById('classify-species-filter').value;
-      var multibirdFilter = document.getElementById('classify-multibird-filter').checked;
+      var multibirdFilter = document.getElementById('classify-multibird-filter').value;
       var cameraFilter = document.getElementById('classify-camera-filter').value;
       var url = '/bird-api/review/pending?offset=' + _reviewOffset + '&limit=' + _REVIEW_PAGE_SIZE;
       if (speciesFilter && speciesFilter !== '__multibird__') url += '&species=' + encodeURIComponent(speciesFilter);
-      if (multibirdFilter || speciesFilter === '__multibird__') url += '&multibird=1';
+      var mbEffective = (speciesFilter === '__multibird__') ? 'only' : multibirdFilter;
+      if (mbEffective) url += '&multibird=' + encodeURIComponent(mbEffective);
       if (cameraFilter) url += '&camera=' + encodeURIComponent(cameraFilter);
       var data = await apiFetch(url);
       var newItems = data.pending || [];
@@ -5984,6 +5998,10 @@
       document.getElementById('classified-species-filter').value || '';
     classifiedQueueState.params.verdict =
       document.getElementById('classified-verdict-filter').value || '';
+    classifiedQueueState.params.camera =
+      document.getElementById('classified-camera-filter').value || '';
+    classifiedQueueState.params.multibird =
+      document.getElementById('classified-multibird-filter').value || '';
     var grid = document.getElementById('classified-grid');
     grid.innerHTML = '<div class="loading-msg">Loading classified items...</div>';
     return loadQueue(classifiedQueueState, function(resp) {
