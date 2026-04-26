@@ -6996,7 +6996,7 @@
       if (item.trust_level === 'probably_wrong') badges += '<span style="position:absolute;top:4px;right:4px;background:#7f1d1d;color:#fca5a5;padding:1px 5px;border-radius:8px;font-size:0.6rem;">Check this</span>';
       if (item.prior_suggestion && item.prior_suggestion !== item.species) badges += '<span style="position:absolute;bottom:4px;left:4px;background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:8px;font-size:0.6rem;">Maybe ' + item.prior_suggestion + '</span>';
 
-      return '<div onclick="toggleBatchSelect(' + i + ')" style="position:relative;cursor:pointer;border:' + border + ';border-radius:8px;overflow:hidden;aspect-ratio:4/3;background:var(--bg-card);">' +
+      return '<div data-file="' + escAttr(item.file) + '" onclick="toggleBatchSelect(' + i + ')" style="position:relative;cursor:pointer;border:' + border + ';border-radius:8px;overflow:hidden;aspect-ratio:4/3;background:var(--bg-card);">' +
         '<img src="' + imgUrl + '" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
         badges +
         (selected ? '<div style="position:absolute;inset:0;background:rgba(74,222,128,0.2);display:flex;align-items:center;justify-content:center;font-size:2rem;">&#x2705;</div>' : '') +
@@ -7048,6 +7048,8 @@
       .then(function(data) {
         var cnt = data.confirmed || 0;
         showToast('Confirmed ' + cnt + ' images', 'success');
+        // Badge each confirmed card green via shared helper
+        files.forEach(function(f) { applyVerdictToUI(f, 'correct'); });
         // Remove confirmed from grid
         _batchItems = _batchItems.filter(function(item) { return !_batchSelected.has(item.file); });
         _batchSelected.clear();
