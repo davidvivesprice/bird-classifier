@@ -97,6 +97,8 @@ class BirdTracker:
             initialization_delay=initialization_delay,
         )
         self.tracks: dict = {}
+        self.id_switches: int = 0  # count of track ID changes due to distance threshold
+        self.prev_centroids: dict = {}  # track_id → (cx, cy) for switch detection
 
     def update(self, detections: list, frame_time_ms: float) -> TrackerOutput:
         # Convert Detection → norfair.Detection
@@ -126,6 +128,19 @@ class BirdTracker:
             tid = tobj.id
             seen_ids.add(tid)
             is_new = tid not in self.tracks
+            
+            # Detect ID-switch: if same spatial region got a new track_id
+            if tobj.last_detection is not None:
+                cx = tobj.last_detection.points[0][0]
+                cy = tobj.last_detection.points[0][1]
+                # Check if any nearby previous centroid from a different track_id
+                # would suggest this is the same physical object with a new ID
+                for prev_tid, (prev_cx, prev_cy) in list(self.prev_centroids.items()):
+                    if prev_tid != tid:
+                        dist = ((cx - prev_cx)**2 + (cy - prev_cy)**2)**0.5
+                        if dist < 50:  # < 50 pixels = probably same bird, different ID
+                            self.id_switches += 1
+                            break
             if is_new:
                 track = Track(
                     track_id=tid,
@@ -152,12 +167,16 @@ class BirdTracker:
             cx = (track.bbox[0] + track.bbox[2]) / 2
             cy = (track.bbox[1] + track.bbox[3]) / 2
             track.motion_history.append((cx, cy))
+            self.prev_centroids[tid] = (cx, cy)
 
             active_tracks.append(track)
 
         # Expire tracks in our dict that norfair no longer tracks
         expired_ids = set(self.tracks.keys()) - seen_ids
         expired = [self.tracks.pop(tid) for tid in expired_ids]
+        # Clean up expired centroids
+        for tid in expired_ids:
+            self.prev_centroids.pop(tid, None)
 
         return TrackerOutput(
             active=active_tracks,
