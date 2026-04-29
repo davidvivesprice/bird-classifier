@@ -230,6 +230,7 @@ def main():
 
     # Per-camera stack
     camera_stacks = []
+    camera_trackers = {}  # Store trackers for health endpoint exposure
     for name, detect_url in CAMERAS_DETECT.items():
         main_url = CAMERAS_MAIN[name]
         try:
@@ -244,6 +245,7 @@ def main():
             if aoi:
                 log.info("[%s] MotionGate AOI enabled: %d-point polygon", name, len(aoi))
             tracker = BirdTracker()
+            camera_trackers[name] = tracker
             if PI_MODE:
                 from pipeline.hailo_detector import HailoDetector
                 # Default Hailo HEF for YOLOv8-s. Env override allowed.
@@ -315,6 +317,18 @@ def main():
             # aiy_none/dropped_full/errors) so dawn verification can confirm
             # the new high-res + AIY-authority paths are firing end-to-end.
             health.update_shared("snapshot_writer", dict(snapshot_writer.stats))
+        except Exception:
+            pass
+        try:
+            # Surface tracker stats (id_switches, active_tracks) for monitoring
+            # tracking robustness and ID-switch rate as proxy for threshold fitness.
+            tracker_stats = {}
+            for cam_name, tracker in camera_trackers.items():
+                tracker_stats[cam_name] = {
+                    "id_switches": tracker.id_switches,
+                    "active_tracks": len(tracker.tracks),
+                }
+            health.update_shared("tracker", tracker_stats)
         except Exception:
             pass
         time.sleep(10)
