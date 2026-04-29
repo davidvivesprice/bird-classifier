@@ -553,6 +553,48 @@ def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
+# Module-level startup timestamp captured at import time. Used by /api/_meta
+# to expose process uptime without requiring extra introspection.
+_APP_STARTED_AT = datetime.now().isoformat()
+
+
+@app.get("/api/_meta")
+def app_meta():
+    """The server reading itself. Powers the Ch 11 live-stat callouts in the
+    book. Pure introspection — no secrets, no DB hits, no proxy calls."""
+    import os
+    import sys
+    try:
+        import resource
+        # ru_maxrss is bytes on macOS, KB on Linux. iMac (Sonoma) reports bytes.
+        rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if sys.platform == "darwin":
+            resident_memory_mb = round(rss_bytes / (1024 * 1024), 1)
+        else:
+            resident_memory_mb = round(rss_bytes / 1024, 1)
+    except Exception:
+        resident_memory_mb = None
+
+    try:
+        import fastapi as _fastapi
+        fastapi_version = _fastapi.__version__
+    except Exception:
+        fastapi_version = None
+
+    routes_count = sum(1 for r in app.routes if hasattr(r, "methods"))
+
+    return {
+        "routes_count": routes_count,
+        "resident_memory_mb": resident_memory_mb,
+        "python_version": (
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        ),
+        "fastapi_version": fastapi_version,
+        "app_pid": os.getpid(),
+        "started_at": _APP_STARTED_AT,
+    }
+
+
 @app.get("/api/test")
 def serve_test_page():
     """Serve the API smoke test page."""

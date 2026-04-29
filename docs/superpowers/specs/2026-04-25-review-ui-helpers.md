@@ -90,11 +90,11 @@ Classified sub-tabs map directly to these values.
 ## Files
 
 - Helper definitions: `dashboard/index.html`
-  - `applyVerdictToUI` ~line 3671
-  - `_appendBadge` / `_updateGridCard` alias ~3693–3710
+  - `applyVerdictToUI` ~line 3768
+  - `_appendBadge` ~3792, `_updateGridCard` alias ~3809, `applyVerdictAndRecord` ~3817
   - `verdict-removed` CSS keyframe ~1054
   - `loadQueue` / `queueNextPage` / `queuePrevPage` / `recordVerdictOnQueue`
-    ~3324–3360
+    ~3354–3395
 - Server filters: `reviews_db.py` `_build_classification_query` (multibird
   tri-state); `dashboard/api.py` `review_pending` + `review_classified`
 - Current callers:

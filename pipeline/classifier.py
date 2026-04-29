@@ -140,9 +140,11 @@ class SmartClassifier:
         so the review queue / DB records reflect AIY's 965-species label
         rather than yard's 12-species best-guess.
 
-        Takes the same Coral lock yard uses, since AIY also runs on Coral —
-        without the lock, yard's per-frame live call could race with this
-        snapshot-time AIY call on the same USB Edge TPU.
+        Takes the same lock yard uses as a serialization mutex (NOT because
+        AIY uses Coral — on the iMac, AIY runs via ONNX+CoreML; SmartClassifier
+        never passes tpu_model_path to SpeciesClassifier, see __init__ above).
+        The lock prevents yard's per-frame live call from racing with this
+        snapshot-time AIY call on the shared classifier resources.
 
         Returns a ClassificationResult, or None if the lock times out, AIY
         errors, or AIY returns no confident prediction.
@@ -193,7 +195,17 @@ class SmartClassifier:
             self._coral_lock.release()
 
     def _run_aiy(self, crop_pil):
-        """Run AIY classifier. Returns object with .species and .confidence, or None."""
+        """Run AIY classifier. Returns object with .species and .confidence, or None.
+
+        AIY's raw_score is a uint8 (0–255) from the quantized model output, so
+        raw_score/100 historically produced values in the 0–2.55 range (see the
+        camera_config.py docstring for the "AIY scale mismatch" technical-debt
+        note). We clamp at 1.0 here so consumers can trust confidence ∈ [0,1].
+        Clamping (rather than dividing by 255) preserves the calibration of
+        every downstream threshold (vote-lock 0.35, etc.) — values < 1.0 are
+        unchanged; values that used to be 1.0–2.55 are now 1.0 and still
+        treated as "very confident".
+        """
         try:
             filtered, _raw = self.aiy.classify(crop_pil)
             if not filtered:
@@ -201,7 +213,7 @@ class SmartClassifier:
             top = filtered[0]
             return type("AiyResult", (), {
                 "species": top.get("common_name"),
-                "confidence": float(top.get("raw_score", 0)) / 100.0,
+                "confidence": min(1.0, float(top.get("raw_score", 0)) / 100.0),
             })()
         except Exception as e:
             log.debug("AIY classify error: %s", e)

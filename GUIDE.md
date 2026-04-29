@@ -14,28 +14,32 @@ A real-time bird identification system running on a single iMac. Two cameras wat
           CloudKey Gen 2+ (192.168.4.9)
           UniFi Protect manages cameras only
                   │
-    ┌─────────────┼──────────────────┐
-    │             │                  │
-    ▼             ▼                  ▼
- capture      go2rtc            audio_analyzer
- snapshots    (Docker)          (BirdNET V2.4)
-    │          :1984                 │
-    ▼             │                  ▼
- classify.py  live_detector     birdnet_local.db
- (YOLO+AIY)   :8097 (SSE)      + audio clips
-    │             │                  │
-    │        bird_pipeline           │
-    │        :8100 (SSE)             │
-    │        (motion→YOLO→           │
-    │         classify→track)        │
-    │             │                  │
-    ▼             ▼                  ▼
-    └─────────── api.py ◄────────────┘
-                 :8099
-                   │
-            Cloudflare tunnel
-                   │
-          birds.vivessato.com
+    ┌─────────────┴──────────────────────┐
+    │                                    │
+    ▼                                    ▼
+ go2rtc (native binary, :1984)     audio_analyzer
+    │                                   │
+    ├── sub-streams (640×360)           ▼
+    │      ↓                       birdnet_local.db
+    │   bird_pipeline_v3            + audio clips
+    │   (motion→YOLO→classify→track)
+    │      ↓
+    │   SSE :8105 + snapshot writer
+    │      ↓
+    │   classifications.db
+    │
+    └── main-streams (1080p)
+           ↓
+        HLS recorder → segments.json + .ts files
+           ↓
+        browser /live (hls.js, ~10s delay)
+           │
+           ▼
+        WebRTC (real-time, <400ms)
+           │
+           └── canvas overlay (labels from SSE)
+
+Everything routes through api.py :8099 → Cloudflare tunnel → birds.vivessato.com
 ```
 
 Everything runs on the iMac (192.168.4.200). The CloudKey provides camera feeds only.
@@ -44,37 +48,35 @@ Everything runs on the iMac (192.168.4.200). The CloudKey provides camera feeds 
 
 ## Data Pipelines
 
-**Batch visual** (~10s cycle): `capture_snapshots.py` polls CloudKey snapshot API with motion detection, saves to `incoming/`. `classify.py --watch` picks up new images, runs YOLO bird detection then AIY Birds V1 species classification, writes to `classified/{species}/` + JSONL log. Dashboard API reads the JSONL.
+**Live visual** (~5–7 fps on iMac): `bird_pipeline_v3.py` reads RTSP sub-streams from go2rtc via ffmpeg. Per camera: MotionGate (MOG2 + AOI polygon) → YOLO bird detection (full frame) → Norfair tracker → SmartClassifier (yard model on Coral for feeder; AIY-only for ground) → vote-lock (≥3 votes, ≥0.35 confidence, ≥60% agreement). On lock: SnapshotWriter saves a JPG, runs AIY authoritative relabel, writes a row to `classifications.db`. SSE events stream to the dashboard for live overlay.
 
-**Live visual — old** (~300ms): `live_detector.py` pulls frames from go2rtc at 3fps, runs YOLO + AIY with temporal voting (SpeciesVoter), pushes detections via SSE on port 8097. Dashboard draws bounding box overlays on the live video feed.
+**Audio** (~3s): `audio_analyzer.py` decodes RTSP audio via PyAV, applies bandpass + noisereduce, runs BirdNET V2.4 on 3-second overlapping windows, writes to SQLite (`birdnet_local.db`) + saves WAV clips.
 
-**Live visual — new** (~300ms): `bird_pipeline.py` decodes RTSP video from go2rtc local restream via PyAV at ~3 FPS. Motion gate -> YOLO -> species classification -> IoU multi-bird tracking (`bird_tracker.py`) with trust levels and session IDs -> SSE broadcast on port 8100. Saves keeper frames to `incoming/`. Dashboard toggle ("New Det" / "Old Det") switches between pipeline SSE (port 8100) and old live_detector SSE (port 8097).
-
-**Audio** (~3s): `audio_analyzer.py` decodes RTSP audio via PyAV, applies bandpass + noisereduce, runs BirdNET V2.4 on 6-second overlapping windows, writes to SQLite (`birdnet_local.db`) + saves WAV clips. Dashboard receives audio detections via SSE.
-
-**Enhanced audio** (live): `enhanced_audio_stream.py` applies bandpass filter (300Hz-15kHz) to RTSP audio and serves as MP3 stream for in-browser listening.
+**Enhanced audio** (live): `enhanced_audio_stream.py` applies bandpass filter (300Hz–15kHz) to RTSP audio and serves it as an MP3 stream for in-browser listening.
 
 ---
 
 ## Services
 
-Ten macOS LaunchAgents + one Docker container:
+Eight services — seven macOS LaunchAgents plus one native binary LaunchAgent for go2rtc. No Docker.
 
-| # | Label | Script | Details |
-|---|-------|--------|---------|
-| 1 | `com.vives.bird-audio` | `audio_analyzer.py` | BirdNET audio analysis, port 8098 |
-| 2 | `com.vives.bird-capture` | `capture_snapshots.py` | Motion-triggered snapshots from CloudKey |
-| 3 | `com.vives.bird-classifier` | `classify.py --watch` | Batch YOLO + AIY classification (venv-coral) |
-| 4 | `com.vives.bird-dashboard` | `uvicorn` (api.py) | FastAPI dashboard backend, port 8099 |
-| 5 | `com.vives.bird-enhanced-audio` | `enhanced_audio_stream.py` | Bandpass MP3 audio stream, port 8096 |
-| 6 | `com.vives.bird-health-monitor` | `health_monitor.py` | Runs every 5 min, checks + restarts services |
-| 7 | `com.vives.bird-livedetect` | `live_detector.py` | Old real-time detection SSE, port 8097 |
-| 8 | `com.vives.bird-pipeline` | `bird_pipeline.py` | New unified detection pipeline SSE, port 8100 |
-| 9 | `com.vives.bird-rtsp-sync` | `refresh_rtsp.py` | RTSP token refresh, daily at 3:10 AM |
-| 10 | `com.vives.bird-tunnel` | `cloudflared tunnel run` | Cloudflare tunnel to birds.vivessato.com |
-| 11 | — (Docker) | `go2rtc` | RTSP to WebRTC/HLS, port 1984 |
+| Label | Script | Details |
+|-------|--------|---------|
+| `com.vives.go2rtc` | `go2rtc` (native binary) | RTSP relay from CloudKey, WebRTC/HLS to browser, port 1984 |
+| `com.vives.bird-pipeline` | `bird_pipeline_v3.py` | Detection + classification + snapshot writer; health :8100, SSE :8105 |
+| `com.vives.bird-dashboard` | `uvicorn` (api.py) | FastAPI backend + dashboard SPA, port 8099 |
+| `com.vives.bird-audio` | `audio_analyzer.py` | BirdNET audio analysis, port 8098 |
+| `com.vives.bird-enhanced-audio` | `enhanced_audio_stream.py` | Bandpass MP3 audio stream, port 8096 |
+| `com.vives.bird-integrity-audit` | integrity audit script | Periodic data integrity check (StartInterval) |
+| `com.vives.bird-tunnel` | `cloudflared tunnel run` | Cloudflare tunnel: birds.vivessato.com → :8099 |
+| `com.vives.bird-rtsp-sync` | `refresh_rtsp.py` | RTSP token refresh, daily at 3:10 AM (StartCalendarInterval) |
 
-All LaunchAgents use KeepAlive (except health-monitor which uses StartInterval, and rtsp-sync which uses StartCalendarInterval).
+All services use KeepAlive except `bird-integrity-audit` (StartInterval) and `bird-rtsp-sync` (StartCalendarInterval).
+
+**Deactivated** (plist files removed; scripts kept in repo):
+- `com.vives.bird-classifier` (`classify.py --watch`) — Coral USB is single-session; the v3 pipeline holds it
+- `com.vives.bird-capture` (`capture_snapshots.py`) — replaced by v3 pipeline's snapshot writer
+- `bird-livedetect` (`live_detector.py`) — deleted; replaced by v3 pipeline
 
 ---
 
@@ -82,12 +84,12 @@ All LaunchAgents use KeepAlive (except health-monitor which uses StartInterval, 
 
 | Port | Service |
 |------|---------|
-| 1984 | go2rtc (Docker) — WebRTC/HLS video streaming |
+| 1984 | go2rtc (native) — WebRTC/HLS video streaming |
 | 8096 | enhanced_audio_stream.py — bandpass MP3 stream |
-| 8097 | live_detector.py — old real-time detection SSE |
 | 8098 | audio_analyzer.py — BirdNET audio SSE + clips |
-| 8100 | bird_pipeline.py — new unified detection pipeline SSE |
 | 8099 | api.py (uvicorn) — dashboard API + frontend |
+| 8100 | bird_pipeline_v3.py — health endpoint |
+| 8105 | bird_pipeline_v3.py — SSE event stream |
 
 External access: `birds.vivessato.com` routes through Cloudflare tunnel to port 8099.
 
@@ -97,44 +99,47 @@ External access: `birds.vivessato.com` routes through Cloudflare tunnel to port 
 
 ### Detection Thresholds
 
-**Visual (batch — classify.py)**:
-- YOLO bird detection confidence: >= 0.3
-- Regional species filter: `models/chilmark_feeder_species.txt` (230 species for batch, 61 for live)
-- Nighttime pause: ~30 min after sunset to sunrise (NOAA solar, 41.39N 70.61W)
+**Visual (bird_pipeline_v3.py)**:
+- YOLO bird confidence: 0.3 (`bird_pipeline_v3.py:260`)
+- Vote-lock: ≥3 votes, top species ≥0.35 confidence, ≥60% vote share
+- Nighttime pause: ~30 min after sunset to sunrise (NOAA solar, 41.35N 70.73W)
+- After `MAX_CLASSIFICATION_ATTEMPTS = 5` without lock: takes plurality winner
 
-**Visual (live — live_detector.py, old)**:
-- YOLO confidence: >= 0.35, NMS IoU >= 0.45
-- SpeciesVoter: 2 agreeing frames out of 5, 5s cooldown, IoU 0.3 match threshold
-- Polls go2rtc at 3fps per camera
+**Feeder classifier (SmartClassifier, yard-first)**:
+- Yard confident (≥0.25): accept yard answer, `model_source=YARD`
+- Yard low (<0.10): skip to AIY alone
+- Yard uncertain (0.10–0.25): cross-check with AIY; accept if they agree, else unlabeled
+- AIY always runs as the authoritative relabel at snapshot time (overrides yard label in DB)
 
-**Visual (live — bird_pipeline.py, new)**:
-- Decodes RTSP via PyAV at ~3 FPS from go2rtc local restream
-- Motion gate -> YOLO -> species classification -> IoU multi-bird tracking
-- Trust levels shown in dashboard as plain English labels
-- Saves keeper frames to incoming/ for batch pipeline pickup
+**Ground classifier**: AIY-only (no yard model for ground camera). Ground cam detection is currently disabled in the pipeline (`bird_pipeline_v3.py:34`) — the camera streams to go2rtc for live viewing but is not being processed for bird detection.
 
 **Audio (audio_analyzer.py)**:
 - MIN_CONFIDENCE: 0.50
-- Overlap confirmation: min_confirmations=2 within 6s flush window
-- Sample rate: 48kHz mono, 6s window with 2s overlap
+- Overlap confirmation: min_confirmations=2 within a 6s flush window
+- Sample rate: 48kHz mono, 3s analysis window
 - Location: 41.35N, -70.73W (Chilmark, MA)
 
 ### Models
 
 | Model | File | Purpose |
 |-------|------|---------|
-| YOLOv8n | `models/yolov8n_bird.onnx` (12MB) | Bird detection (COCO class 14) |
-| AIY Birds V1 | `models/aiy_birds_v1.onnx` (3.4MB) | Species classification (965 classes) |
+| YOLOv8n | `models/yolov8n_bird.onnx` | Bird detection (COCO class 14) |
+| AIY Birds V1 | `models/aiy_birds_v1.onnx` | Species classification (965 classes) |
+| Yard model | `models/yard_model.tflite` | 12 feeder-cam species (Coral Edge TPU) |
 | BirdNET V2.4 | via `birdnetlib` | Audio species detection |
+
+The yard model is a custom-trained TFLite EfficientNet-Lite0 compiled for Coral Edge TPU. AIY Birds V1 runs via ONNX Runtime (CoreML on iMac); it also has a Coral-compiled `_edgetpu.tflite` variant in `models/` for Pi deployment.
+
+**12 yard-model species**: American Goldfinch, Black-capped Chickadee, Brown-headed Cowbird, Carolina Wren, Dark-eyed Junco, Downy Woodpecker, Hairy Woodpecker, House Finch, Northern Cardinal, Song Sparrow, Tufted Titmouse, White-breasted Nuthatch.
 
 ### Python Environments
 
-- **`venv/`** (Python 3.12) — batch classifier + dashboard API. `onnxruntime==1.23.2` (last Intel Mac version).
-- **`venv-coral/`** (Python 3.9) — live detector, audio analyzer, enhanced audio. ONNX with CoreML, birdnetlib, PyAV, scipy, noisereduce.
+- **`venv/`** (Python 3.12) — dashboard API, utility scripts. `onnxruntime==1.23.2` (last Intel Mac version; do not upgrade).
+- **`venv-coral/`** (Python 3.9) — live pipeline, audio analyzer, enhanced audio. Includes pycoral, birdnetlib, PyAV, scipy, noisereduce.
 
 ### Coral TPU
 
-Google Coral USB Accelerator connected to iMac. Used by AIY Birds V1 for species classification (~5ms inference). Edge TPU runtime 2022-10-24.
+Google Coral USB Accelerator connected to iMac. Used exclusively by the yard model (YardClassifier via pycoral). The pipeline holds the Coral lock throughout its lifetime — this is why `classify.py` is deactivated (it would compete for the same device).
 
 ---
 
@@ -142,33 +147,33 @@ Google Coral USB Accelerator connected to iMac. Used by AIY Birds V1 for species
 
 ```
 /Users/vives/bird-snapshots/
-  incoming/           Snapshots awaiting classification
-  classified/         Organized by species subdirectories
-  skipped/            No bird detected
-  failed/             Corrupt images
-  annotated/          JPEGs with bounding boxes + labels
+  classified/         Organized by species subdirectories (JPGs from pipeline)
+  annotated/          JPEGs with corner-bracket bounding boxes
+  hls/
+    feeder/           HLS .ts segments + segments.json sidecar
+    (ground/ would appear here when ground cam detection is re-enabled)
   birdnet-audio/
     birdnet_local.db  Audio detections SQLite DB
     clips/            Saved WAV detection clips
-  logs/               All service logs
+  logs/               All service logs (pipeline.log, pipeline-stderr.log, etc.)
 
 /Users/vives/bird-classifier/
-  classify.py         Batch classification pipeline
-  capture_snapshots.py  Motion-triggered snapshot capture
-  live_detector.py    Old real-time detection + SSE (port 8097)
-  bird_pipeline.py    New unified detection pipeline (port 8100)
-  bird_tracker.py     IoU-based multi-bird tracker for pipeline
-  audio_analyzer.py   BirdNET audio analysis
+  bird_pipeline_v3.py   Main detection + classification pipeline
+  bird_tracker.py       IoU-based multi-bird tracker (Norfair)
+  audio_analyzer.py     BirdNET audio analysis
   enhanced_audio_stream.py  Bandpass MP3 stream
-  health_monitor.py   Service health checker
-  refresh_rtsp.py     RTSP token refresh
+  refresh_rtsp.py       RTSP token refresh
+  reviews_db.py         Review/calibration DB layer
+  classifications_db.py Classifications DB layer
+  pipeline/             Pipeline modules (frame_capture, detector, classifier, etc.)
   dashboard/
-    api.py            FastAPI backend
-    index.html        Dashboard SPA
-    species_images/   Cached bird photos (224 species)
-  models/             ONNX models + species labels
-  venv/               Python 3.12 environment
-  venv-coral/         Python 3.9 environment
+    api.py              FastAPI backend
+    index.html          Dashboard SPA (Review, Classify, Live tabs)
+    live.html           Dedicated live view with adaptive lock overlay
+  models/               ONNX + TFLite models + species labels
+  venv/                 Python 3.12 environment
+  venv-coral/           Python 3.9 environment
+  tests/                pytest test suite
 ```
 
 ---
@@ -178,18 +183,10 @@ Google Coral USB Accelerator connected to iMac. Used by AIY Birds V1 for species
 ### Check all services at once
 
 ```bash
-launchctl list | grep bird
+launchctl list | grep -E 'vives\.(bird|go2rtc)'
 ```
 
 A running service shows a PID in the first column. A `-` means it is not running.
-
-### Check Docker go2rtc
-
-```bash
-docker ps | grep go2rtc
-# Health check:
-curl -s http://localhost:1984/api/streams
-```
 
 ### Check individual services
 
@@ -197,11 +194,8 @@ curl -s http://localhost:1984/api/streams
 # Dashboard API
 curl -s http://localhost:8099/api/health | python3 -m json.tool
 
-# Live detector (old)
-curl -s http://localhost:8097/health | python3 -m json.tool
-
-# Bird pipeline (new)
-curl -s http://localhost:8100/health | python3 -m json.tool
+# Pipeline (detection + classification)
+curl -s http://localhost:8100/api/pipeline/health | python3 -m json.tool
 
 # Audio analyzer — check logs (no health endpoint)
 tail -20 /Users/vives/bird-snapshots/logs/audio-analyzer-stdout.log
@@ -211,55 +205,56 @@ curl -s http://localhost:8096/health | python3 -m json.tool
 
 # Cloudflare tunnel
 tail -20 /Users/vives/bird-snapshots/logs/cloudflare-tunnel-stdout.log
-
-# Batch classifier
-tail -20 /Users/vives/bird-snapshots/logs/classifier-stdout.log
-
-# Capture snapshots
-tail -20 /Users/vives/bird-snapshots/capture.log
-
-# Health monitor
-tail -20 /Users/vives/bird-snapshots/logs/health-monitor-stdout.log
 ```
 
 ### Restart a service
 
 ```bash
-# Unload then reload the LaunchAgent
-launchctl unload ~/Library/LaunchAgents/com.vives.bird-livedetect.plist
-launchctl load ~/Library/LaunchAgents/com.vives.bird-livedetect.plist
+# Any bird service (replace label as needed)
+launchctl kickstart -k "gui/$(id -u)/com.vives.bird-pipeline"
+launchctl kickstart -k "gui/$(id -u)/com.vives.bird-dashboard"
+
+# go2rtc
+launchctl kickstart -k "gui/$(id -u)/com.vives.go2rtc"
 ```
 
-Replace the label for any service. For go2rtc:
+### Check what classifications are coming in
 
 ```bash
-docker restart go2rtc
+sqlite3 ~/bird-snapshots/logs/classifications.db \
+  "SELECT source_timestamp, common_name, confidence,
+          json_extract(extra_json,'$.model_source')
+   FROM classifications ORDER BY id DESC LIMIT 10;"
 ```
 
-### Reprocess all images
+### go2rtc streams not working
+
+Camera RTSP tokens expire. Check `bird-rtsp-sync` ran successfully, or manually run `refresh_rtsp.py`. Restart go2rtc after token refresh:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.vives.bird-classifier.plist
-cd /Users/vives/bird-classifier && ./venv/bin/python classify.py --reprocess
-launchctl load ~/Library/LaunchAgents/com.vives.bird-classifier.plist
+launchctl kickstart -k "gui/$(id -u)/com.vives.go2rtc"
 ```
 
-### Common Issues
+### Nighttime — no new classifications
 
-**Service keeps crashing (exit code != 0)**: Check stderr log for the service. Most common causes: RTSP stream unavailable (camera rebooting), port already in use, Python import error.
+Expected. The pipeline pauses ~30 min after sunset and resumes at sunrise. Check `pipeline.log` for "night bypass" messages.
 
-**No new classifications**: Check that `bird-capture` is running (produces snapshots) and `bird-classifier` is running (processes them). During nighttime, the classifier pauses automatically.
+### macOS sleep kills everything
 
-**Dashboard not loading externally**: Check `bird-tunnel` is running. Verify with `curl -s http://localhost:8099/api/health` that the API is up locally.
+```bash
+pmset -a sleep 0 && pmset -a disksleep 0
+```
 
-**go2rtc streams not working**: Camera RTSP tokens expire. Check `bird-rtsp-sync` ran successfully, or manually run `refresh_rtsp.py`. Restart go2rtc after token refresh.
+### onnxruntime upgrade breaks things
 
-**macOS sleep kills everything**: Ensure sleep is disabled: `pmset -a sleep 0 && pmset -a disksleep 0`.
-
-**onnxruntime upgrade breaks things**: `onnxruntime==1.23.2` is the last version with Intel Mac (x86_64) wheels. Do not upgrade.
+`onnxruntime==1.23.2` is the last version with Intel Mac (x86_64) wheels. Do not upgrade.
 
 ---
 
 ## Historical Note
 
-Until March 2026, the system used a two-machine architecture with a VivesSyn NAS hosting the dashboard (nginx + Traefik), go2rtc, BirdNET-Go, and snapshot sync. All services were migrated to the iMac in March 2026. The NAS is no longer part of the system.
+**Before March 2026**: Two-machine architecture — a VivesSyn NAS hosted the dashboard (nginx + Traefik), go2rtc (Docker), BirdNET-Go, and snapshot sync. All services migrated to the iMac in March 2026. The NAS is no longer part of the system.
+
+**Before April 2026**: The iMac ran a batch visual pipeline (`capture_snapshots.py` + `classify.py --watch`) alongside an older real-time detector (`live_detector.py`). The batch pipeline polled the CloudKey snapshot API; `live_detector.py` pulled frames from go2rtc and ran YOLO + AIY with temporal voting. Both were replaced by `bird_pipeline_v3.py`, which does motion-gated continuous RTSP detection. The batch scripts are kept in the repo for reference; their LaunchAgent plists have been removed.
+
+**go2rtc**: Originally ran in Docker. Migrated to a native binary (`/usr/local/bin/go2rtc`) with its own LaunchAgent (`com.vives.go2rtc`) for cleaner process management and faster startup.

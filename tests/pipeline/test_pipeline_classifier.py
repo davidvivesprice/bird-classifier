@@ -187,6 +187,41 @@ def test_ground_camera_skips_yard_entirely():
     assert result2.model_source == "yard"
 
 
+def test_run_aiy_clamps_confidence_at_one():
+    """AIY's raw_score is uint8 (0-255); historically `_run_aiy` returned
+    raw_score/100.0 which could exceed 1.0 (max ~2.55). 1225 rows in
+    classifications.db had auth.confidence > 1.0 before this clamp landed
+    (2026-04-26). The clamp at 1.0 keeps the contract that confidence ∈ [0,1]
+    so consumers (calibration UI buckets, RC2 threshold of 0.1, snapshot
+    writer) can rely on it. Values <1.0 are unchanged so vote-lock 0.35
+    stays calibrated.
+
+    See pipeline/camera_config.py:17-34 docstring for the AIY scale-mismatch
+    technical-debt note this clamp partially addresses.
+    """
+    from pipeline.classifier import SmartClassifier
+    c = SmartClassifier.__new__(SmartClassifier)
+    # Mock self.aiy.classify to return a high raw_score
+    c.aiy = MagicMock()
+    # filtered list with one entry; raw_score=200 → would be 2.0 unclamped
+    c.aiy.classify.return_value = (
+        [{"common_name": "Northern Cardinal", "raw_score": 200}],
+        [{"common_name": "Northern Cardinal", "raw_score": 200}],
+    )
+    result = c._run_aiy(_make_pil())
+    assert result is not None
+    assert result.species == "Northern Cardinal"
+    assert result.confidence == 1.0, f"expected clamped to 1.0, got {result.confidence}"
+
+    # And a normal-range value (raw_score=75 → 0.75) passes through unchanged
+    c.aiy.classify.return_value = (
+        [{"common_name": "Tufted Titmouse", "raw_score": 75}],
+        [{"common_name": "Tufted Titmouse", "raw_score": 75}],
+    )
+    result2 = c._run_aiy(_make_pil())
+    assert result2.confidence == 0.75
+
+
 def test_ground_path_does_not_hold_coral_lock():
     """With use_yard=False, classify() must never acquire the Coral lock,
     so a busy Coral on feeder doesn't block ground classification."""

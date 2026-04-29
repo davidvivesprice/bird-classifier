@@ -134,7 +134,7 @@ Every review API call takes a `client_id` UUID minted by the UI when the card is
 
 - `POST /api/review2/{filename}` — new endpoint (keep old one for backward compat, deprecate after migration). Body: `{verdict, correct_species, client_id, last_seen_timestamp}`. Returns: `{ok, history_id, next_cursor}`.
 - `GET /api/review2/queue?after=<ts>&limit=N&mode=smart|all` — cursor-based.
-- `GET /api/review2/history?file=<f>` — audit trail for a specific file.
+- `GET /api/review2/history/{filename}` — audit trail for a specific file. (Implemented as path param, not query param.)
 - `POST /api/review2/undo/{history_id}` — reverses a specific history row. Inserts a new history row with `verdict='undone'` and points `prev_row_id` back. The UI's undo button uses this.
 
 ### Migration path
@@ -259,11 +259,15 @@ Built as a live HTML+CSS+JS prototype at `dashboard/review-ideas.html`. Interact
 - ✓ 6 new tests. Key invariant covered: trashing an item on page 1 cannot make page 2 skip items.
 - ✓ 434 total tests green; zero regressions.
 
-### In progress / next
+### Shipped (2026-04-25, part 4)
 
-1. Wire the `/review-ideas` mockup to the real API.
-2. Atomic helper `_move_file_safe` — walks all snapshot roots; defensive find-everywhere (fixes Bug D).
-3. Nightly integrity script (`tools/review_system_integrity.py`).
+**Integrity audit** — `tools/audit_data_integrity.py` (not `review_system_integrity.py` as originally named). Runs as `com.vives.bird-integrity-audit` LaunchAgent (`--cull` flag). Catches file/DB mismatches the airtight write path prevents going forward.
+
+### Not built
+
+- `_move_file_safe` atomic helper — was planned, not implemented. `apply_verdict()` in `api.py` handles file moves inline.
+- `/review-ideas` mockup wired to real API — `dashboard/review-ideas.html` exists as a standalone design mockup only; not connected to live data.
+- Part 2 gamified UI (streaks, leaderboard, XP) — not implemented. The review UX shipped as the clean card-grid interface in the main dashboard.
 
 ### Deferred
 

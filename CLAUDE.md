@@ -32,21 +32,22 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 Single 2017 iMac (i5-7400, 8GB RAM). CloudKey Gen 2+ manages two UniFi cameras.
 SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio, pipeline.db for v3 events).
 
-### Services (6 active + 1 cron)
+### Services (7 active + 1 cron)
 
 | Service | Port | What it does |
 |---------|------|-------------|
-| go2rtc | 1984 | RTSP-in from CloudKey, WebRTC/MSE/HLS-out to browser |
+| go2rtc (native binary) | 1984 | RTSP-in from CloudKey, WebRTC/MSE/HLS-out to browser |
 | bird_pipeline_v3 | 8100 (health), 8105 (SSE) | Motion gate → YOLO → track → vote-classify → SSE events |
 | dashboard (uvicorn) | 8099 | Serves HTML, proxies SSE/health, REST API for classifications |
 | audio_analyzer | 8098 | BirdNET audio analysis |
 | enhanced_audio | 8096 | Enhanced audio MP3 stream |
+| bird-integrity-audit | — | Periodic data integrity check (StartInterval) |
 | cloudflared | — | Tunnel: birds.vivessato.com → :8099, go2rtc.vivessato.com → :1984 |
 | rtsp-sync (cron) | — | Refreshes RTSP tokens daily at 3:10 AM |
 
 ### Detection Pipeline (v3)
 
-Camera → go2rtc (RTSP) → FrameCapture (native substream, 640x360 at 5fps) → MotionGate → BirdDetector (YOLO) → BirdTracker → SmartClassifier (yard model on Coral TPU → AIY fallback) → vote lock (≥3 votes, ≥60% agreement) → SSE broadcast → dashboard canvas overlay.
+Camera → go2rtc (RTSP) → FrameCapture (native substream, 640×360, reads at YOLO rate ~5–7 fps) → MotionGate → BirdDetector (YOLO) → BirdTracker → SmartClassifier (yard model on Coral TPU → AIY fallback) → vote lock (≥3 votes, ≥0.35 conf, ≥60% agreement) → SSE broadcast → dashboard canvas overlay.
 
 Per-camera classifier config: feeder uses yard model (Coral) + AIY fallback, ground uses AIY only.
 

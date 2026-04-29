@@ -3,7 +3,8 @@
 <!--
   Bird Observatory Integrity Audit — hourly data-integrity check.
 
-  Plan: docs/superpowers/plans/2026-04-22-data-integrity-audit.md
+  Plan: ~/docs/bird-observatory/working/historical/plans/2026-04-22-data-integrity-audit.md
+        (was docs/superpowers/plans/...; consolidated to ~/docs/ on 2026-04-26)
 
   Runs tools/audit_data_integrity.py --cull once an hour. Logs every
   orphan row it finds before culling, so the NEXT occurrence of the

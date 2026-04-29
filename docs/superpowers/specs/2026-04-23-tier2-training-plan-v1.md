@@ -1,7 +1,9 @@
 # Tier 2 Yard Model Revamp — Training Plan v1 (synthesis)
 
 **Date:** 2026-04-23
-**Status:** Draft for David's review. Synthesizes four parallel lit-review agents + the data audit. This doc replaces ad-hoc hypotheses with a concrete executable recipe.
+**Status:** Superseded in part — see caveat below. Architecture and augmentation recipe still valid; label-sourcing strategy replaced by calibration findings.
+
+> **2026-04-26 calibration update:** 263 human verdicts across 4 RC3 strata showed AIY's softmax is 85% correct when it disagrees with the yard model (bucket B), and agree+low-confidence rows (bucket C) are 85% precise — disproving the confidence-floor hypothesis. The "clean the 34K weak AIY labels with Confident Learning" step (Part B §2) remains valid but should use the `training_label` field from RC2 metadata once that ships, not raw AIY labels. The base architecture should use **AIY distillation** (train EfficientNet-Lite0 to mimic AIY's 965-class softmax on our images) rather than fine-tuning from ImageNet; the ImageNet starting checkpoint is a weaker prior than AIY's bird-specific knowledge. RC2 plan: `docs/superpowers/plans/2026-04-26-rc2-from-calibration.md`.
 
 **Inputs:**
 - `2026-04-23-tier2-data-audit.md` — what the data actually looks like

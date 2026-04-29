@@ -44,7 +44,7 @@ UniFi G3 Dome (camera) ──RTSP──┐
    ┌──────────┴───────┬──────────────────┐       │
    ▼                  ▼                  ▼       │
 EventStore       SSEEventServer     SnapshotWriter (separate background thread)
-(pipeline.db,    :8104 or :8105     submit() called when track LOCKS
+(pipeline.db,    :8105               submit() called when track LOCKS
 WAL, batched     emits per-frame    queue (maxsize=32) → _loop dequeues → _write_one
 flush 0.5s)      JSON to /events/   path branches:
                  sse?camera=...     (1) ring authoritative (PIPELINE_HIRES_RING=authoritative)
@@ -76,8 +76,8 @@ LaunchAgents (~/Library/LaunchAgents/, all KeepAlive unless noted):
 
 | Plist | Cmd | Notes |
 |---|---|---|
-| `com.vives.bird-pipeline` | `venv-coral/bin/python3 -u bird_pipeline_v3.py` | venv-coral = Python 3.9 (pycoral). Env: `PIPELINE_HEALTH_PORT=8100`, `PIPELINE_SSE_PORT=8105`, `PIPELINE_DB_PATH=...pipeline_v3_dev.db` |
-| `com.vives.bird-dashboard` | `venv/bin/uvicorn dashboard.api:app --host 0.0.0.0 --port 8099` | venv = newer Python. Env: `PIPELINE_BACKEND_URL=http://127.0.0.1:8105` |
+| `com.vives.bird-pipeline` | `venv-coral/bin/python3 -u bird_pipeline_v3.py` | venv-coral = Python 3.9 (pycoral). Env: `PIPELINE_HEALTH_PORT=8100`, `PIPELINE_SSE_PORT=8105`, `PIPELINE_DB_PATH=.../pipeline.db` |
+| `com.vives.bird-dashboard` | `venv/bin/uvicorn dashboard.api:app --host 0.0.0.0 --port 8099` | venv = newer Python. Env: `PIPELINE_SSE_URL=http://127.0.0.1:8105` |
 | `com.vives.go2rtc` | go2rtc native binary | Reads `go2rtc.yaml`. RTSP relay :1984 |
 | `com.vives.bird-tunnel` | `cloudflared tunnel run bird-observatory` | Exposes :8099 at birds.vivessato.com |
 | `com.vives.bird-rtsp-sync` | `venv/bin/python3 refresh_rtsp.py` | StartCalendarInterval 3:10 AM daily. Refreshes UniFi RTSP tokens |
@@ -199,7 +199,7 @@ yard.classify(crop)
 
 **`authoritative_classify()`** — separate method called by SnapshotWriter at write time. AIY-only on the (ideally hi-res) crop. Takes the Coral lock. The result OVERRIDES the track's live yard label for the classifications.db row. **This is why the DB labels are AIY's 965-species call, not yard's 12-species best guess.** Yard drives live UX speed; AIY drives the durable record.
 
-`yard_classifier.py` runs on Coral USB Edge TPU via pycoral. AIY runs on Coral too via the same `_coral_lock`. CPU fallback is ONNX+CoreML (slower).
+`yard_classifier.py` runs on Coral USB Edge TPU via pycoral. AIY runs on ONNX+CoreML (via `bird_inference.SpeciesClassifier` with no `tpu_model_path`). The `_coral_lock` mutex is still held during `authoritative_classify()` to prevent a snapshot-time AIY call from overlapping with a live yard inference — not because AIY touches the TPU hardware, but to serialize all classification work through a single code path.
 
 ## 6 · The snapshot path — current state
 
@@ -277,12 +277,12 @@ vs. the ring buffer — the ring's only architectural advantage is sub-milliseco
 | MAX_CLASSIFICATION_ATTEMPTS | classifier.py | 16 |
 | CORAL_ACQUIRE_TIMEOUT | classifier.py | 15 |
 | Per-camera classifier config defaults | camera_config.py | 37-38 |
-| Norfair distance threshold | tracker.py | 86 |
+| Norfair distance threshold | tracker.py | 84 |
 | Frame-capture watchdog stall | frame_capture.py | 23 |
 | HLS segment duration / list size | hls_recorder.py | 59-61 |
 | Manifest poll / settle | hls_recorder.py | 24, 29 |
 | Ring buffer max_seconds / cap | hires_ring.py | 33-35 |
-| Quality scorer min bbox side | hires_ring.py | 268 |
+| Quality scorer min bbox side | hires_ring.py | 284 |
 | SnapshotWriter queue maxsize | snapshot_writer.py | 124 |
 | Adaptive Lock σ values | live.html | 427-432 |
 | Adaptive Lock velocity thresholds | live.html | 429-430 |
@@ -296,7 +296,7 @@ vs. the ring buffer — the ring's only architectural advantage is sub-milliseco
 **Works well:**
 - Two-clock alignment via sidecar manifest (no NTP dependency)
 - Adaptive Lock smoothing (labels glued to bird, no jitter, no lag)
-- Cheap restore + authoritative AIY override (DB labels are 69.3% top-1 quality)
+- Cheap restore + authoritative AIY override (DB labels estimated ~69% top-1 quality from 2026-04-25 snapshot audit; 2026-04-26 calibration of 263 post-watershed rows gives ~76% weighted precision across RC3 buckets A–D)
 - Two-stream architecture (browser plays full 1080p MSE direct from go2rtc; pipeline does cheap detection on sub-stream)
 - The HLS recorder's existing buffer (currently powering the overlay; ready to also power snapshots)
 
@@ -305,7 +305,7 @@ vs. the ring buffer — the ring's only architectural advantage is sub-milliseco
 - Main dashboard `/` runs a past-only variant of Adaptive Lock with WebRTC (~400ms latency). `/live` is the real one. Plan: consolidate.
 - `OVERLAY_LEAD_COMPENSATION_MS` historical. Removed in current live.html — confirmed.
 - The 1a integrity audit runs as a LaunchAgent but I haven't checked its recent runs in this session. Worth doing.
-- Authoritative AIY happens in the SnapshotWriter background thread with the Coral lock. The pipeline's live yard inference also takes the Coral lock. They serialize cleanly (the lock is the mechanism), but if Coral contention spikes the snapshot can wait up to `CORAL_ACQUIRE_TIMEOUT=5s` for the lock.
+- Authoritative AIY happens in the SnapshotWriter background thread holding `_coral_lock`. Live yard inference also holds `_coral_lock`. They serialize cleanly — but since AIY itself runs on ONNX (not Coral), "lock contention" here means mutex wait, not TPU saturation. The snapshot can wait up to `CORAL_ACQUIRE_TIMEOUT=5s` for the lock.
 - `hires_ring.py` exists, works, has a quality scorer. Even if we move to HLS-extract for the live system, the scorer + RingFrame dataclass + `score_frame()` function are reusable.
 
 ## 12 · How to verify any of the above
