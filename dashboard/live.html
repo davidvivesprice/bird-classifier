@@ -282,6 +282,14 @@
     if (!frag) return null;
     var completedMs = segmentWallclock[frag.filename];
     if (typeof completedMs !== 'number') return null;
+    // Defensive: if the sidecar timestamp is more than 90s stale relative to
+    // wall clock, the sidecar is referencing a segment file from a previous
+    // pipeline/ffmpeg run (e.g. after a 71h HLS outage, mtime is days old).
+    // In that case, skip sidecar sync entirely and return null so the overlay
+    // falls back to wall-clock drain rather than matching 3-day-old events.
+    // 90s is generous: the manifest is polled every ~5s, so >90s stale means
+    // we're definitely reading a ghost file, not just a slow poll.
+    if (Date.now() - completedMs > 90_000) return null;
     // completed_ms = when the last frame of the segment landed on disk.
     // first_frame_ms ≈ completed_ms − (segment duration in seconds × 1000)
     // displayed_ms = first_frame_ms + (video.currentTime − frag.start) × 1000
