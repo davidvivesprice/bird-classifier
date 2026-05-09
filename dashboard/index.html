@@ -145,16 +145,24 @@
   .sse-status.disconnected { color: var(--accent-red); }
 
   /* Status dots (topbar health indicators) */
-  .docs-link {
+  .book-nav {
+    display: flex; align-items: center; gap: 4px;
+    margin-left: auto;
+    font-size: 0.78rem;
+  }
+  .book-nav__link {
     color: var(--text-muted);
-    font-size: 0.8rem;
     padding: 4px 10px;
     border-radius: 4px;
-    margin-left: auto;
     text-decoration: none;
-    display: flex; align-items: center; gap: 4px;
+    border: 1px solid transparent;
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
   }
-  .docs-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); text-decoration: none; }
+  .book-nav__link:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); border-color: var(--border); text-decoration: none; }
+  .book-nav__link--pi { color: var(--accent-green); }
+  .book-nav__link--pi:hover { background: rgba(74,222,128,0.08); }
+  .book-nav__div { color: var(--border); font-size: 0.7rem; }
 
   .status-dots {
     display: flex; align-items: center; gap: 2px;
@@ -2374,7 +2382,13 @@
       <span>Loading stats...</span>
     </div>
   </div>
-  <a class="docs-link" href="/docs.html" title="Documentation">&#x1F4D6; Docs</a>
+  <div class="book-nav">
+    <a class="book-nav__link" href="/docs.html">Docs</a>
+    <span class="book-nav__div">·</span>
+    <a class="book-nav__link" href="/book/The%20Backyard%20Observatory.html" target="_blank">iMac Book</a>
+    <span class="book-nav__div">·</span>
+    <a class="book-nav__link book-nav__link--pi" href="https://pi5.vivessato.com/book/The%20Backyard%20Observatory%20%E2%80%94%20Pi.html" target="_blank">Pi Book</a>
+  </div>
   <div class="status-dots" id="status-dots" onclick="toggleStatusDropdown(event)">
     <span class="sdot" id="sdot-api" title="API">●</span><span class="sdot-label">API</span>
     <span class="sdot" id="sdot-cams" title="Cameras">●</span><span class="sdot-label">Cams</span>

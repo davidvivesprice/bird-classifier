@@ -24,7 +24,7 @@ RTSP_URLS_FILE = BASE_DIR / "rtsp_urls.json"
 GO2RTC_CONFIG = BASE_DIR / "go2rtc.yaml"
 
 PROTECT_HOST = os.environ.get("PROTECT_HOST", "192.168.4.9")
-API_KEY = os.environ.get("UNIFI_PROTECT_API_KEY", "")
+API_KEY = os.environ.get("UNIFI_PROTECT_API_KEY") or os.environ.get("UNIFI_API_KEY", "")
 
 CAMERAS = {
     "birds": "690e999401027503e400043b",
@@ -141,13 +141,20 @@ def restart_go2rtc():
         log(f"Warning: could not restart go2rtc: {e}")
 
 
-def main():
-    if not API_KEY:
-        log("ERROR: UNIFI_PROTECT_API_KEY not set")
-        sys.exit(1)
+# Retry config for transient CloudKey unavailability (HDD swap, reboot, network blip).
+# A single missed window otherwise leaves go2rtc with stale tokens for 24 h until the
+# next 3:10 AM run. Keep retrying as long as ALL cameras are failing (i.e. CloudKey
+# is fully down). Stop the moment we get even one camera back — partial success is
+# better than waiting longer.
+MAX_FETCH_ATTEMPTS = 20      # 20 × 30s = 10 minutes total budget
+FETCH_BACKOFF_S = 30         # constant backoff; the failure mode is "CloudKey gone"
+                              # not "transient blip", so exponential doesn't help much
 
-    log(f"Fetching RTSP tokens from {PROTECT_HOST}...")
 
+def fetch_all_cameras_once():
+    """Fetch every camera's streams in one pass. Returns (tokens_dict, failures_list).
+
+    Partial success is fine — the caller decides whether to retry."""
     tokens = {}
     failures = []
     for name, cam_id in CAMERAS.items():
@@ -157,9 +164,37 @@ def main():
         except Exception as e:
             log(f"  {name}: FAILED — {e}")
             failures.append(name)
+    return tokens, failures
+
+
+def fetch_with_retry():
+    """Run fetch_all_cameras_once with a retry loop while ALL cameras are down.
+
+    Stop retrying as soon as any camera comes back — write what we have and
+    let the next scheduled run pick up the rest. This handles the CloudKey-
+    rebooting case (all cameras down for 1-5 min) without making a network
+    blip on one camera block the others."""
+    for attempt in range(1, MAX_FETCH_ATTEMPTS + 1):
+        if attempt > 1:
+            log(f"Retry attempt {attempt}/{MAX_FETCH_ATTEMPTS} (waiting {FETCH_BACKOFF_S}s)...")
+            time.sleep(FETCH_BACKOFF_S)
+        log(f"Fetching RTSP tokens from {PROTECT_HOST}...")
+        tokens, failures = fetch_all_cameras_once()
+        if tokens:
+            return tokens, failures
+        log(f"All {len(CAMERAS)} cameras failed — CloudKey may be unreachable")
+    log(f"ERROR: All cameras failed after {MAX_FETCH_ATTEMPTS} attempts (~{MAX_FETCH_ATTEMPTS * FETCH_BACKOFF_S // 60} min)")
+    return {}, list(CAMERAS.keys())
+
+
+def main():
+    if not API_KEY:
+        log("ERROR: UNIFI_PROTECT_API_KEY not set")
+        sys.exit(1)
+
+    tokens, failures = fetch_with_retry()
 
     if len(failures) == len(CAMERAS):
-        log("ERROR: All cameras failed")
         sys.exit(1)
     if failures:
         log(f"Warning: {len(failures)} camera(s) failed, continuing with {len(tokens)}")

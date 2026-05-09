@@ -58,7 +58,7 @@ SERVICES = {
     "bird-enhanced-audio": {"critical": False, "log": "enhanced-audio-stderr.log"},
     "bird-classifier": {"critical": True, "log": "classifier-stderr.log"},
     "bird-dashboard": {"critical": True, "log": "dashboard-stderr.log"},
-    "bird-livedetect": {"critical": False, "log": "live_detector_stderr.log"},
+    # bird-livedetect retired (live_detector.py deleted, replaced by bird_pipeline_v3.py)
     "bird-capture": {"critical": True, "log": None},
     "bird-go2rtc": {"critical": False, "log": None, "docker": True, "container": "go2rtc"},
     "bird-tunnel": {"critical": False, "log": None},

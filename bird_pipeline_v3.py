@@ -126,10 +126,13 @@ def main():
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    # Port configuration for v3 (dev defaults)
-    # health=8102, sse=8104
-    HEALTH_PORT = int(os.environ.get("PIPELINE_HEALTH_PORT", "8102"))
-    SSE_PORT = int(os.environ.get("PIPELINE_SSE_PORT", "8104"))
+    # Port configuration — defaults match production plist.
+    # iMac: ~/Library/LaunchAgents/com.vives.bird-pipeline.plist
+    # Pi:   ~/.config/systemd/user/bird-pipeline.service
+    # Both inject the same values; defaults below stay in sync so anyone
+    # running outside the launchctl/systemd context still gets the right ports.
+    HEALTH_PORT = int(os.environ.get("PIPELINE_HEALTH_PORT", "8100"))
+    SSE_PORT = int(os.environ.get("PIPELINE_SSE_PORT", "8105"))
 
     # Shared services
     event_store = EventStore(str(PIPELINE_DB))
@@ -274,14 +277,18 @@ def main():
                 capture=capture,
                 snapshot_writer=snapshot_writer,
             )
-            # HLS recorder: -c copy remux with bounded segments for delayed
-            # playback overlay. Fixed settings: hls_list_size=15, delete_segments,
-            # program_date_time. CPU <1%, minimal disk (30s rolling window).
-            recorder = HlsRecorder(name, main_url, str(HLS_DIR / name))
+            # HLS recorder: drives the browser overlay sync on iMac via
+            # segments.json wall-clock sidecar (see pipeline/hls_recorder.py).
+            # Disabled on Pi: Pi dashboard uses WebRTC (sub-100ms latency) so
+            # there is no HLS consumer. Overlay sync for Pi needs a native
+            # WebRTC solution (RTP timestamp → SSE alignment) — TODO, not yet
+            # implemented. Do not re-enable here until that design is settled.
+            recorder = None if PI_MODE else HlsRecorder(name, main_url, str(HLS_DIR / name))
 
             capture.start()
             process.start()
-            recorder.start()
+            if recorder:
+                recorder.start()
             camera_stacks.append((name, capture, process, recorder))
             log.info("[%s] Stack started", name)
         except Exception as e:
@@ -318,7 +325,7 @@ def main():
         except Exception:
             pass
         time.sleep(10)
-        # Daytime-only detection — HLS recording keeps running independently.
+        # Daytime-only detection — HLS recording keeps running independently (iMac only).
         # PIPELINE_NIGHT_BYPASS=1 forces the pipeline to keep processing even at
         # night (used when verifying v3 after-hours against a recorded test loop).
         night = (not night_bypass) and is_nighttime()
@@ -339,7 +346,9 @@ def main():
         except Exception: pass
         try: process.stop()
         except Exception: pass
-        try: recorder.stop()
+        try:
+            if recorder:
+                recorder.stop()
         except Exception: pass
     try: sse_server.stop()
     except Exception: pass

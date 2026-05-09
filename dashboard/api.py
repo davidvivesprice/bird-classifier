@@ -55,6 +55,12 @@ CULL_CONFIG_PATH = _REPO_ROOT / "config" / "cull_config.json"
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
+# ── Serve the iMac book at /book/* so birds.vivessato.com/book/... works ──
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+_BOOK_DIR = Path.home() / "docs/bird-observatory/docs-book"
+if _BOOK_DIR.exists():
+    app.mount("/book", _StaticFiles(directory=str(_BOOK_DIR)), name="book")
+
 
 # ── URL rewrite middleware: /bird-api/* → /api/* for direct access ──
 from starlette.requests import Request as StarletteRequest
@@ -117,7 +123,21 @@ def warm_cache():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # Tightened from "*" 2026-04-30. Ch 17 documents the deliberate "no auth"
+    # posture, but cull/bulk-reclassify endpoints irreversibly delete files —
+    # qualitatively different from a "trash one review" mistake. Restricting
+    # allow_origins to known dashboard origins removes drive-by browser
+    # exploits (a malicious page on evil.com can no longer use the visitor's
+    # browser to issue mutating POSTs). Direct LAN/curl access is unchanged.
+    allow_origins=[
+        "https://birds.vivessato.com",
+        "http://192.168.4.200:8099",
+        "http://192.168.4.200:8888",  # iMac book dev server (python -m http.server)
+        "http://localhost:8099",
+        "http://localhost:8888",       # iMac book dev server (local)
+        "http://127.0.0.1:8099",
+        "http://127.0.0.1:8888",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

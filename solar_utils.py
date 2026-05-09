@@ -1,8 +1,10 @@
 """
 Shared solar calculation utilities — NOAA gamma/equation-of-time algorithm.
 
-Extracted from classify.py to eliminate duplicated code in classify.py,
-live_detector.py, and audio_analyzer.py.
+Originally extracted from classify.py to eliminate duplicated code across
+the (now retired) live_detector.py and audio_analyzer.py. Today imported
+by classify.py and audio_analyzer.py; bird_pipeline_v3.py reads daylight
+state directly from health/SSE rather than calling these helpers.
 
 All functions use Chilmark, MA (41.35, -70.75) as defaults so existing
 zero-argument call sites work unchanged.

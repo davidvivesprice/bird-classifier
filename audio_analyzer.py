@@ -37,7 +37,7 @@ _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
 LAT = float(os.environ.get("BIRDNET_LAT", "41.35"))
-LON = float(os.environ.get("BIRDNET_LON", "-70.73"))
+LON = float(os.environ.get("BIRDNET_LON", "-70.74"))  # match range_filter.py + species_ranges.json metadata
 MIN_CONFIDENCE = float(os.environ.get("BIRDNET_MIN_CONF", "0.50"))
 
 SAMPLE_RATE = 48000
@@ -173,9 +173,9 @@ class DynamicThreshold:
     """Lowers detection threshold for species recently seen at high confidence.
 
     Mirrors BirdNET-Go's dynamic threshold system:
-    - 1st high-conf detection: threshold → 75% of base
-    - 2nd: 50% of base
-    - 3rd+: 25% of base (clamped to DYNAMIC_THRESHOLD_MIN)
+    - 1st high-conf detection: threshold → 85% of base
+    - 2nd: 75% of base
+    - 3rd+: 65% of base (clamped to DYNAMIC_THRESHOLD_MIN)
     """
 
     def __init__(self):

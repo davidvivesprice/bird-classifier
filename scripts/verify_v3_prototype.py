@@ -13,7 +13,7 @@ docs/superpowers/progress/2026-04-11-v3-verification/.
 
 Usage:
     python scripts/verify_v3_prototype.py
-    python scripts/verify_v3_prototype.py --health-url http://127.0.0.1:8102/health
+    python scripts/verify_v3_prototype.py --health-url http://127.0.0.1:8100/health
     python scripts/verify_v3_prototype.py --no-browser
 """
 from __future__ import annotations
@@ -228,10 +228,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--health-url",
                         default=os.environ.get("V3_HEALTH_URL",
-                                               "http://127.0.0.1:8102/api/pipeline/health"))
+                                               "http://127.0.0.1:8100/api/pipeline/health"))
     parser.add_argument("--sse-url",
                         default=os.environ.get("V3_SSE_URL",
-                                               "http://127.0.0.1:8104/events/sse?camera=feeder"))
+                                               "http://127.0.0.1:8105/events/sse?camera=feeder"))
     parser.add_argument("--dashboard-url",
                         default=os.environ.get("V3_DASHBOARD_URL",
                                                "http://127.0.0.1:8099/"))

@@ -86,13 +86,13 @@ class SSEEventServer:
     """SSE broadcaster for per-frame track events.
 
     Usage:
-        server = SSEEventServer(port=8102)
+        server = SSEEventServer(port=8105)
         server.start()
         server.emit(camera="feeder", wall_time_ms=..., tracks=[...])
         server.stop()
     """
 
-    def __init__(self, port: int = 8102, host: str = "127.0.0.1", keepalive_interval_s: float = KEEPALIVE_INTERVAL_S):
+    def __init__(self, port: int = 8105, host: str = "127.0.0.1", keepalive_interval_s: float = KEEPALIVE_INTERVAL_S):
         self.port = port
         self.host = host
         self.keepalive_interval_s = keepalive_interval_s

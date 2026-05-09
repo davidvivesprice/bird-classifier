@@ -2,7 +2,8 @@
 
 Provides a single source of truth for species aliases, label parsing,
 image cropping, and ONNX provider selection.  Imported by classify.py,
-live_detector.py, and dashboard/api.py.
+the test suite, and dashboard/api.py. (live_detector.py was retired in
+the v3 migration; bird_pipeline_v3.py is the production entry point now.)
 """
 
 # ── Species normalisation ──────────────────────────────────────────────────
@@ -43,7 +44,15 @@ def parse_label(raw_label):
 # ── Image cropping ─────────────────────────────────────────────────────────
 
 def crop_bird(image, box, pad_ratio=0.15):
-    """Crop bird region from image with padding. Accepts PIL Image or numpy HWC array."""
+    """Crop bird region from image with padding. Accepts PIL Image or numpy HWC array.
+
+    Used by classify.py and the test suite (test_video_pipeline.py,
+    tests/test_bird_inference.py, tests/test_integration.py). The v3
+    production pipeline does NOT use this helper — it does raw bbox
+    slicing directly in pipeline/process_thread.py:251 and
+    pipeline/snapshot_writer.py:295. Kept here as a convenience for the
+    legacy + test paths; safe to leave alone.
+    """
     from PIL import Image as PILImage
     if isinstance(image, PILImage.Image):
         w, h = image.width, image.height

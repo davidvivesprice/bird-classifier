@@ -30,7 +30,7 @@ fi
 # 2. Syntax check — all service entry points import cleanly
 echo ""
 echo "Imports:"
-for mod in audio_analyzer classify live_detector capture_snapshots enhanced_audio_stream; do
+for mod in audio_analyzer classify capture_snapshots enhanced_audio_stream; do
     if PYTHONPATH=~/bird-classifier/venv-coral/lib/python3.9/site-packages /usr/bin/python3 -c "import $mod" 2>/dev/null; then
         pass "$mod"
     else
@@ -71,7 +71,7 @@ fi
 # 6. Services running
 echo ""
 echo "Services:"
-for svc in bird-audio bird-classifier bird-dashboard bird-capture bird-livedetect bird-enhanced-audio; do
+for svc in bird-audio bird-dashboard bird-enhanced-audio bird-pipeline bird-tunnel go2rtc; do
     PID=$(launchctl list 2>/dev/null | grep "com.vives.$svc" | awk '{print $1}')
     if [ "$PID" != "-" ] && [ -n "$PID" ]; then
         pass "$svc (PID $PID)"

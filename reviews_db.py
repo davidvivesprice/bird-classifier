@@ -5,6 +5,12 @@ Stores review verdicts (correct / wrong / unsure / requeued) in the same
 DB as classifications.  Provides JOIN queries for the pending-review and
 review-goals dashboards.
 
+Storage note: all tables defined in this module live in classifications.db,
+NOT in a separate reviews.db file. There is no reviews.db. This is
+intentional — single SQLite file, single WAL, JOIN-friendly queries with
+no cross-file foreign-key indirection. The module name is a logical
+namespace, not a file path.
+
 Thread-safe: uses thread-local connections, WAL mode (same as classifications_db).
 """
 

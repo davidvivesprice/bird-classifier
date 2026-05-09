@@ -1,6 +1,9 @@
 #!/bin/bash
 # Bird Observatory — Deploy
-# Runs verification, restarts services, syncs dashboard to NAS.
+# Runs verify.sh, restarts the bird-* LaunchAgents via launchctl kickstart,
+# checks go2rtc reachability at :1984, and runs health_monitor.py once.
+# Does not sync to a NAS — the NAS path was retired in March 2026 and the
+# observatory now runs entirely on the iMac.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
