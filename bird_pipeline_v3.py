@@ -56,7 +56,12 @@ AIY_LABELS = str(MODELS_DIR / "inat_bird_labels.txt")
 # Long-term: move to per-camera JSON config + a proper polygon editor. See
 # forget-me-nots: "Proper polygon-based AOI/zone system (Frigate-style)".
 CAMERA_AOI_POLYGONS = {
-    CAMERA_FEEDER: [(96, 306), (128, 198), (512, 198), (544, 306)],
+    # 2026-05-09: AOI temporarily removed — camera was reframed and orange
+    # slice feeder is now below the old trapezoid cutoff (y=306). Orioles
+    # were being missed entirely. Full-frame detection until new polygon is
+    # calibrated from a live snapshot of the new framing.
+    # Old polygon: [(96, 306), (128, 198), (512, 198), (544, 306)]
+    CAMERA_FEEDER: None,
     # CAMERA_GROUND: None,  # no AOI; ground cam currently disabled anyway
 }
 
