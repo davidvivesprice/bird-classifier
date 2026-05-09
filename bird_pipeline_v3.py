@@ -246,7 +246,11 @@ def main():
             motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
             if aoi:
                 log.info("[%s] MotionGate AOI enabled: %d-point polygon", name, len(aoi))
-            tracker = BirdTracker()
+            tracker = BirdTracker(
+                distance_threshold=2.5,   # was 2.0; more forgiving for feeder birds that turn/shift
+                hit_counter_max=90,       # was 15; ~3s coast @ 30fps — track survives brief gaps
+                initialization_delay=2,   # was 1; require 3 hits before classifying (reduces ghost tracks)
+            )
             if PI_MODE:
                 from pipeline.hailo_detector import HailoDetector
                 # Default Hailo HEF for YOLOv8-s. Env override allowed.
