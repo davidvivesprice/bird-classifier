@@ -139,9 +139,15 @@ class _AiyAdapter:
         return filtered if filtered else raw
 
 
-def load_aiy_onnx(path: str):
+def load_aiy_onnx(path: str, regional_species=None):
     """Load AIY Birds V1 as an onnxruntime classifier.
     Returns an adapter that exposes `.classify(crop) -> list[dict]`.
+
+    regional_species: set of common-name strings to constrain predictions.
+      When set, classify() walks all 965 scores descending and returns the
+      top regional match rather than the raw top-1. Pass the chilmark species
+      set to suppress impossible species (Altamira Oriole, Carolina Chickadee,
+      etc.). None = raw model output, no geographic filtering.
     """
     import sys
     repo_root = Path(__file__).resolve().parent.parent
@@ -152,7 +158,7 @@ def load_aiy_onnx(path: str):
     impl = SpeciesClassifier(
         model_path=path,
         labels_path=labels_path,
-        regional_species=None,
+        regional_species=regional_species,
         providers=["CPUExecutionProvider"],
         tpu_model_path=None,
     )
@@ -169,7 +175,7 @@ def load_hailo_classifier(path: str):
 # ── Default registry builder (Pi-specific) ────────────────────────────────
 
 
-def build_default_registry(models_dir: str) -> ModelRegistry:
+def build_default_registry(models_dir: str, regional_species=None) -> ModelRegistry:
     """Build a registry with the candidate set for the Pi observatory.
 
     - AIY Birds V1 (ONNX CPU) — the primary classifier, benchmarked at 7.4ms.
@@ -182,10 +188,21 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
     Hailo-8L's single VDevice slot is shared via HailoEngine + the
     HailoRT scheduler (see pipeline/hailo_engine.py and playbook §9
     Path 1), so detector + classifier can coexist in one process.
+
+    regional_species: set of common names from chilmark_feeder_species.txt.
+      Passed to the AIY ONNX loader so impossible species (Altamira Oriole,
+      Carolina Chickadee, etc.) are filtered at inference time rather than
+      stored as misclassifications. None = no geographic filtering (not
+      recommended for production).
     """
+    import functools
     root = Path(models_dir)
     hailo_root = Path("/usr/share/hailo-models")
     reg = ModelRegistry()
+
+    # AIY loader baked with the regional species set (or None for raw).
+    # functools.partial so the CandidateModel loader signature stays (path,).
+    aiy_loader = functools.partial(load_aiy_onnx, regional_species=regional_species)
 
     # 1. AIY Birds V1 (ONNX on CPU) — the primary classifier.
     aiy_onnx = root / "aiy_birds_v1.onnx"
@@ -194,7 +211,7 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
         description="AIY Birds V1 · 965 bird species",
         type_="onnx_cpu",
         path=str(aiy_onnx),
-        loader=load_aiy_onnx,
+        loader=aiy_loader,
         available=aiy_onnx.exists(),
         notes="ONNX on Pi CPU · 7.4 ms / crop · primary",
         info=(

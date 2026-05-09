@@ -211,7 +211,11 @@ def main():
         # Hailo classifiers cohabit with the Hailo detector via the shared
         # HailoEngine VDevice + HailoRT scheduler — see pipeline/hailo_engine.py
         # and playbook §9 Path 1. No exclude_hailo needed.
-        registry = build_default_registry(str(BASE_DIR / "models"))
+        # regional_species filters AIY predictions to Chilmark-plausible species.
+        # Without this, the model freely outputs Altamira Oriole, Carolina
+        # Chickadee, Hooded Oriole, etc. — birds that don't occur at this latitude.
+        registry = build_default_registry(str(BASE_DIR / "models"),
+                                          regional_species=regional_species)
         classifier = PiClassifier(registry)
         snapshot_writer.classifier = classifier
         log.info("[PI_MODE] PiClassifier ready. Active model: %s", registry.current_name)
