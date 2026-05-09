@@ -1,0 +1,15 @@
+[Unit]
+Description=Bird Observatory Database Integrity Audit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/bird-classifier/tools/integrity_audit.py
+StandardOutput=journal
+StandardError=journal
+Environment="BIRD_DB_DIR=%h/bird-snapshots"
+Environment="DB_MODE=mirror"
+
+[Install]
+WantedBy=default.target

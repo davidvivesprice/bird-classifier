@@ -86,26 +86,23 @@ def read_fan_rpm() -> int | None:
 
 
 def read_hailo_temp_c() -> float | None:
-    """Best-effort. hailortcli sensors output format is not stable across
-    versions; this tries a few patterns and returns None on miss rather
-    than failing the whole sample."""
-    try:
-        out = subprocess.check_output(["hailortcli", "sensors"],
-                                       text=True, timeout=3, stderr=subprocess.DEVNULL)
-    except (subprocess.SubprocessError, OSError):
-        return None
-    for line in out.splitlines():
-        # Look for any line with a temperature-shaped value
-        low = line.lower()
-        if "temp" in low or "°c" in low or "celsius" in low:
-            # Pull the first float we can find
-            for tok in line.replace(":", " ").replace(",", " ").split():
-                try:
-                    v = float(tok)
-                    if 10.0 < v < 120.0:
-                        return v
-                except ValueError:
-                    continue
+    """Returns None — HailoRT 4.23.0 on the Hailo-8L M.2 board does not
+    expose chip temperature through any available interface.
+
+    Verified 2026-04-30 against this install:
+      - `hailortcli sensors`             — subcommand does not exist
+      - `hailortcli fw-control` only has `identify`; no temperature
+      - `hailortcli measure-power`       — returns HAILO_UNSUPPORTED_OPCODE
+      - Python hailo_platform.Device     — no temp/thermal method
+      - /sys/class/hwmon/                — no hailo entry (only cpu_thermal,
+                                            rp1_adc, pwmfan, rpi_volt)
+      - /sys/class/hailo_chardev/hailo0  — no temperature attribute
+
+    The CSV column is kept for forward compatibility — newer HailoRT or a
+    different board variant may expose this. For now every row will have
+    an empty `hailo_temp_c` field, which is honest about the missing
+    capability rather than silently shipping bad data.
+    """
     return None
 
 

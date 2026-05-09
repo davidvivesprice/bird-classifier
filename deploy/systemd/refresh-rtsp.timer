@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh RTSP at 3:10 AM Daily
+Requires=refresh-rtsp.service
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

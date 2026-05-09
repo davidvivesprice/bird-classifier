@@ -96,7 +96,9 @@ class BirdTracker:
             hit_counter_max=hit_counter_max,
             initialization_delay=initialization_delay,
         )
+        self._distance_threshold = distance_threshold
         self.tracks: dict = {}
+        self.id_switches: int = 0
 
     def update(self, detections: list, frame_time_ms: float) -> TrackerOutput:
         # Convert Detection → norfair.Detection
@@ -158,6 +160,37 @@ class BirdTracker:
         # Expire tracks in our dict that norfair no longer tracks
         expired_ids = set(self.tracks.keys()) - seen_ids
         expired = [self.tracks.pop(tid) for tid in expired_ids]
+
+        # ID-switch detection: a new track_id appears adjacent to an existing
+        # track that just missed a detection this frame. This fires at the frame
+        # where the switch occurs (not at the later expiry time), so hit_counter
+        # state is the right signal. A track that "missed" has curr_hc < prev_hc.
+        for new_t in new_tracks:
+            if new_t.bbox == [0, 0, 0, 0]:
+                continue
+            ncx = (new_t.bbox[0] + new_t.bbox[2]) / 2
+            ncy = (new_t.bbox[1] + new_t.bbox[3]) / 2
+            nw = max(new_t.bbox[2] - new_t.bbox[0], 1)
+            nh = max(new_t.bbox[3] - new_t.bbox[1], 1)
+            for obj in tracked_objs:
+                if obj.id == new_t.track_id:
+                    continue
+                if obj.id not in prev_hit_counters:
+                    continue  # also new this frame
+                if obj.hit_counter >= prev_hit_counters[obj.id]:
+                    continue  # got a match; genuine parallel track
+                if obj.last_detection is None:
+                    continue
+                det = obj.last_detection
+                ecx = float(det.points[0][0])
+                ecy = float(det.points[0][1])
+                ew = max(float(det.data["w"]), 1)
+                eh = max(float(det.data["h"]), 1)
+                dx = abs(ncx - ecx) / ((nw + ew) / 2)
+                dy = abs((ncy + nh / 2) - (ecy + eh / 2)) / ((nh + eh) / 2)
+                if dx + dy < self._distance_threshold * 1.5:
+                    self.id_switches += 1
+                    break
 
         return TrackerOutput(
             active=active_tracks,

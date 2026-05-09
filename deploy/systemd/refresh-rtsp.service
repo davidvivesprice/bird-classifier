@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh RTSP Token and Restart go2rtc
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.bird-observatory-env
+ExecStart=%h/bird-classifier/venv/bin/python3 %h/bird-classifier/tools/refresh_rtsp.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

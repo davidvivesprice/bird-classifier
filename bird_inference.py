@@ -2,7 +2,8 @@
 
 Provides a single source of truth for species aliases, label parsing,
 image cropping, and ONNX provider selection.  Imported by classify.py,
-live_detector.py, and dashboard/api.py.
+the test suite, and dashboard/api.py. (live_detector.py was retired in
+the v3 migration; bird_pipeline_v3.py is the production entry point now.)
 """
 
 # ── Species normalisation ──────────────────────────────────────────────────

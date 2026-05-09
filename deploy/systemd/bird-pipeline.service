@@ -1,0 +1,19 @@
+[Unit]
+Description=Bird pipeline v3 — Hailo detection + registry classifier
+After=network-online.target go2rtc.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bird-classifier
+EnvironmentFile=%h/.bird-observatory-env
+Environment=PI_MODE=1
+Environment=PIPELINE_HEALTH_PORT=8100
+Environment=PIPELINE_SSE_PORT=8105
+ExecStart=%h/bird-classifier/venv/bin/python3 -u bird_pipeline_v3.py
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/logs/bird-pipeline.log
+StandardError=append:%h/logs/bird-pipeline.log
+
+[Install]
+WantedBy=default.target

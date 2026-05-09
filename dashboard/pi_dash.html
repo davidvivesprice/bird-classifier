@@ -155,6 +155,20 @@
     position: sticky; top: 0; z-index: 10;
     backdrop-filter: blur(12px);
   }
+  .book-nav {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 0.78rem; margin-right: 12px;
+  }
+  .book-nav__link {
+    color: var(--text-muted);
+    padding: 4px 10px; border-radius: 4px;
+    text-decoration: none; border: 1px solid transparent;
+    transition: color 0.15s, background 0.15s; white-space: nowrap;
+  }
+  .book-nav__link:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); border-color: var(--border); }
+  .book-nav__link--pi { color: var(--accent-green); }
+  .book-nav__link--pi:hover { background: rgba(74,222,128,0.08); }
+  .book-nav__div { color: var(--border); font-size: 0.7rem; }
   body[data-theme="observatory"] .topbar,
   body[data-theme="dusk"] .topbar { background: rgba(11,13,17,0.85); }
   body[data-theme="dusk"] .topbar { background: rgba(255,255,255,0.55); }
@@ -652,6 +666,13 @@
 
 <div class="topbar">
   <div class="brand">Vives <em>Observatory</em> · pi5</div>
+  <div class="book-nav">
+    <a class="book-nav__link book-nav__link--pi" href="/book/The%20Backyard%20Observatory%20%E2%80%94%20Pi.html" target="_blank">Pi Book</a>
+    <span class="book-nav__div">·</span>
+    <a class="book-nav__link" href="https://birds.vivessato.com/book/The%20Backyard%20Observatory.html" target="_blank">iMac Book</a>
+    <span class="book-nav__div">·</span>
+    <a class="book-nav__link" href="https://birds.vivessato.com/docs.html" target="_blank">iMac Docs</a>
+  </div>
   <div class="chips">
     <span class="chip live">LIVE</span>
     <span class="chip" id="chip-model">model: —</span>

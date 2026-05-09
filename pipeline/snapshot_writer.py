@@ -9,8 +9,11 @@ v3's `event_store` (pipeline.db) still receives per-frame and per-track rows;
 this is an additional, one-row-per-locked-track path feeding the legacy
 `classifications` schema the dashboard already knows how to query.
 
-See the data-integrity forget-me-not for why we accept yard-model wrongness
-here: the plumbing must keep flowing so reviewers can correct labels.
+Classifier wrongness model differs by host: iMac runs yard (Coral) → AIY
+fallback, so a track can lock as "yard" then get an AIY second opinion at
+write time. Pi runs AIY-only via PiClassifier, so the lock-time and
+write-time labels are both AIY (re-run on a sharper crop). In either case
+the plumbing must keep flowing — reviewers correct labels downstream.
 """
 from __future__ import annotations
 

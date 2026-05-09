@@ -1,0 +1,15 @@
+[Unit]
+Description=go2rtc — RTSP -> WebRTC/MSE/HLS
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bird-classifier
+ExecStart=/usr/local/bin/go2rtc -config %h/bird-classifier/go2rtc.yaml
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/logs/go2rtc.log
+StandardError=append:%h/logs/go2rtc.log
+
+[Install]
+WantedBy=default.target

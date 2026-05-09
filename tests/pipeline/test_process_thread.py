@@ -687,3 +687,61 @@ def test_voting_takes_plurality_at_attempt_cap():
     assert fake_track.species_confidence == 0.8  # max confidence for the winning species
     assert fake_track.needs_classification is False
     assert fake_track.model_source == "vote_plurality"
+
+
+def test_disagreement_detector_stops_flipflopping_track_early():
+    """When a track flip-flops on species, the disagreement detector stops
+    classification early (before MAX_CLASSIFICATION_ATTEMPTS) and takes the
+    plurality winner rather than leaving the track open indefinitely."""
+    from unittest.mock import MagicMock
+    from pipeline.process_thread import CameraProcessThread
+    from pipeline.classifier import ClassificationResult
+    from pipeline.track_disagreement_detector import TrackDisagreementDetector
+    from pipeline.frame import Frame
+    from pipeline.constants import ModelSource
+    import numpy as np, threading, time
+
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+    t.disagreement_detector = TrackDisagreementDetector(disagreement_threshold=0.6)
+
+    fake_track = MagicMock()
+    fake_track.track_id = 42
+    fake_track.needs_classification = True
+    fake_track.classification_attempts = 0
+    fake_track.vote_history = []
+    fake_track.is_locked = False
+    fake_track.bbox = [100, 100, 300, 300]
+    fake_track.confidence = 0.85
+    fake_track.species = None
+    fake_track.species_confidence = None
+    fake_track.model_source = None
+
+    species_sequence = ["Northern Cardinal", "Black-capped Chickadee", "House Wren"]
+    call_index = [0]
+
+    classifier = MagicMock()
+    def flip_flop_classify(*args, **kwargs):
+        sp = species_sequence[call_index[0] % len(species_sequence)]
+        call_index[0] += 1
+        return ClassificationResult(sp, 0.90, "aiy", False)
+    classifier.classify.side_effect = flip_flop_classify
+    t.classifier = classifier
+
+    frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
+                  wall_time_ms=time.time() * 1000,
+                  camera="feeder", width=640, height=360)
+
+    # Three frames with three different species → 100% disagreement ratio → early stop
+    for i in range(3):
+        fake_track.needs_classification = True
+        fake_track.classification_attempts = i
+        t._classify_tracks(frame, [fake_track])
+
+    assert fake_track.needs_classification is False, "Disagreed track should stop early"
+    assert fake_track.is_locked is False, "Disagreement early-stop is not a vote-lock"
+    assert fake_track.species in species_sequence, "Should still emit a species (plurality)"
+    assert fake_track.model_source == ModelSource.VOTE_PLURALITY

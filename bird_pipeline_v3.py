@@ -90,8 +90,9 @@ def prune_loop(event_store, hls_root):
             event_store.daily_checkpoint()
             HlsRecorder.cleanup_old_chunks(hls_root, retention_days=7)
             # 2026-04-23: log line so the next regression is observable.
-            # If this stops appearing in ~/Library/Logs/bird-pipeline.log
-            # hourly, the prune thread has died — that's the signal.
+            # If this stops appearing hourly in the service log
+            # (iMac: ~/Library/Logs/bird-pipeline.log, Pi: journalctl --user
+            # -u bird-pipeline), the prune thread has died — that's the signal.
             logging.info("[prune] events pruned + HLS cleanup done (retention 7d)")
         except Exception as e:
             logging.warning("Prune loop error: %s", e)
@@ -126,10 +127,13 @@ def main():
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    # Port configuration for v3 (dev defaults)
-    # health=8102, sse=8104
-    HEALTH_PORT = int(os.environ.get("PIPELINE_HEALTH_PORT", "8102"))
-    SSE_PORT = int(os.environ.get("PIPELINE_SSE_PORT", "8104"))
+    # Port configuration — defaults match production unit files.
+    # iMac: ~/Library/LaunchAgents/com.vives.bird-pipeline.plist
+    # Pi:   ~/.config/systemd/user/bird-pipeline.service
+    # Both inject the same values; defaults below stay in sync so anyone
+    # running outside the launchctl/systemd context still gets the right ports.
+    HEALTH_PORT = int(os.environ.get("PIPELINE_HEALTH_PORT", "8100"))
+    SSE_PORT = int(os.environ.get("PIPELINE_SSE_PORT", "8105"))
 
     # Shared services
     event_store = EventStore(str(PIPELINE_DB))
@@ -276,14 +280,19 @@ def main():
                 capture=capture,
                 snapshot_writer=snapshot_writer,
             )
-            # HLS recorder: -c copy remux with bounded segments for delayed
-            # playback overlay. Fixed settings: hls_list_size=15, delete_segments,
-            # program_date_time. CPU <1%, minimal disk (30s rolling window).
-            recorder = HlsRecorder(name, main_url, str(HLS_DIR / name))
+            # HLS recorder drives the browser overlay sync on iMac via the
+            # segments.json wall-clock sidecar (see pipeline/hls_recorder.py
+            # and dashboard/live.html). Disabled on Pi: the Pi dashboard uses
+            # WebRTC (sub-100 ms latency) so there is no HLS consumer.
+            # Overlay sync for Pi needs a native WebRTC solution
+            # (RTP timestamp → SSE alignment) — TODO, not yet implemented.
+            # Do not re-enable here until that design is settled.
+            recorder = None if PI_MODE else HlsRecorder(name, main_url, str(HLS_DIR / name))
 
             capture.start()
             process.start()
-            recorder.start()
+            if recorder:
+                recorder.start()
             camera_stacks.append((name, capture, process, recorder))
             log.info("[%s] Stack started", name)
         except Exception as e:
@@ -353,8 +362,9 @@ def main():
         except Exception: pass
         try: process.stop()
         except Exception: pass
-        try: recorder.stop()
-        except Exception: pass
+        if recorder:
+            try: recorder.stop()
+            except Exception: pass
     try: sse_server.stop()
     except Exception: pass
     try: health_server.stop()

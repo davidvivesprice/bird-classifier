@@ -46,18 +46,17 @@ jq '.orphan_rows | length' /tmp/imac_audit.json
 
 ```bash
 # Pi-side
-ssh vives@pi5.local "curl -s http://localhost:8100/health | jq '.shared.tracker'"
+ssh vives@pi5.local "curl -s http://localhost:8100/health | jq '.pipeline.feeder.tracker'"
 
 # Example output:
 # {
-#   "feeder": {
-#     "id_switches": 23,
-#     "active_tracks": 0
-#   }
+#   "active_tracks": 0,
+#   "stationary_tracks": 0,
+#   "id_switches": 23
 # }
 
 # iMac-side (AIY fallback metrics)
-curl -s http://localhost:8100/health | jq '.shared.tracker'
+curl -s http://localhost:8100/health | jq '.pipeline.feeder.tracker'
 ```
 
 Record in `phase1_metrics.csv`:
@@ -70,10 +69,10 @@ date,time,pi_id_switches,pi_active_tracks,imac_id_switches,imac_active_tracks
 
 ```bash
 # On iMac, run shadow_validation_harness.py
-# This compares Pi YOLO detections vs AIY detections on the same frame stream
+# Fetches classifications from both dashboards (:8099) and compares by timestamp.
 python3 tools/shadow_validation_harness.py \
-  --pi-url http://pi5.local:8105 \
-  --imac-url http://localhost:8105 \
+  --pi-url http://pi5.local:8099 \
+  --imac-url http://localhost:8099 \
   --output-dir /tmp/shadow_validation_$(date +%Y%m%d)
 
 # Output files:

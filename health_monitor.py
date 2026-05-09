@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bird Observatory Health Monitor — self-healing watchdog.
+"""Bird Observatory Health Monitor — self-healing watchdog. iMac-only.
 
 Runs every 5 minutes via LaunchAgent. Checks all services, restarts
 failed ones, and writes a status report to /tmp/bird-observatory-health.json.
@@ -12,6 +12,15 @@ Self-healing actions (graduated):
 5. Error storm (>10 errors in 5 min) → restart + backoff
 
 All actions logged to ~/bird-snapshots/logs/health-monitor.log
+
+NOTE (2026-04-30): this script uses `launchctl` (macOS-only) and a
+SERVICES dict that's stale (lists retired bird-classifier, bird-capture,
+bird-livedetect; missing bird-pipeline + the timer-driven units). On Pi
+it exits immediately because there's no launchctl. The Pi side has its
+own per-service supervision via systemd-user; bird-pipeline crashes are
+caught by `Restart=always RestartSec=10` rather than this watchdog.
+A full refactor of this file (or a Pi-equivalent watchdog) is a
+separate task — see cross-claude-comms.md for the deferred-task list.
 """
 
 import json
@@ -22,6 +31,12 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Hard-stop on Pi: launchctl doesn't exist, the SERVICES dict is iMac-shaped,
+# and Pi services are supervised by systemd-user. Don't even import the rest.
+if os.environ.get("PI_MODE", "0") == "1" or sys.platform != "darwin":
+    print("health_monitor.py is iMac-only; Pi uses systemd-user supervision. Exiting.")
+    sys.exit(0)
 
 # Setup logging
 LOG_PATH = Path.home() / "bird-snapshots" / "logs" / "health-monitor.log"

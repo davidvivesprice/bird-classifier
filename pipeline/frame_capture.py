@@ -96,7 +96,7 @@ class FrameCapture:
         # oldest frames when full, so processing rate is determined by the
         # downstream consumer, not by artificial pacing. Every frame that
         # reaches Python gets wall_time_ms stamped at pipe-read = close to the
-        # moment the camera's frame actually landed on the iMac.
+        # moment the camera's frame actually landed on this host.
         cmd = [
             FFMPEG,
             "-loglevel", "warning",

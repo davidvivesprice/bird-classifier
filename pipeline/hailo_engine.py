@@ -160,10 +160,16 @@ class HailoEngine:
             for m in self._models.values():
                 m.close()
             self._models.clear()
+        # release() is the blessed cleanup pattern per the HailoRT 4.23.0
+        # API and the playbook (docs/working/specs/2026-04-25-hailo-playbook.md
+        # §2.3 Pattern D). Catch HailoRTException specifically so any other
+        # exception (AttributeError, programmer error) propagates instead of
+        # being silently swallowed — silent failures here mask the root cause
+        # of HAILO_DEVICE_IN_USE(73) on rapid restarts.
         try:
             self._vdevice.release()
-        except Exception:
-            pass
+        except self._hp.HailoRTException as e:
+            log.error("HailoEngine vdevice.release() failed: %s", e)
         log.info("HailoEngine shutdown")
 
     @classmethod

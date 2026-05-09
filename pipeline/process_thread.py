@@ -14,6 +14,7 @@ from PIL import Image
 from pipeline.frame import Frame
 from pipeline.classifier import MAX_CLASSIFICATION_ATTEMPTS
 from pipeline.constants import ModelSource
+from pipeline.track_disagreement_detector import TrackDisagreementDetector
 
 if TYPE_CHECKING:
     from pipeline.frame_capture import FrameCapture
@@ -31,6 +32,7 @@ class CameraProcessThread:
     # touches by name.
     snapshot_writer = None
     capture = None
+    disagreement_detector = None
 
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
@@ -51,6 +53,7 @@ class CameraProcessThread:
         self.frame_height = frame_height
         self.capture = capture
         self.snapshot_writer = snapshot_writer
+        self.disagreement_detector = TrackDisagreementDetector()
         self._dry_run = os.environ.get("PIPELINE_DRY_RUN") == "1"
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -219,7 +222,12 @@ class CameraProcessThread:
         self._update_health(frame, det_ms)
 
     def _classify_tracks(self, frame: Frame, tracks: list):
-        """Run SmartClassifier on tracks that still need classification.
+        """Run the active classifier on tracks that still need classification.
+
+        On iMac, the classifier is `SmartClassifier` (yard-on-Coral first,
+        AIY fallback). On Pi (PI_MODE=1), it's `PiClassifier` wrapping a
+        registry of candidates (default `aiy_onnx`). Both expose the same
+        `classify(crop_pil, frame_time_ms, camera)` interface.
 
         Phase 2 voting: accumulate classification votes across multiple frames.
         Lock the species only when enough votes agree. This fixes the
@@ -308,11 +316,40 @@ class CameraProcessThread:
                         species_counts[top_species] / len(track.vote_history) >= 0.6):
                     track.is_locked = True
                     track.needs_classification = False
+
+                # Within-track disagreement: always record the prediction in the
+                # window. If the track is flip-flopping and hasn't locked, stop
+                # early (take plurality winner or leave unlabeled) so we don't
+                # waste remaining attempts on a confused track.
+                if self.disagreement_detector is not None:
+                    is_disagreed = self.disagreement_detector.check(
+                        track.track_id, result.species, result.confidence
+                    )
+                    if is_disagreed and not track.is_locked:
+                        log.debug(
+                            "[%s] track %s disagreement (%.0f%% unique species) — early stop",
+                            self.name, track.track_id,
+                            self.disagreement_detector.track_windows[track.track_id].disagreement_score() * 100,
+                        )
+                        if len(track.vote_history) >= 3:
+                            track.species = top_species
+                            track.species_confidence = max(
+                                c for s, c in track.vote_history if s == top_species
+                            )
+                            track.model_source = ModelSource.VOTE_PLURALITY
+                        track.needs_classification = False
             else:
                 # Classifier returned None (unlabeled) — counts as an attempt
                 # but doesn't add a vote. Track stays needs_classification=True
                 # for next frame.
                 pass
+
+        # Evict windows for tracks that are no longer active so memory doesn't
+        # grow unboundedly across a long session.
+        if self.disagreement_detector is not None:
+            self.disagreement_detector.cleanup_expired_tracks(
+                [t.track_id for t in tracks]
+            )
 
     def _update_health(self, frame: Frame, det_ms: float):
         # Capture stats: cheap, update every frame so last_frame_age_ms stays
@@ -357,11 +394,18 @@ class CameraProcessThread:
                 self.health.update(self.name, "tracker", {
                     "active_tracks": len(self.tracker.tracks),
                     "stationary_tracks": len(self.tracker.stationary_regions()),
+                    "id_switches": self.tracker.id_switches,
                 })
             except Exception:
                 pass
             try:
                 cam_classifier_stats = self.classifier.stats.get(self.name, {})
                 self.health.update(self.name, "classifier", dict(cam_classifier_stats))
+            except Exception:
+                pass
+            try:
+                if self.disagreement_detector is not None:
+                    self.health.update(self.name, "disagreement",
+                                       self.disagreement_detector.get_stats())
             except Exception:
                 pass

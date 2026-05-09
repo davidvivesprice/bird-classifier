@@ -174,8 +174,8 @@ def build_default_registry(models_dir: str) -> ModelRegistry:
 
     - AIY Birds V1 (ONNX CPU) — the primary classifier, benchmarked at 7.4ms.
     - ResNet50 (Hailo) — 1000-class ImageNet, demo of Hailo classification path.
-    - YOLOv8s-cls (Hailo) — if available.
-    - MobileNet-V2 (Hailo) — if available.
+    - YOLOv8s-cls (Hailo) — detector candidate, lab-only.
+    - YOLOv6n (Hailo) — detector candidate, lab-only.
     - Flagship placeholder — pending Tier 2 training, shows as "coming soon".
 
     Hailo candidates are marked `available` purely on HEF presence; the

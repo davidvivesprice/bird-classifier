@@ -138,8 +138,32 @@ class HailoClassifier:
         if kind in ("resnet_imagenet", "mobilenet_imagenet"):
             if arr.ndim == 0:
                 return []
-            # Top-3 indices
-            idx = np.argsort(arr)[-3:][::-1]
+            # Hailo's pre-compiled ImageNet HEFs (resnet_v1_50_h8l, etc.) emit
+            # raw LOGITS — pre-compiled HEFs typically OMIT the final softmax.
+            # Without softmax, `logit * 100` saturates the int16 range almost
+            # immediately (a logit of 8 becomes 800 → clipped to 255), making
+            # raw_score useless for ranking and turning the downstream
+            # confidence-vs-threshold comparison into a binary "saturated or
+            # garbage" signal.
+            #
+            # Fix: numerically-stable softmax → multiply by 255 → int. The
+            # raw_score now matches AIY's 0-255 scale where 255 ≈ p=1.0.
+            # PiClassifier.classify (pi_classifier.py:56) divides by 255 to
+            # produce a true probability for the threshold check.
+            #
+            # Order is preserved (softmax is monotonic on logits), so
+            # top-3 indices below are unchanged.
+            #
+            # If a HEF ever emits already-softmaxed values, softmax-of-softmax
+            # produces a valid (slightly flatter) distribution — order still
+            # preserved, threshold may need a small downward retune. Acceptable.
+            shifted = arr - np.max(arr)
+            exps = np.exp(shifted)
+            probs = exps / np.sum(exps)
+            # Top-3 indices (sort the probs, but argsort on logits gives same
+            # order — softmax is monotonic. Using probs explicitly here for
+            # clarity and to make this future-proof if the input shape changes.)
+            idx = np.argsort(probs)[-3:][::-1]
             out = []
             for i in idx:
                 i = int(i)
@@ -151,7 +175,7 @@ class HailoClassifier:
                 out.append({
                     "common_name": common.replace("_", " "),
                     "scientific_name": "",
-                    "raw_score": int(np.clip(arr[i] * 100, 0, 255)),
+                    "raw_score": int(np.clip(probs[i] * 255, 0, 255)),
                 })
             return out
 
@@ -160,6 +184,11 @@ class HailoClassifier:
             # the "switcher demo" we surface the top-confidence detected class.
             # Output shape varies; try to handle a (N, 6) [x1,y1,x2,y2,conf,cls]
             # or the raw (N, 85) post-NMS YOLOv8 output.
+            #
+            # YOLO's `conf` value is already a probability in [0, 1] (sigmoid'd
+            # objectness × class score), so multiplying by 255 directly gives
+            # the same 0-255 scale as AIY/ImageNet softmax above — no logit
+            # saturation issue here.
             if arr.ndim == 2 and arr.shape[1] >= 6:
                 # Pick top-confidence row
                 scores = arr[:, 4]
@@ -169,7 +198,7 @@ class HailoClassifier:
                     return [{
                         "common_name": COCO_LABELS[cls],
                         "scientific_name": "",
-                        "raw_score": int(np.clip(scores[best] * 100, 0, 255)),
+                        "raw_score": int(np.clip(scores[best] * 255, 0, 255)),
                     }]
             return [{"common_name": "yolo-coco (detector output)",
                      "scientific_name": "", "raw_score": 0}]

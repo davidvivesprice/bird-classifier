@@ -55,6 +55,12 @@ CULL_CONFIG_PATH = _REPO_ROOT / "config" / "cull_config.json"
 
 app = FastAPI(title="Bird Dashboard API", version="1.0")
 
+# ── Serve the Pi book at /book/* so pi5.vivessato.com/book/... works ──
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+_BOOK_DIR = Path.home() / "docs/bird-observatory-pi/docs-book"
+if _BOOK_DIR.exists():
+    app.mount("/book", _StaticFiles(directory=str(_BOOK_DIR)), name="book")
+
 
 # ── URL rewrite middleware: /bird-api/* → /api/* for direct access ──
 from starlette.requests import Request as StarletteRequest
@@ -132,7 +138,20 @@ def warm_cache():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # Tightened from "*" 2026-04-30 (mirrors the iMac-side fix). Pi is
+    # publicly reachable via the Cloudflare tunnel at pi5.vivessato.com,
+    # so the same drive-by-browser exposure surface applies. Restrict to
+    # known dashboard origins. Direct LAN/Tailscale access via curl is
+    # unaffected (curl doesn't enforce CORS).
+    allow_origins=[
+        "https://pi5.vivessato.com",
+        "http://pi5.local:8099",
+        "http://pi5.local:8889",   # Pi book dev server
+        "http://localhost:8099",
+        "http://localhost:8889",   # Pi book dev server (local)
+        "http://127.0.0.1:8099",
+        "http://127.0.0.1:8889",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1830,7 +1849,13 @@ def get_image_crop(filename: str, box: str = ""):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
-SECOND_OPINION_DIR = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Second Opinion"
+# Second-opinion review staging — iMac-only (iCloud Drive sync). On Pi the
+# path resolves to /home/vives/Library/... which is meaningless, so leave it
+# unset and short-circuit the endpoints below.
+if os.environ.get("PI_MODE", "0") == "1":
+    SECOND_OPINION_DIR = None
+else:
+    SECOND_OPINION_DIR = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Second Opinion"
 
 
 # 2026-04-25: legacy /api/review/second-opinion/{filename} RETIRED.
@@ -1844,7 +1869,9 @@ def save_second_opinion_retired(filename: str):
 
 @app.get("/api/review/second-opinion")
 def list_second_opinions():
-    """List images in the second-opinion folder."""
+    """List images in the second-opinion folder. iMac-only (iCloud Drive)."""
+    if SECOND_OPINION_DIR is None:
+        raise HTTPException(status_code=410, detail="Second-opinion review is iMac-only (iCloud Drive sync)")
     SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted(SECOND_OPINION_DIR.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
     return {
@@ -2179,6 +2206,8 @@ def save_second_opinion2(filename: str, body: dict = Body(default=None)):
     else:
         crop = img
 
+    if SECOND_OPINION_DIR is None:
+        raise HTTPException(status_code=410, detail="Second-opinion review is iMac-only (iCloud Drive sync)")
     SECOND_OPINION_DIR.mkdir(parents=True, exist_ok=True)
     safe_species = species.replace(" ", "_").replace("'", "")
     ts = entry.get("source_timestamp", "").replace(" ", "_").replace(":", "-")

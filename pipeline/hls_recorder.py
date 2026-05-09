@@ -1,6 +1,10 @@
 """HlsRecorder — dedicated ffmpeg subprocess for HLS chunk recording.
 
-Also maintains `segments.json` sidecar with iMac wall-clock stamps per
+iMac-only as of 2026-04-30. The Pi dashboard uses WebRTC and has no HLS
+consumer, so `bird_pipeline_v3.py` PI_MODE-guards the call site to None.
+The module remains for the iMac path.
+
+Also maintains `segments.json` sidecar with host wall-clock stamps per
 segment, used by the browser overlay for drift-proof sync (bypasses
 ffmpeg's PDT which is anchored to ffmpeg-start, not to frame arrival).
 """

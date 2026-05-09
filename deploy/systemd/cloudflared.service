@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare Tunnel for pi5.vivessato.com
+After=network-online.target bird-dashboard.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared tunnel run
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/logs/cloudflared.log
+StandardError=append:%h/logs/cloudflared.log
+
+[Install]
+WantedBy=default.target
