@@ -185,12 +185,58 @@ class SnapshotWriter:
         self._stop.set()
 
     def submit(self, camera: str, frame_bgr: np.ndarray, wall_time_ms: float, track):
-        """Non-blocking submit. Drops oldest on backpressure."""
+        """Non-blocking submit. Drops oldest on backpressure.
+
+        Ring lookup happens HERE (in the detection thread) rather than in the
+        background write thread. Fast-visiting birds (chickadees, 1-2s) leave
+        before the background thread runs — the ring's 2s window moves past
+        the bird's departure and the write thread finds only empty-feeder frames.
+        Querying here, while the ring is still warm, guarantees we capture the
+        bird. The chosen 1080p frame is copied into the payload (~6 MB, once
+        per lock event, negligible vs. the 5 fps decode load).
+        """
+        hires_frame_snap = None
+        if self.hires_ring is not None and not self.shadow_mode:
+            try:
+                from pipeline.hires_ring import score_frame as _sfn
+                low_w = frame_bgr.shape[1] or 1
+                low_h = frame_bgr.shape[0] or 1
+                sx = 1920.0 / low_w
+                sy = 1080.0 / low_h
+                bbox_h = [
+                    track.bbox[0] * sx, track.bbox[1] * sy,
+                    track.bbox[2] * sx, track.bbox[3] * sy,
+                ]
+                # Search the full track lifetime (first detection → lock frame)
+                # so we pick the sharpest moment the bird was in frame, not
+                # just whatever happened to be near the lock timestamp.
+                created_ms = getattr(track, "created_at_ms", wall_time_ms)
+                det_conf = float(track.confidence or 0.3)
+                cands = self.hires_ring.find_in_window(
+                    start_ms=created_ms - 200,
+                    end_ms=wall_time_ms + 200,
+                )
+                if not cands:
+                    # Window fell outside ring history (very short-lived track
+                    # or ring just restarted); nearest-neighbour fallback.
+                    cands = self.hires_ring.find_candidates(wall_time_ms, k=5)
+                if cands:
+                    scored = [(_sfn(c.frame, bbox_h, det_conf), c) for c in cands]
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    if scored[0][0] > 0:
+                        hires_frame_snap = scored[0][1].frame.copy()
+            except Exception:
+                pass  # non-fatal — _write_one falls back to 640×360
+
         # Copy the frame (np arrays are shared; caller reuses the buffer).
         payload = {
             "camera": camera,
             "frame": frame_bgr.copy(),
             "wall_time_ms": wall_time_ms,
+            # Pre-captured hires frame (None if ring miss / ring disabled).
+            # _write_one uses this directly, bypassing the background-thread
+            # ring query that would find stale empty-feeder frames.
+            "hires_frame": hires_frame_snap,
             "track_id": track.track_id,
             "species": track.species,
             "species_confidence": track.species_confidence,
@@ -368,18 +414,16 @@ class SnapshotWriter:
         bbox_hires = [p["bbox"][0] * sx_hires, p["bbox"][1] * sy_hires,
                       p["bbox"][2] * sx_hires, p["bbox"][3] * sy_hires]
 
-        ring_frame, ring_meta = self._pick_from_ring(
-            p["camera"], p["wall_time_ms"], bbox_hires,
-            p.get("confidence", 0.0),
-        )
-
+        # Path 1: ring authoritative — use the frame captured at submit time.
+        # Avoids stale ring lookups: fast-visiting birds (chickadees) leave
+        # before the background thread runs, so a background-thread ring query
+        # finds only post-departure empty-feeder frames.
+        ring_frame = p.get("hires_frame")  # set by submit() while ring was fresh
         if ring_frame is not None and not self.shadow_mode:
-            # Path 1: ring authoritative.
             p["frame"] = ring_frame
             p["bbox"] = bbox_hires
             self.stats["hires_ok"] += 1
             self.stats["ring_pick_ok"] += 1
-            p["_ring_sidecar"] = ring_meta
         elif _do_hires_recrop:
             # Path 3: the old (broken) hi-res fetch, opt-in only.
             if ring_frame is None:
@@ -394,8 +438,6 @@ class SnapshotWriter:
                 self.stats["hires_ok"] += 1
             else:
                 self.stats["hires_fail"] += 1
-            if ring_meta.get("picked_wall_ms") is not None:
-                p["_ring_sidecar"] = ring_meta
         else:
             # Path 2 (default): cheap restore. Keep the detection-time 640x360
             # frame + its bbox as-is. AIY classifies the crop the bird was
@@ -403,8 +445,6 @@ class SnapshotWriter:
             self.stats["hires_skipped"] = self.stats.get("hires_skipped", 0) + 1
             if ring_frame is None:
                 self.stats["ring_pick_empty"] += 1
-            if ring_meta.get("picked_wall_ms") is not None:
-                p["_ring_sidecar"] = ring_meta
 
         # Capture lock-time classification values BEFORE auth call. RC3:
         # the live pipeline's vote-lock decision (yard / AIY / both_agree at

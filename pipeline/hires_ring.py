@@ -90,6 +90,24 @@ class HiResRingBuffer:
                 return None
             return self._frames[best]
 
+    def find_in_window(self, start_ms: float, end_ms: float) -> list[RingFrame]:
+        """Return all frames captured between start_ms and end_ms (inclusive).
+
+        Use this to retrieve every frame from a track's full lifetime, rather
+        than just the K nearest to a single timestamp. Combined with score_frame,
+        lets you pick the sharpest moment the bird was actually in frame, not
+        just whatever frame happens to be closest to the lock timestamp.
+
+        Returns empty list if the window falls outside the ring's retained
+        history (frames were evicted before this call).
+        """
+        with self._lock:
+            if not self._times:
+                return []
+            lo = bisect.bisect_left(self._times, start_ms)
+            hi = bisect.bisect_right(self._times, end_ms)
+            return list(self._frames[lo:hi])
+
     def find_candidates(self, wall_ms: float, k: int = 3) -> list[RingFrame]:
         """Return up to K frames closest in time to wall_ms. Unordered.
 
