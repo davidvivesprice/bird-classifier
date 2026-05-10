@@ -226,6 +226,9 @@ class HlsSegmenter:
             "manifest_updates": 0,
         }
 
+        # Restore persisted state from prior run if any.
+        self._load_state()
+
     def stop(self):
         self._stop.set()
 
@@ -349,6 +352,37 @@ class HlsSegmenter:
             self._prune_disk_files()
         self.stats["segments_written"] += 1
         self._write_manifest_and_sidecar()
+        self._save_state()
+
+    def _save_state(self) -> None:
+        state = {"seq": self._seq, "discontinuity_seq": self._discontinuity_seq}
+        atomic_write_text(self.out_dir / "state.json", json.dumps(state))
+
+    def _load_state(self) -> None:
+        """Restore _seq and _discontinuity_seq. Fall back to disk scan
+        if state.json is missing or corrupt (per spec N-I7)."""
+        state_path = self.out_dir / "state.json"
+        loaded = False
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text())
+                self._seq = int(state.get("seq", 0))
+                self._discontinuity_seq = int(state.get("discontinuity_seq", 0))
+                loaded = True
+            except (json.JSONDecodeError, ValueError):
+                log.warning("[%s] state.json corrupt; falling back to disk scan",
+                            self.camera)
+        if not loaded:
+            # Disk scan: find max seq from segment filenames
+            max_seq = 0
+            import re
+            pat = re.compile(rf"^{re.escape(self.seg_prefix)}(\d+){re.escape(self.seg_suffix)}$")
+            for p in self.out_dir.glob(f"{self.seg_prefix}*{self.seg_suffix}"):
+                m = pat.match(p.name)
+                if m:
+                    max_seq = max(max_seq, int(m.group(1)))
+            self._seq = max_seq
+            log.info("[%s] resumed seq=%d from disk scan", self.camera, max_seq)
 
     def _prune_disk_files(self):
         # Delete any seg_*.ts on disk that is NOT in the current window AND

@@ -205,3 +205,41 @@ def test_segmenter_writes_keyframe_segments(tmp_path, sample_h264_file):
         assert (out_dir / entry["name"]).exists()
         # PTS values are monotonically increasing within a run
         assert entry["pts_end"] > entry["pts_start"]
+
+
+def test_state_save_load_roundtrip(tmp_path):
+    out_dir = tmp_path / "hls"
+    out_dir.mkdir()
+    seg = HlsSegmenter(camera="test", input_url="x", out_dir=out_dir)
+    seg._seq = 42
+    seg._discontinuity_seq = 3
+    seg._save_state()
+
+    seg2 = HlsSegmenter(camera="test", input_url="x", out_dir=out_dir)
+    seg2._load_state()
+    assert seg2._seq == 42
+    assert seg2._discontinuity_seq == 3
+
+
+def test_state_recovery_via_disk_scan(tmp_path):
+    out_dir = tmp_path / "hls"
+    out_dir.mkdir()
+    # Simulate orphaned segments from a prior run, no state.json
+    (out_dir / "seg_0000000007.ts").write_bytes(b"fake")
+    (out_dir / "seg_0000000010.ts").write_bytes(b"fake")
+    seg = HlsSegmenter(camera="test", input_url="x", out_dir=out_dir)
+    seg._load_state()  # state.json missing
+    # Should resume from max seq + 1
+    assert seg._seq == 10
+    # Discontinuity seq stays at 0 (no info to recover)
+    assert seg._discontinuity_seq == 0
+
+
+def test_state_recovery_via_disk_scan_corrupt_json(tmp_path):
+    out_dir = tmp_path / "hls"
+    out_dir.mkdir()
+    (out_dir / "state.json").write_text("not valid json{{{")
+    (out_dir / "seg_0000000005.ts").write_bytes(b"fake")
+    seg = HlsSegmenter(camera="test", input_url="x", out_dir=out_dir)
+    seg._load_state()  # Should not raise
+    assert seg._seq == 5
