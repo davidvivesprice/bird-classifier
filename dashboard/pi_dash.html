@@ -269,59 +269,37 @@
     background: #000;
     overflow: hidden;
   }
-  .live-video { display: block; width: 100%; height: 100%; }
-  .live-video video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
-  .live-labels {
+  .live-video {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #000;
+  }
+  .live-overlay {
     position: absolute; inset: 0;
     pointer-events: none;
   }
-  .live-bbox {
-    position: absolute; left: 0; top: 0;
-    border: 1.5px solid rgba(255, 255, 255, 0.85);
-    border-radius: 3px;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
-                0 0 28px 6px var(--accent-glow);
-    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 200ms ease-out;
-    will-change: transform;
+  .sync-diag {
+    position: absolute; left: 8px; bottom: 8px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.45);
+    padding: 2px 6px; border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
   }
-  .live-bbox.locked {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
-                0 0 36px 8px var(--accent-glow);
-  }
-  .live-label {
-    position: absolute; left: 0; top: 0;
-    background: var(--accent);
-    color: var(--bg);
-    padding: 4px 10px;
+  .overlay-toggle {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--font-mono);
-    white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 200ms ease-out;
-    will-change: transform;
-    transform-origin: 50% 100%;
+    padding: 4px 10px;
+    font-family: var(--font-mono); font-size: 11px;
+    cursor: pointer;
+    z-index: 2;
   }
-  .live-label.pending {
-    background: rgba(255, 255, 255, 0.18);
-    color: var(--text);
-    backdrop-filter: blur(4px);
-    font-weight: 500;
-    font-style: italic;
-  }
-  .live-empty {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-muted); font-family: var(--font-mono); font-size: 13px;
-    pointer-events: none;
-  }
-  .live-empty.hidden { display: none; }
+  .overlay-toggle.off { opacity: 0.4; text-decoration: line-through; }
 
   /* Recent classifications strip (replaces live feed on Pi) */
   .recent-grid {
@@ -719,9 +697,18 @@
       </div>
     </div>
     <div class="live-stage" id="live-stage">
-      <video-stream id="live-video" class="live-video" mode="webrtc,mse"></video-stream>
-      <div class="live-labels" id="live-labels"></div>
-      <div class="live-empty" id="live-empty">No birds in frame.</div>
+      <!-- Vanilla <video> with iOS-friendly attributes. iOS Safari plays HLS
+           natively via `src`; Chrome/Firefox/Edge use hls.js to MSE. -->
+      <video id="live-video"
+             class="live-video"
+             playsinline
+             webkit-playsinline
+             muted
+             autoplay
+             preload="auto"></video>
+      <canvas class="live-overlay" id="live-overlay"></canvas>
+      <div class="sync-diag" id="sync-diag"></div>
+      <button class="overlay-toggle" id="overlay-toggle" type="button">Labels</button>
     </div>
   </div>
 
