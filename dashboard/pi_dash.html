@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Crimson+Pro:wght@400;600&family=Space+Grotesk:wght@300;500;700&family=DM+Serif+Display:wght@400&family=DM+Mono:wght@300;500&family=IBM+Plex+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- hls.js (vendored at /hls.js, served by dashboard/api.py).
+     Loads as a regular script so window.Hls is available before the
+     dashboard JS runs setupLiveView(). -->
+<script src="/hls.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { min-height: 100%; }
@@ -1189,33 +1193,45 @@
     const statusEl = document.getElementById('live-status');
     const dotEl = document.getElementById('live-dot');
 
-    // Resolve go2rtc base URL: same host on LAN at :1984; or
-    // go2rtc.vivessato.com when accessed via the cloudflare tunnel.
-    const HOST = window.location.hostname;
-    let go2rtcHttp, go2rtcWs;
-    if (HOST === 'pi5.vivessato.com') {
-      go2rtcHttp = 'https://go2rtc.vivessato.com';
-      go2rtcWs   = 'wss://go2rtc.vivessato.com';
+    // Universal HLS player setup. iOS Safari plays HLS natively from
+    // <video src="...m3u8">; everywhere else uses hls.js to MSE.
+    // Per spec §3 (player setup) — single transport, no fallback chain.
+    const HLS_URL = '/api/hls-live/feeder/live.m3u8';
+    const SIDECAR_URL = '/api/hls-live/feeder/segments.json';
+    const SSE_URL = '/api/pipeline/events/sse?camera=feeder';
+
+    // PTS sync state (used by B4-B6; declared here so B3 player setup can
+    // wire FRAG_CHANGED into them — values are populated later).
+    let hls = null;
+    let usingNativeHls = false;
+    let currentFragPdt = null;     // Date object from frag.programDateTime
+    let currentFragStart = 0;      // hls.js media-timeline anchor
+
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // iOS Safari (and macOS Safari): native HLS path. canPlayType FIRST
+      // because Safari may also have MSE but native HLS is more reliable on iOS.
+      usingNativeHls = true;
+      video.src = HLS_URL;
+    } else if (window.Hls && window.Hls.isSupported()) {
+      hls = new window.Hls({
+        liveSyncDuration: 8,
+        liveMaxLatencyDuration: 12,
+        enableWorker: true,
+        lowLatencyMode: false,
+      });
+      hls.loadSource(HLS_URL);
+      hls.attachMedia(video);
+      hls.on(window.Hls.Events.FRAG_CHANGED, (_evt, data) => {
+        const frag = data.frag;
+        currentFragPdt = frag.programDateTime
+          ? new Date(frag.programDateTime) : null;
+        currentFragStart = frag.start;
+      });
     } else {
-      go2rtcHttp = `http://${HOST}:1984`;
-      go2rtcWs   = `ws://${HOST}:1984`;
-    }
-
-    // Load go2rtc's <video-stream> custom element (which depends on
-    // video-rtc.js). After defined, set the WebRTC src and let it
-    // negotiate. video-rtc.js handles WebRTC → MSE → MJPEG fallback.
-    const script = document.createElement('script');
-    script.type = 'module';
-    script.src = `${go2rtcHttp}/video-stream.js`;
-    script.onerror = () => {
-      statusEl.textContent = 'video offline';
+      statusEl.textContent = 'video unsupported';
       dotEl.classList.add('offline');
-    };
-    document.head.appendChild(script);
-
-    customElements.whenDefined('video-stream').then(() => {
-      video.src = `${go2rtcWs}/api/ws?src=feeder-main`;
-    });
+      return;
+    }
 
     // SSE → labels. Event shape:
     //   {camera, wall_time_ms, tracks: [{track_id, bbox, frame_width,
