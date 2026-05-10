@@ -144,3 +144,64 @@ def test_atomic_write_text_partial_never_visible(tmp_path):
     os.replace(part, target)
     assert target.read_text() == "partial..."
     assert not part.exists()
+
+
+import av as _av
+import os as _os
+import shutil
+import pytest
+from pipeline.hls_segmenter import HlsSegmenter
+
+
+@pytest.fixture
+def sample_h264_file(tmp_path):
+    """Generate a short test H.264 file with known keyframe pattern."""
+    out_path = tmp_path / "sample.ts"
+    container = _av.open(str(out_path), "w", format="mpegts")
+    stream = container.add_stream("h264", rate=30)
+    stream.width = 320
+    stream.height = 240
+    stream.pix_fmt = "yuv420p"
+    # Force keyframe every 30 frames (1 second)
+    stream.codec_context.gop_size = 30
+    import numpy as np
+    for i in range(120):  # 4 seconds → 4 keyframes (incl. first frame)
+        arr = np.full((240, 320, 3), i % 256, dtype=np.uint8)
+        frame = _av.VideoFrame.from_ndarray(arr, format="rgb24").reformat(format="yuv420p")
+        for packet in stream.encode(frame):
+            container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+    return out_path
+
+
+def test_segmenter_writes_keyframe_segments(tmp_path, sample_h264_file):
+    out_dir = tmp_path / "hls"
+    out_dir.mkdir()
+    seg = HlsSegmenter(
+        camera="test",
+        input_url=str(sample_h264_file),
+        out_dir=out_dir,
+        window_segments=10,
+        retention_s=60,
+    )
+    seg.run_until_eof(max_segments=4)   # bounded so test terminates
+
+    # Should have at least 3 .ts files (3+ keyframe boundaries crossed)
+    ts_files = sorted(out_dir.glob("seg_*.ts"))
+    assert len(ts_files) >= 3
+    # No .part leftovers
+    assert not list(out_dir.glob("*.part"))
+    # Manifest + sidecar exist
+    assert (out_dir / "live.m3u8").exists()
+    assert (out_dir / "segments.json").exists()
+
+    # Sidecar content matches segments on disk
+    sidecar = json.loads((out_dir / "segments.json").read_text())
+    assert sidecar["stream"] == "test"
+    assert len(sidecar["segments"]) >= 3
+    for entry in sidecar["segments"]:
+        assert (out_dir / entry["name"]).exists()
+        # PTS values are monotonically increasing within a run
+        assert entry["pts_end"] > entry["pts_start"]
