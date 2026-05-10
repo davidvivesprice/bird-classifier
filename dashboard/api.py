@@ -330,6 +330,20 @@ def serve_video_rtc_js():
     return FileResponse(str(DASHBOARD_DIR / "video-rtc.js"), media_type="application/javascript")
 
 
+@app.get("/hls.js")
+def serve_hlsjs():
+    """Serve vendored hls.js (≥1.5.7) for same-origin loading.
+
+    Pinned version per spec: avoids CDN dependency and ensures we test
+    against a known build.
+    """
+    return FileResponse(
+        str(DASHBOARD_DIR / "hls.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/docs.html")
 def serve_docs_html():
     """Serve the docs viewer HTML."""
