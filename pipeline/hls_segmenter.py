@@ -77,3 +77,57 @@ def serialize_sidecar(
             for d in discontinuities
         ],
     }, indent=2)
+
+
+import math
+
+
+def serialize_manifest(
+    segments: list[Segment],
+    media_sequence: int,
+    discontinuity_sequence: int,
+    target_duration: Optional[int],
+    discontinuity_boundaries: set[str],
+) -> str:
+    """Render a live HLS manifest (.m3u8) for the given sliding window.
+
+    Args:
+        segments: ordered list of segments to include (oldest first).
+        media_sequence: EXT-X-MEDIA-SEQUENCE — sequence number of segments[0].
+        discontinuity_sequence: EXT-X-DISCONTINUITY-SEQUENCE — incremented
+            across each discontinuity in the FULL history (not just this window).
+        target_duration: EXT-X-TARGETDURATION (integer seconds). If None,
+            auto-computed as ceil(max segment duration).
+        discontinuity_boundaries: set of segment.name values where a
+            DISCONTINUITY tag should be inserted IMMEDIATELY BEFORE.
+    """
+    if target_duration is None:
+        target_duration = max(1, math.ceil(max(s.duration for s in segments)))
+
+    lines = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:6",
+        f"#EXT-X-TARGETDURATION:{target_duration}",
+        f"#EXT-X-MEDIA-SEQUENCE:{media_sequence}",
+        f"#EXT-X-DISCONTINUITY-SEQUENCE:{discontinuity_sequence}",
+        "#EXT-X-INDEPENDENT-SEGMENTS",
+    ]
+
+    last_pdt_emitted_pts: Optional[float] = None
+
+    for i, seg in enumerate(segments):
+        is_disc_boundary = seg.name in discontinuity_boundaries
+        # Emit DISCONTINUITY tag before this segment if needed.
+        if is_disc_boundary:
+            lines.append("#EXT-X-DISCONTINUITY")
+            last_pdt_emitted_pts = None  # force re-anchor after disc
+
+        # Emit PDT at first segment AND after each discontinuity.
+        if i == 0 or last_pdt_emitted_pts is None:
+            lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{pts_to_pdt(seg.pts_start)}")
+            last_pdt_emitted_pts = seg.pts_start
+
+        lines.append(f"#EXTINF:{seg.duration:.3f},")
+        lines.append(seg.name)
+
+    return "\n".join(lines) + "\n"

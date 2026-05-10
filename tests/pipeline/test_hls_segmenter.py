@@ -38,3 +38,73 @@ def test_serialize_sidecar_format():
     assert out["segments"][0]["pts_end"] == 1232.0
     assert out["segments"][0]["duration"] == pytest.approx(2.0)
     assert out["discontinuities"] == []
+
+
+from pipeline.hls_segmenter import serialize_manifest
+
+
+def test_manifest_basic_live():
+    segs = [
+        Segment(name="seg_0000000123.ts", pts_start=1230.0, pts_end=1232.0),
+        Segment(name="seg_0000000124.ts", pts_start=1232.0, pts_end=1234.0),
+    ]
+    out = serialize_manifest(
+        segments=segs,
+        media_sequence=123,
+        discontinuity_sequence=0,
+        target_duration=2,
+        discontinuity_boundaries=set(),  # no discontinuities
+    )
+    lines = out.strip().splitlines()
+    assert lines[0] == "#EXTM3U"
+    assert "#EXT-X-VERSION:6" in lines
+    assert "#EXT-X-TARGETDURATION:2" in lines
+    assert "#EXT-X-MEDIA-SEQUENCE:123" in lines
+    assert "#EXT-X-DISCONTINUITY-SEQUENCE:0" in lines
+    assert "#EXT-X-INDEPENDENT-SEGMENTS" in lines
+    # No ENDLIST (live)
+    assert "#EXT-X-ENDLIST" not in lines
+    # First segment's PDT should be 1970-epoch encoding of pts_start=1230
+    assert "#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:20:30.000Z" in lines
+    # EXTINF + segment URI lines
+    assert "#EXTINF:2.000," in lines
+    assert "seg_0000000123.ts" in lines
+    assert "seg_0000000124.ts" in lines
+
+
+def test_manifest_with_discontinuity():
+    segs = [
+        Segment(name="seg_0000000010.ts", pts_start=20.0, pts_end=22.0),
+        Segment(name="seg_0000000011.ts", pts_start=0.0, pts_end=2.0),  # camera reset
+    ]
+    out = serialize_manifest(
+        segments=segs,
+        media_sequence=10,
+        discontinuity_sequence=1,
+        target_duration=2,
+        discontinuity_boundaries={"seg_0000000011.ts"},  # boundary BEFORE this segment
+    )
+    lines = out.strip().splitlines()
+    # DISCONTINUITY-SEQUENCE incremented
+    assert "#EXT-X-DISCONTINUITY-SEQUENCE:1" in lines
+    # DISCONTINUITY tag appears between the two segments
+    idx1 = lines.index("seg_0000000010.ts")
+    idx2 = lines.index("seg_0000000011.ts")
+    disc_idx = lines.index("#EXT-X-DISCONTINUITY")
+    assert idx1 < disc_idx < idx2
+    # New PDT after DISCONTINUITY anchors at pts_start=0 → 1970-01-01T00:00:00
+    pdt_for_new = [l for l in lines[disc_idx:idx2] if l.startswith("#EXT-X-PROGRAM-DATE-TIME")]
+    assert pdt_for_new == ["#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:00:00.000Z"]
+
+
+def test_manifest_target_duration_at_least_max():
+    segs = [
+        Segment(name="seg_0.ts", pts_start=0.0, pts_end=2.5),  # 2.5s
+        Segment(name="seg_1.ts", pts_start=2.5, pts_end=4.0),  # 1.5s
+    ]
+    out = serialize_manifest(
+        segments=segs, media_sequence=0, discontinuity_sequence=0,
+        target_duration=None, discontinuity_boundaries=set(),
+    )
+    # auto-compute target_duration = ceil(max segment duration) = 3
+    assert "#EXT-X-TARGETDURATION:3" in out
