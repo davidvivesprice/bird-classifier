@@ -238,24 +238,18 @@ A separate worker thread runs every 5 seconds:
 60s sliding window = ~30MB on disk. (Long-term retention is parked in
 `forget_me_nots.md`.)
 
-### Endpoints (new in `dashboard/api.py`)
+### Endpoints — use existing wildcard route
 
-```python
-HLS_DIR = Path.home() / "bird-snapshots" / "hls" / "feeder"
+`dashboard/api.py:282` already declares
+`@app.get("/api/hls-live/{camera}/{path:path}")` which serves files from
+`~/bird-snapshots/hls/{camera}/`. It already handles `.m3u8`, `.ts`, `.json`
+content-types and applies path-traversal protection. **No new routes
+required** — the wildcard serves whatever files our segmenter writes
+into the directory.
 
-@app.get("/api/hls-live/{camera}/live.m3u8")
-def serve_manifest(camera: str): ...
-
-@app.get("/api/hls-live/{camera}/segments.json")
-def serve_sidecar(camera: str): ...
-
-@app.get("/api/hls-live/{camera}/{segname}")
-def serve_segment(camera: str, segname: str): ...
-```
-
-All return appropriate `Content-Type` and `Cache-Control` headers (manifest +
-sidecar are `no-cache`; segments are immutable since filenames include the
-sequence number).
+The single change needed: ensure the existing route's allowed-camera
+allowlist includes the segment we use (currently `("feeder", "ground",
+"feeder-sub", "ground-sub")` which already covers our case).
 
 ### Crash / restart recovery
 
@@ -514,8 +508,13 @@ Suggested order (each step is independently deployable + testable):
 4. **Canvas overlay rewrite** — sidecar polling, frame_pts computation,
    Adaptive Lock symmetric port, pre-fade-in, labels toggle. Verify: live
    diagnostic chip shows healthy numbers; labels visibly track birds.
-5. **Test fixture annotation** — David annotates `may10_demo_video.mp4`
-   frame-by-frame.
+5. **Test fixture annotation** — David annotates as many visits in
+   `may10_demo_video.annotations.md` as needed to satisfy the gate
+   count (default: any 5 visits with both timecode windows + species).
+   Implementation does not block on this — the harness runs against
+   whatever's annotated; "any 5 visits" is a v1 floor we can raise.
+   Manual iPad smoke test step in §9 is what guards the cases the
+   harness can't capture (rVFC nuance, PWA install).
 6. **Replay rig** — `serve_test_feed.sh` already exists; add the
    `PIPELINE_TEST_RTSP_URL` env hook to `bird_pipeline_v3.py`.
 7. **Assertion harness** — `tools/sync_replay_assert.py`. First run is the
@@ -544,44 +543,100 @@ Decision: spec stands as written for the muxer path. Tool kept at
 `tools/prototype_hls_passthrough.py` as a regression guard — must pass
 before any segmenter change is merged.
 
-### C2 — RESOLVED. Use `frag.sn` + sidecar lookup, not `fragment.start`.
+### C2 / S3 — RESOLVED via PDT-based universal computation.
 
-Reviewer concern: hls.js `fragment.start` is the cumulative duration in
-the *current* manifest window. When segments rotate out, the new first
-fragment may have its `start` re-normalized (this changed between hls.js
-1.4 and 1.5), and even when it doesn't, hls.js maintains an internal
-`startTimeOffset` that must be read explicitly. The naive math
-`frame_pts = pts_start + (currentTime - fragment.start)` would silently
-drift on every window roll.
+Reviewer concerns (combined): hls.js's `fragment.start` is the cumulative
+duration in the *current* manifest window and unstable across rotations
+(C2). Native iOS HLS doesn't expose `frag.startPTS` at all, so any sync
+math that uses hls.js-internal fields breaks on iPad — exactly the failure
+mode that motivated this rewrite (S3).
 
-Resolution: rewrite the per-frame computation to anchor on the segment
-sequence number (`frag.sn`), which is monotonic and stable, plus the
-fragment's local offset:
+**Resolution: encode our PTS into the EXT-X-PROGRAM-DATE-TIME tag**, then
+use `video.getStartDate()` + `video.currentTime` — APIs that are
+**identical on hls.js and native iOS Safari**, so one code path serves
+both transports.
+
+#### How PDT carries our PTS
+
+We emit `EXT-X-PROGRAM-DATE-TIME = ISO 8601 representation of
+(epoch=1970-01-01T00:00:00Z, seconds=pts_start)` for each segment.
+Example: a segment whose first frame has PTS = 873.002 seconds
+produces `#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:14:33.002Z`.
+
+This is "fake NTP" — semantically PDT means wall-clock, but iOS Safari
+and hls.js treat the value as an opaque `Date`. They don't validate the
+date is sane; they just expose it via `getStartDate()`. The math works
+identically regardless of whether the year is 1970 or 2026.
+
+Reasons to embrace this fully (vs the original "sidecar-only" plan):
+
+- **One code path** for hls.js and native iOS. No "for native, walk
+  `video.buffered` and infer fragment from durations" hand-waving.
+- **Player-internal**: hls.js's `frag.programDateTime` and Safari's
+  `video.getStartDate()` both return Date objects derived from the
+  manifest's PDT tag. Player handles fragment-rotation reanchoring
+  for us — we don't have to track it.
+- **Naturally monotonic** (addresses N-I1): our PTS is monotonic
+  (it's the camera's encoder clock); when we encode `1970 + pts_seconds`,
+  PDT is monotonic too, regardless of NTP wall-clock jumps on the host.
+- **Discontinuity-aware**: at every `EXT-X-DISCONTINUITY` we emit a
+  fresh PDT seeded from the new fragment's PTS. Players resync.
+
+#### Per-frame computation (browser side)
 
 ```js
-function computeFramePts(video, hls, segmentsIndex) {
-  const frag = hls.streamController?.fragCurrent;
-  if (!frag) return null;
-  const seg = segmentsIndex[frag.relurl] || segmentsIndex[`seg_${String(frag.sn).padStart(10,'0')}.ts`];
-  if (!seg) return null;
-  // Offset within the fragment, derived from currentTime relative to the
-  // fragment's playback start. hls.js exposes `frag.startPTS` (in seconds)
-  // which is the player's media-timeline anchor for THIS fragment, set
-  // on parse and stable for the fragment's lifetime in the manifest.
-  const offsetInFragment = video.currentTime - frag.startPTS;
-  return seg.pts_start + offsetInFragment;
+// Universal — works for hls.js MSE playback AND iOS native HLS.
+const PDT_EPOCH_MS = 0;  // 1970-01-01T00:00:00Z
+
+function computeFramePts(video) {
+  // getStartDate(): returns the Date from the most recent
+  // EXT-X-PROGRAM-DATE-TIME tag, anchored to the start of the
+  // currently playing media-timeline. Stable for the fragment's
+  // lifetime; auto-updates across DISCONTINUITY boundaries.
+  // Returns Invalid Date or NaN if PDT is not yet known.
+  const startDate = video.getStartDate();
+  if (!startDate || isNaN(startDate.getTime())) return null;
+  const pts_at_zero_s = (startDate.getTime() - PDT_EPOCH_MS) / 1000;
+  return pts_at_zero_s + video.currentTime;
 }
 ```
 
-`frag.startPTS` is stable per-fragment (set once at parse, doesn't change
-when the manifest rotates). For native iOS HLS (no hls.js), the same
-computation works using `video.getStartDate()` (when EXT-X-PROGRAM-DATE-TIME
-is present — see I1) or by tracking fragment boundaries via
-`video.buffered` and the sidecar.
+That's it. No sidecar required for sync. Sidecar `segments.json` stays
+as **debug/redundancy only** — useful for the diagnostic chip and the
+test harness's per-segment cross-check, not for the hot path.
 
-Pin **`hls.js` ≥ 1.5.7** (vendored at `dashboard/hls.js`). Earlier
-versions had a `fragment.start` regression that's not relevant here but
-is worth avoiding generally.
+For the absolute frame-accurate version, replace `video.currentTime`
+(which has ~16ms granularity) with `metadata.mediaTime` from
+`requestVideoFrameCallback` — gives sub-frame precision. Native iOS
+Safari ≥15.4 supports rVFC; older devices fall back to `currentTime`
+(still better than the iMac's wall-clock approach).
+
+#### Player setup
+
+```js
+import Hls from '/hls.js';   // vendored locally; pin ≥1.5.7
+const HLS_URL = '/api/hls-live/feeder/live.m3u8';
+const video = document.getElementById('live-video');
+
+if (video.canPlayType('application/vnd.apple.mpegurl')) {
+  // iOS Safari (and macOS Safari): native HLS path. No hls.js needed.
+  // canPlayType is checked FIRST — Safari pretends to support MSE but its
+  // native HLS path is more reliable on iOS.
+  video.src = HLS_URL;
+} else if (Hls.isSupported()) {
+  // Chrome/Firefox/Edge: hls.js polyfill via MSE.
+  const hls = new Hls({
+    liveSyncDuration: 8,
+    liveMaxLatencyDuration: 12,
+    enableWorker: true,
+    lowLatencyMode: false,
+  });
+  hls.loadSource(HLS_URL);
+  hls.attachMedia(video);
+}
+```
+
+Pin **`hls.js` ≥ 1.5.7** (vendored at `dashboard/hls.js`).
 
 ### C3 — RESOLVED. Symmetric Adaptive Lock written as full code.
 
@@ -772,6 +827,148 @@ Layer 2b is the regression-against-tunnel-stack check.
   the same FrameCapture stamps. Therefore "click snapshot → seek HLS
   to same PTS" is well-defined and works.
 
+## Section 7 — Second-pass review findings & resolutions
+
+A second adversarial review pass after the first revision. Findings:
+
+### S1 (extension of C1) — RESOLVED via extended prototype.
+
+First prototype tested 30 packets in a single segment. Reviewer flagged
+this as too narrow: didn't cross multiple keyframe boundaries, didn't
+prove SPS/PPS preserved across per-segment muxer init, didn't decode
+back through any client.
+
+`tools/prototype_hls_passthrough_v2.py` (commit `6c873cc`) addresses this:
+
+- 4 segments written via per-keyframe mux open/close (the actual
+  production hot path)
+- 3 keyframe boundary crossings traversed
+- 150 packets per segment, all PTS byte-exact (diff = +0 across every
+  segment boundary)
+- Each segment re-opened via fresh `av.open()`, decoded to a BGR frame
+  using only that segment — proves SPS/PPS carried through
+  `add_stream_from_template` so hls.js can decode any segment standalone
+
+Both prototypes (v1 single-segment, v2 multi-segment + decode-back) kept
+as regression guards.
+
+### S2 — RESOLVED. Use existing route, no new endpoints required.
+
+Reviewer found that `/api/hls-live/{camera}/{path:path}` already exists
+at `dashboard/api.py:282` and serves m3u8 / ts / json with correct
+content-types. The spec's "three new routes" claim was wrong.
+
+Resolution: the spec's §1 endpoints block has been replaced with "use
+the existing wildcard." Implementation cost drops to zero on this axis.
+
+### S3 — RESOLVED via PDT-based universal computation.
+
+Already integrated into the C2 resolution above.
+
+### N-I1 — RESOLVED. PDT monotonicity guaranteed by epoch-1970 encoding.
+
+Reviewer concern: NTP step on the Pi could make wall-clock-based PDT
+non-monotonic.
+
+Resolution: we don't use wall-clock for PDT. We use
+`epoch=1970 + pts_seconds`, which is automatically monotonic because
+camera PTS is monotonic. NTP drift on the Pi has no effect.
+
+### N-I2 — Greedy 1:1 matching ACCEPTED with caveat.
+
+Reviewer correctly notes that greedy-by-annotation-order can be
+sub-optimal vs Hungarian for adjacent annotations + adjacent events.
+Counter-example: A@1.0, B@1.2, C@1.6 with events E1@1.45, E2@1.55 →
+greedy claims A→E1, B→E2, C unmatched; Hungarian gives B→E1, C→E2.
+
+Decision: greedy stays as v1 of the matcher. For the bedrock harness:
+
+- Document greedy as a known approximation in the harness comments
+- Ensure `MATCH_WINDOW_MS = 500` is wide enough that this only matters
+  for adjacent annotations (which is rare in practice — birds don't
+  arrive at the feeder 200ms apart)
+- Add a flag to the harness to upgrade to Hungarian (via `scipy.optimize.linear_sum_assignment`)
+  if greedy starts misclassifying. Out of v1 scope.
+
+### N-I3 — `applyEvent` cost noted, within budget.
+
+Per-track event arrays are ~30 entries; bisect-insert is fine. Global
+event buffer is ~240 entries at 5 events/sec; one splice every 200ms
+is ~1200 splices/sec worst case. On Pi-class hardware this is sub-1%
+CPU. Profiled in the v2 prototype's verification phase.
+
+If the per-track count grows (e.g., 10 simultaneous tracks × 30 events =
+300 entries on a global ringbuffer), revisit with a flat sorted array
++ binary insert. Out of v1 scope.
+
+### N-I4 — RESOLVED. CF Access service token guidance.
+
+The Layer 2b Playwright harness needs to authenticate to Cloudflare
+Access. Resolution:
+
+- Service token created in Cloudflare Zero Trust dashboard, scoped
+  **only** to the `pi5.vivessato.com` Access application (not all
+  apps in the account)
+- Stored as repository secrets `CF_ACCESS_CLIENT_ID` and
+  `CF_ACCESS_CLIENT_SECRET` (in CI) or in `~/.bird-observatory-env`
+  (locally, not committed)
+- Playwright config: `extraHTTPHeaders: { 'CF-Access-Client-Id': ID,
+  'CF-Access-Client-Secret': SECRET }` — propagates to all browser
+  fetches including hls.js worker fetches in modern Playwright
+  (verified in Playwright ≥1.40)
+- Token rotation: 90-day expiry on the service token; calendar reminder
+  in `~/docs/bird-observatory-pi/01-secrets.md`
+
+### N-I5 — RESOLVED. Implementation order step 5 reworded.
+
+Old: "David annotates may10_demo_video.mp4 frame-by-frame."
+New: "David annotates as many visits as needed to satisfy the gate
+count (default: any 5 visits with both windows + species). The harness
+runs against the partial annotation file with no code changes."
+
+Update applied in §5 below.
+
+### N-I6 — RESOLVED. Backpressure handling.
+
+Segmenter writes via `out_container.mux(packet)` which can block on
+disk I/O if the device fills or write latency spikes. Resolution:
+
+- Bounded **demux→mux queue** (default `maxsize=300`, ~10s of packets).
+  When full, oldest packet is dropped + counter bumped (`segmenter_pkts_dropped`).
+- Disk-fill alarm in production sentinel: if free space on
+  `~/bird-snapshots/hls/` falls below 1 GB, log + bump
+  `/api/system-health` counter `segmenter_disk_low`.
+- Segmenter does NOT block FrameCapture's decoder. They share the same
+  RTSP source via two independent `av.open()` calls (per Section 1) —
+  segmenter falling behind only affects HLS output, never detection.
+
+### N-I7 — RESOLVED. `state.json` corruption recovery.
+
+If `state.json` is missing or corrupt on startup:
+
+1. Scan `~/bird-snapshots/hls/feeder/` for the highest existing
+   `seg_NNNN.ts` filename. Resume `seq` from there + 1.
+2. `discontinuity_sequence` resumes from 0 (worst case: hls.js sees
+   a clean restart and resyncs, which is what we want).
+3. Log `WARNING: state.json missing/corrupt; resumed seq=N from disk scan`.
+4. The harness's Layer 1 sentinel will see the warning bump and
+   surface it.
+
+### C-1 — Window math noted in comments only.
+
+The 60s manifest window leaves comfortable room for the 8s
+`liveSyncDuration` + 1.2s kernel halfWindow + 3s capped lead time
+(total ~13s into past edge). Documented inline in the segmenter source;
+not a spec-level concern.
+
+### C-2 — RESOLVED via Playwright config (see N-I4).
+
+### C-3 — RESOLVED. Blank species annotation handled.
+
+If an annotation has `species: ""` or omitted: the matcher treats it as
+"any species" within the in-frame window. Detection-only assertion,
+species correctness skipped for that visit.
+
 ## Annotation tolerance
 
 This is a project-management constraint, not a sync-correctness one.
@@ -829,11 +1026,17 @@ Deleted from code:
 ## Acceptance
 
 Design is bedrock-correct when:
-1. The replay harness passes against the demo video annotations.
-2. The same harness passes against three browsers (headless Chromium,
-   Firefox, WebKit).
-3. The Pi dashboard runs in production for 7 consecutive days without
+1. **Layer 2a (LAN)**: replay harness passes against ≥5 annotated
+   visits in `may10_demo_video.annotations.md`, on three browsers
+   (Playwright headless Chromium, Firefox, WebKit).
+2. **Layer 2b (tunnel)**: same harness passes through
+   `https://pi5.vivessato.com` with CF Access service token.
+3. **Manual iPad smoke** (per N-2 / N-I5): real iPad Safari
+   add-to-home-screen install, open the PWA, observe video plays +
+   labels track + sync diagnostic numbers healthy. Captured as
+   screenshots in `~/docs/bird-observatory-pi/05-dashboard.md`.
+4. The Pi dashboard runs in production for 7 consecutive days without
    the production sentinel firing.
 
-After (3), this design is considered locked. Future changes to the sync
-path require the harness to pass before merge.
+After (4), this design is considered locked. Future changes to the sync
+path require Layers 2a + 2b to pass before merge.
