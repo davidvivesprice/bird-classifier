@@ -523,6 +523,276 @@ Suggested order (each step is independently deployable + testable):
 8. **Production sentinel** — health-counter checks. Lowest priority; add
    once the rest is stable.
 
+## Section 6 — Adversarial review findings & resolutions
+
+This spec went through one adversarial review pass (2026-05-10). Findings
+were ranked critical/important/nice-to-have. Each is addressed below; the
+spec is updated inline to incorporate the resolutions.
+
+### C1 — VERIFIED. PyAV mpegts muxer preserves PTS byte-exact.
+
+Reviewer concern: PyAV's `mpegts` muxer might rebase packet PTS to start
+at 0, breaking the "two consumers see identical PTS" assumption.
+
+Verification (commit `ac77abc`, run on Pi against `rtsp://127.0.0.1:8554/feeder-main`):
+30 packets across 1 keyframe boundary, demuxed, written via
+`av.open(..., 'w', format='mpegts')` + `add_stream_from_template()` +
+`packet.stream = out_stream; out_container.mux(packet)`, then re-demuxed
+from the output file. **Max |output_pts - input_pts| = 0.000 ms.**
+
+Decision: spec stands as written for the muxer path. Tool kept at
+`tools/prototype_hls_passthrough.py` as a regression guard — must pass
+before any segmenter change is merged.
+
+### C2 — RESOLVED. Use `frag.sn` + sidecar lookup, not `fragment.start`.
+
+Reviewer concern: hls.js `fragment.start` is the cumulative duration in
+the *current* manifest window. When segments rotate out, the new first
+fragment may have its `start` re-normalized (this changed between hls.js
+1.4 and 1.5), and even when it doesn't, hls.js maintains an internal
+`startTimeOffset` that must be read explicitly. The naive math
+`frame_pts = pts_start + (currentTime - fragment.start)` would silently
+drift on every window roll.
+
+Resolution: rewrite the per-frame computation to anchor on the segment
+sequence number (`frag.sn`), which is monotonic and stable, plus the
+fragment's local offset:
+
+```js
+function computeFramePts(video, hls, segmentsIndex) {
+  const frag = hls.streamController?.fragCurrent;
+  if (!frag) return null;
+  const seg = segmentsIndex[frag.relurl] || segmentsIndex[`seg_${String(frag.sn).padStart(10,'0')}.ts`];
+  if (!seg) return null;
+  // Offset within the fragment, derived from currentTime relative to the
+  // fragment's playback start. hls.js exposes `frag.startPTS` (in seconds)
+  // which is the player's media-timeline anchor for THIS fragment, set
+  // on parse and stable for the fragment's lifetime in the manifest.
+  const offsetInFragment = video.currentTime - frag.startPTS;
+  return seg.pts_start + offsetInFragment;
+}
+```
+
+`frag.startPTS` is stable per-fragment (set once at parse, doesn't change
+when the manifest rotates). For native iOS HLS (no hls.js), the same
+computation works using `video.getStartDate()` (when EXT-X-PROGRAM-DATE-TIME
+is present — see I1) or by tracking fragment boundaries via
+`video.buffered` and the sidecar.
+
+Pin **`hls.js` ≥ 1.5.7** (vendored at `dashboard/hls.js`). Earlier
+versions had a `fragment.start` regression that's not relevant here but
+is worth avoiding generally.
+
+### C3 — RESOLVED. Symmetric Adaptive Lock written as full code.
+
+Reviewer concern: the iMac `gaussianAt` function (index.html:8355) walks
+backward with `if (d < -halfWindow) break;` — that early break is
+correct ONLY for a past-only kernel. A symmetric kernel needs both
+breaks (past tail and future tail) and must handle out-of-order events
+under SSE jitter.
+
+Resolution: replace the one-line-delta description with a full port:
+
+```js
+// state.events: insertion-sorted by pts ASCENDING. Maintained by
+// applyEvent() which uses bisect-insert; not a sort-on-every-insert.
+
+function gaussianAt(events, T_pts, sigma_s) {
+  // T_pts: server-PTS-in-seconds of the rendered frame
+  // sigma_s: kernel width in seconds (e.g. 0.38 for wide, 0.19 narrow)
+  // events[i].pts in seconds; events[i].cx, events[i].top in detector coords.
+  if (events.length === 0) return null;
+  const sigma2 = sigma_s * sigma_s;
+  const halfWindow = sigma_s * 3.2;
+
+  // Find the insertion index for T_pts (binary search on .pts).
+  // Walk OUTWARD from there: backward into past, forward into future,
+  // break each direction independently when |d| > halfWindow.
+  let lo = 0, hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (events[mid].pts < T_pts) lo = mid + 1; else hi = mid;
+  }
+  const center = lo;  // first index with .pts >= T_pts
+
+  let sx = 0, sy = 0, sw = 0;
+
+  // Walk backward (past)
+  for (let i = center - 1; i >= 0; i--) {
+    const d = events[i].pts - T_pts;     // negative
+    if (d < -halfWindow) break;
+    const w = Math.exp(-(d * d) / (2 * sigma2));
+    sx += events[i].cx * w; sy += events[i].top * w; sw += w;
+  }
+  // Walk forward (future)
+  for (let i = center; i < events.length; i++) {
+    const d = events[i].pts - T_pts;     // non-negative
+    if (d > halfWindow) break;
+    const w = Math.exp(-(d * d) / (2 * sigma2));
+    sx += events[i].cx * w; sy += events[i].top * w; sw += w;
+  }
+
+  if (sw === 0) return null;
+  return { cx: sx / sw, top: sy / sw };
+}
+```
+
+Insertion (called when an SSE event arrives):
+
+```js
+function applyEvent(events, evt) {
+  // bisect-insert by pts (events arrays are per-track, small ~30 entries,
+  // so linear walk from the tail is fine and avoids a binary-search step).
+  let i = events.length;
+  while (i > 0 && events[i-1].pts > evt.pts) i--;
+  events.splice(i, 0, evt);
+}
+```
+
+Constants stay (380ms wide, 190ms narrow, 20–80 px/s velocity blend
+band, 0.1 EMA gain, 0.5 anchor LERP).
+
+### I1 — RESOLVED. Manifest includes DISCONTINUITY-SEQUENCE + PROGRAM-DATE-TIME.
+
+Reviewer concern: iOS Safari does NOT honor `EXT-X-DISCONTINUITY` for
+live without `EXT-X-DISCONTINUITY-SEQUENCE` (RFC 8216 §4.3.3.3) and
+without an `EXT-X-PROGRAM-DATE-TIME` tag at the discontinuity boundary.
+
+Resolution: manifest format updated to include both. Example:
+
+```
+#EXTM3U
+#EXT-X-VERSION:6
+#EXT-X-TARGETDURATION:3
+#EXT-X-MEDIA-SEQUENCE:123456
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-PROGRAM-DATE-TIME:2026-05-10T15:00:00.000Z
+#EXTINF:2.000,
+seg_0000123456.ts
+#EXTINF:2.050,
+seg_0000123457.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-PROGRAM-DATE-TIME:2026-05-10T15:00:30.500Z
+#EXTINF:2.050,
+seg_0000123458.ts
+```
+
+`PROGRAM-DATE-TIME` here is wall-clock-at-segment-write (NOT our PTS —
+PDT is for player resync purposes only; our internal sync still uses
+the sidecar). `DISCONTINUITY-SEQUENCE` increments on every actual
+discontinuity, persisted across segmenter restart in `state.json`.
+
+### I2 — RESOLVED. Two distinct tolerances, defined explicitly.
+
+Old spec had `±0.5s` (event matching window) and `±50ms` (median lag
+pass criterion) without distinguishing them. Resolution:
+
+- **MATCH_WINDOW_MS = 500**: maximum allowed gap between an annotation's
+  identifiable midpoint and the matching SSE event's PTS. If no event
+  within this window, the annotation is unmatched (FAIL).
+- **MEDIAN_LAG_MS = 50**: pass criterion on the *distribution* of
+  `frame_pts - matched_event_pts` across all matched annotations. The
+  median must be within ±50ms of zero (a distribution centered on the
+  pipeline's natural ~200-400ms processing lag is acceptable; a
+  distribution that's growing/drifting is the failure signal).
+- **MAX_LAG_MS = 1000**: any single matched event whose lag exceeds
+  this is reported as a per-annotation warning even if median passes.
+
+These are now properties on the harness config, not magic numbers.
+
+### I3 — RESOLVED. 1:1 matching via greedy nearest.
+
+Reviewer concern: if two annotations fall within ±500ms of one event,
+both pass with the same event — false positive in the harness.
+
+Resolution: matching is greedy-nearest, 1:1:
+
+1. Sort annotations by `identifiable_midpoint_pts` ascending.
+2. For each annotation in order:
+   a. Find the closest *unclaimed* SSE event with matching species,
+      within MATCH_WINDOW_MS.
+   b. If found: claim it (mark as used). Record the lag.
+   c. If not found: annotation is unmatched (FAIL).
+3. Annotations with no `first_identifiable` (just in-frame): step 2 uses
+   any species (detection-only assertion).
+4. After all annotations processed: any SSE event with PTS *outside*
+   all in-frame windows AND not claimed is a false positive.
+
+### I4 — RESOLVED. Atomic publication via `.part` + rename.
+
+Resolution: segmenter writes to `seg_NNNN.ts.part`. On keyframe
+boundary close: `os.replace()` to `seg_NNNN.ts`. Manifest is *also*
+written atomically: `live.m3u8.tmp` → `os.replace()` → `live.m3u8`.
+Same for `segments.json`. The manifest is *only* updated to include
+the new segment AFTER the segment file's atomic rename completes.
+
+### I5 — RESOLVED. Layer 2b drives the harness through the tunnel.
+
+Reviewer concern: mediamtx-on-iMac LAN test bypasses Cloudflare Access
+and PWA service worker — exactly the surface where the prior browser
+failures occurred.
+
+Resolution: the test harness has two execution modes:
+
+- **Layer 2a (fast loop, every code change)**: Pi reads from
+  `rtsp://192.168.4.X:8554/test-feeder` (mediamtx on iMac LAN). Browser
+  drives at `http://pi5.local:8099`. Tests pipeline + sync math.
+- **Layer 2b (deploy gate, every deploy)**: same Pi-side replay, but
+  Playwright drives at `https://pi5.vivessato.com` using a Cloudflare
+  Access service-token (set via env `CF_ACCESS_CLIENT_ID` /
+  `CF_ACCESS_CLIENT_SECRET`). Headers attached to every request:
+  `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Tests
+  PWA-shaped path: HTTPS termination, Access cookie/token, hls.js
+  through tunnel.
+
+Both layers must pass before deploy. Layer 2a is the dev-loop check;
+Layer 2b is the regression-against-tunnel-stack check.
+
+### N-series — Nice-to-haves applied
+
+- **N1**: hls.js pinned ≥1.5.7 (incorporated into C2 above).
+- **N2**: Playwright headless WebKit ≠ iOS Safari noted; spec adds a
+  manual-verification step to §5 (Implementation order):
+  *"After Layer 2b passes, perform one manual smoke test on a real
+  iPad Safari before declaring acceptance."*
+- **N3**: Pruner and manifest-window separated. Pruner walks
+  `~/bird-snapshots/hls/feeder/` for `.ts` files older than a
+  configurable retention period (default = manifest window = 60s).
+  Setting `HLS_RETENTION_S` to e.g. 86400 (1 day) keeps segments on
+  disk past their manifest lifetime. Long-term retention is then a
+  flag flip, not a code change.
+- **N4**: iMac scope deferral noted in §Scope as a dated TODO with a
+  reference to this spec — same patterns will be ported when an iMac
+  session prioritizes it.
+- **N5**: Snapshot-PTS / segmenter-PTS relationship: both are
+  identical because both flow from the same camera RTSP stream's
+  bitstream-stamped PTS values. The C1 prototype proves preservation
+  through the muxer; the snapshot path uses the SSE event's PTS which
+  the same FrameCapture stamps. Therefore "click snapshot → seek HLS
+  to same PTS" is well-defined and works.
+
+## Annotation tolerance
+
+This is a project-management constraint, not a sync-correctness one.
+David has told us annotation will take time, and that some frames have
+ambiguous identifiability. The harness handles this by:
+
+1. **Annotations file may be partial.** Empty visit blocks (all four
+   timecodes blank) are skipped. The harness reports
+   `N annotations active, M skipped` at the start of each run.
+2. **Identifiable window may be empty.** The harness asserts only
+   detection coverage for those visits, not species correctness.
+3. **First N visits is a valid scope.** If David has filled in 5 of
+   20 visits, the harness runs against those 5 with full rigor.
+4. The acceptance gate (Section 9) requires *the configured set of
+   annotations* to pass, not "all 20 visits annotated." David picks
+   the gate count when annotations are good enough.
+
+This means: implementation can proceed, the harness can be wired up,
+the segmenter and overlay can be developed, all without waiting for
+the annotation file to be complete.
+
 ## Open questions / decisions deferred
 
 - Should we segment the audio track too? Currently HLS manifest is
