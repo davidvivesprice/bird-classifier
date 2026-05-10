@@ -134,8 +134,13 @@ class CameraProcessThread:
             for track in tracker_out.active:
                 if track.is_locked and not track.snapshot_saved:
                     try:
+                        # Single-stream: pass bgr_full (1080p) from the SAME
+                        # decoded camera moment as bgr (640×360). pts is the
+                        # canonical clock for cross-component sync.
                         self.snapshot_writer.submit(
                             self.name, frame.bgr, frame.wall_time_ms, track,
+                            frame_bgr_full=frame.bgr_full,
+                            pts=frame.pts,
                         )
                         track.snapshot_saved = True
                     except Exception as e:
@@ -176,6 +181,7 @@ class CameraProcessThread:
             self.sse_server.emit(
                 camera=self.name,
                 wall_time_ms=int(frame.wall_time_ms),
+                pts=float(frame.pts),
                 tracks=tracks_payload,
             )
 

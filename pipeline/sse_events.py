@@ -119,10 +119,21 @@ class SSEEventServer:
             self._httpd.server_close()
             self._httpd = None
 
-    def emit(self, camera: str, wall_time_ms: int, tracks: list) -> None:
+    def emit(self, camera: str, wall_time_ms: int, tracks: list,
+             pts: float = 0.0) -> None:
+        """Broadcast a per-frame event to all subscribed clients.
+
+        `pts` is the canonical clock — stream time in seconds, extracted
+        from the H.264 bitstream by the capture stage. Clients sync labels
+        to the live video by matching this PTS against the
+        `requestVideoFrameCallback`-reported PTS of the rendered frame.
+        `wall_time_ms` is kept for log/UI human-readable timestamps but
+        must NOT be used for sync decisions.
+        """
         payload = json.dumps({
             "camera": camera,
             "wall_time_ms": wall_time_ms,
+            "pts": float(pts),
             "tracks": tracks,
         })
         with self._clients_lock:

@@ -126,30 +126,24 @@ class SnapshotWriter:
 
     def __init__(self, maxsize: int = 32, classifier=None,
                  go2rtc_url: str = "http://localhost:1984",
-                 hires_ring=None,
-                 shadow_mode: bool = True):
+                 # Legacy params kept for call-site compat — no-ops in
+                 # single-stream architecture (2026-05-10). hires_ring is
+                 # always None now; shadow_mode is irrelevant. The full
+                 # frame arrives in the payload from the same decoder that
+                 # produced the detection frame; there is nothing to A/B.
+                 hires_ring=None, shadow_mode: bool = False):
         """
         Args:
             maxsize: max queued snapshots before oldest is dropped
-            classifier: SmartClassifier instance — if provided, the snapshot
-                writer re-runs AIY on the hi-res crop at write time and uses
-                AIY's species (not the track's live yard label) for the
-                classifications.db row. This is how the review queue gets
-                AIY's 965-species authority while yard still drives the fast
-                live overlay.
-            go2rtc_url: base URL for go2rtc. Used to fetch 1080p frames via
-                `/api/frame.mp4?src=<camera>-main` so the saved JPG is
-                full-res rather than the 640x360 detector frame.
-            hires_ring: optional HiResRingBuffer. When provided, _write_one
-                prefers the nearest-timestamp frame from the ring over the
-                go2rtc /api/frame.mp4 fetch (which has a 2-5s keyframe wait
-                that causes the stale-bbox hallucination). None = current
-                behavior preserved.
-            shadow_mode: when True AND hires_ring is provided, the ring's
-                picked frame is written as a sidecar JSON only; the actual
-                JPG is still produced via the old go2rtc path. Lets David
-                eyeball ring-vs-old for 3-4 days before the ring becomes
-                authoritative. Flip to False after soak.
+            classifier: PiClassifier / SmartClassifier — if provided, the
+                snapshot writer re-runs the classifier on the (now hi-res)
+                crop at write time and records it as the "authoritative"
+                second-opinion alongside the lock-time vote.
+            go2rtc_url: legacy parameter, no longer used (the go2rtc
+                /api/frame.mp4 fallback is gone — Frame.bgr_full is always
+                present in single-stream mode).
+            hires_ring: legacy, must be None.
+            shadow_mode: legacy, must be False.
         """
         import queue as _q
         self._q: "_q.Queue" = _q.Queue(maxsize=maxsize)
@@ -157,21 +151,15 @@ class SnapshotWriter:
         self._thread: Optional[threading.Thread] = None
         self.classifier = classifier
         self.go2rtc_url = go2rtc_url.rstrip("/")
-        self.hires_ring = hires_ring
-        self.shadow_mode = shadow_mode
         self.stats = {
             "submitted": 0,
             "written": 0,
             "dropped_full": 0,
             "errors": 0,
-            "hires_ok": 0,
-            "hires_fail": 0,
-            "hires_skipped": 0,      # cheap-restore path (default since 2026-04-23)
+            "hires_ok": 0,           # frame.bgr_full present → JPG saved at full res
+            "hires_fail": 0,         # frame.bgr_full missing → fell back to detect frame
             "aiy_relabel": 0,
             "aiy_none": 0,
-            "ring_pick_ok": 0,
-            "ring_pick_empty": 0,
-            "shadow_sidecar_written": 0,
         }
 
     def start(self):
@@ -184,59 +172,32 @@ class SnapshotWriter:
     def stop(self):
         self._stop.set()
 
-    def submit(self, camera: str, frame_bgr: np.ndarray, wall_time_ms: float, track):
+    def submit(self, camera: str, frame_bgr: np.ndarray, wall_time_ms: float, track,
+               frame_bgr_full: Optional[np.ndarray] = None,
+               pts: float = 0.0):
         """Non-blocking submit. Drops oldest on backpressure.
 
-        Ring lookup happens HERE (in the detection thread) rather than in the
-        background write thread. Fast-visiting birds (chickadees, 1-2s) leave
-        before the background thread runs — the ring's 2s window moves past
-        the bird's departure and the write thread finds only empty-feeder frames.
-        Querying here, while the ring is still warm, guarantees we capture the
-        bird. The chosen 1080p frame is copied into the payload (~6 MB, once
-        per lock event, negligible vs. the 5 fps decode load).
-        """
-        hires_frame_snap = None
-        if self.hires_ring is not None and not self.shadow_mode:
-            try:
-                # Use the ring frame nearest to lock time — not the "sharpest"
-                # frame in the track window.
-                #
-                # At lock time, YOLO just confirmed the bird is at track.bbox.
-                # The ring frame ±200ms of wall_time_ms therefore also has the
-                # bird at that position. Proximity to lock time IS the quality
-                # signal — sharpness scoring is unreliable because an empty
-                # seed-feeder has high Laplacian variance and can outscore a
-                # partially-in-frame bird.
-                #
-                # Tolerance 400ms: accommodates the ~200ms desync between the
-                # substream (detection) and mainstream (ring) ffmpeg processes
-                # plus one-frame jitter at 5fps (another 200ms).
-                cand = self.hires_ring.find_nearest(
-                    wall_time_ms, tolerance_ms=400
-                )
-                if cand is not None:
-                    hires_frame_snap = cand.frame.copy()
-                else:
-                    # Ring frame not within 400ms of lock — ring restarted or
-                    # clock skew. Fall back to the closest available frame
-                    # sorted by proximity to lock time (still better than the
-                    # background-thread lookup which would be seconds stale).
-                    cands = self.hires_ring.find_candidates(wall_time_ms, k=3)
-                    if cands:
-                        cands.sort(key=lambda c: abs(c.wall_ms - wall_time_ms))
-                        hires_frame_snap = cands[0].frame.copy()
-            except Exception:
-                pass  # non-fatal — _write_one falls back to 640×360
+        Single-stream architecture: the caller passes both the detection-
+        sized frame (`frame_bgr`, e.g. 640×360) and the full-resolution
+        frame (`frame_bgr_full`, e.g. 1920×1080) from the SAME decoded
+        camera moment. There is no ring lookup, no cross-stream timing,
+        no nearest-by-wall-clock search. The bird detected at this frame
+        is in this frame, full stop.
 
-        # Copy the frame (np arrays are shared; caller reuses the buffer).
+        `pts` is the canonical clock — recorded so downstream consumers
+        (review UI, debugging, test harness) can correlate events across
+        the system without going through wall-clock.
+        """
         payload = {
             "camera": camera,
+            # Detect-sized copy (kept as fallback if bgr_full is missing).
             "frame": frame_bgr.copy(),
+            # Full-resolution frame from the SAME camera moment as `frame`.
+            # In single-stream mode this is always present.
+            "hires_frame": (frame_bgr_full.copy()
+                            if frame_bgr_full is not None else None),
             "wall_time_ms": wall_time_ms,
-            # Pre-captured hires frame (None if ring miss / ring disabled).
-            # _write_one uses this directly, bypassing the background-thread
-            # ring query that would find stale empty-feeder frames.
-            "hires_frame": hires_frame_snap,
+            "pts": float(pts),
             "track_id": track.track_id,
             "species": track.species,
             "species_confidence": track.species_confidence,
@@ -359,92 +320,27 @@ class SnapshotWriter:
             "model_source": result.model_source or "aiy",
         }
 
-    def _pick_from_ring(self, camera, wall_time_ms, bbox_scaled, detector_conf):
-        """Query the ring for candidates, score, return best (frame, meta)."""
-        if self.hires_ring is None:
-            return None, {"reason": "no_ring"}
-        try:
-            from pipeline.hires_ring import score_frame
-            cands = self.hires_ring.find_candidates(wall_time_ms, k=5)
-        except Exception as e:
-            log.debug("ring query failed: %s", e)
-            return None, {"reason": "query_error"}
-        if not cands:
-            return None, {"reason": "ring_empty"}
-        scored = []
-        for c in cands:
-            s = score_frame(c.frame, bbox_scaled, detector_conf)
-            scored.append((s, c))
-        scored.sort(key=lambda sc: sc[0], reverse=True)
-        best_score, best = scored[0]
-        meta = {
-            "picked_wall_ms": best.wall_ms,
-            "picked_score": best_score,
-            "delta_ms": best.wall_ms - wall_time_ms,
-            "requested_wall_ms": wall_time_ms,
-            "candidates": [{"wall_ms": c.wall_ms, "score": s}
-                           for s, c in scored],
-        }
-        if best_score <= 0:
-            return None, {"reason": "all_zero_score", **meta}
-        return best.frame, meta
-
     def _write_one(self, p: dict):
-        # Hi-res frame acquisition — three paths:
-        # (1) If self.hires_ring is configured AND shadow_mode is False, use
-        #     the ring's best-quality nearest-timestamp frame. Real fix for
-        #     the stale-bbox hallucination. (Needs Pi 5 CPU headroom.)
-        # (2) CHEAP RESTORE (default since 2026-04-23, David-approved):
-        #     skip the go2rtc /api/frame.mp4 fetch entirely. The detection-
-        #     time 640x360 frame is used as-is. This is what AIY had
-        #     pre-Sonoma when it scored 69.3% top-1 / 75.6% macro-F1 — the
-        #     SAME frame the bird was detected on, no stale-bbox window.
-        #     Crop is smaller but the bird is IN IT.
-        # (3) Old broken behavior (opt-in, env PIPELINE_HIRES_RECROP=1):
-        #     fetch a 1080p frame via /api/frame.mp4. Had a 2-5 second
-        #     keyframe wait that caused the hallucination. Retained for
-        #     comparison / A-B only.
-        _do_hires_recrop = os.environ.get("PIPELINE_HIRES_RECROP", "0") == "1"
-
+        # Single-stream: the full-resolution frame was captured from the same
+        # decoded camera moment as the detection frame, so there is exactly
+        # one path. Promote bgr_full to authoritative + rescale bbox.
+        # If for some reason bgr_full is missing (e.g. dry-run, file input
+        # in tests), fall back to the detect frame as-is.
         low_w = p["frame"].shape[1] or 1
         low_h = p["frame"].shape[0] or 1
-        HIRES_W, HIRES_H = 1920, 1080
-        sx_hires = HIRES_W / low_w
-        sy_hires = HIRES_H / low_h
-        bbox_hires = [p["bbox"][0] * sx_hires, p["bbox"][1] * sy_hires,
-                      p["bbox"][2] * sx_hires, p["bbox"][3] * sy_hires]
-
-        # Path 1: ring authoritative — use the frame captured at submit time.
-        # Avoids stale ring lookups: fast-visiting birds (chickadees) leave
-        # before the background thread runs, so a background-thread ring query
-        # finds only post-departure empty-feeder frames.
-        ring_frame = p.get("hires_frame")  # set by submit() while ring was fresh
-        if ring_frame is not None and not self.shadow_mode:
-            p["frame"] = ring_frame
-            p["bbox"] = bbox_hires
+        hires_frame = p.get("hires_frame")
+        if hires_frame is not None:
+            sx = hires_frame.shape[1] / low_w
+            sy = hires_frame.shape[0] / low_h
+            p["bbox"] = [p["bbox"][0] * sx, p["bbox"][1] * sy,
+                         p["bbox"][2] * sx, p["bbox"][3] * sy]
+            p["frame"] = hires_frame
             self.stats["hires_ok"] += 1
-            self.stats["ring_pick_ok"] += 1
-        elif _do_hires_recrop:
-            # Path 3: the old (broken) hi-res fetch, opt-in only.
-            if ring_frame is None:
-                self.stats["ring_pick_empty"] += 1
-            hires = self._fetch_hires_frame(p["camera"])
-            if hires is not None:
-                sx = hires.shape[1] / low_w
-                sy = hires.shape[0] / low_h
-                p["bbox"] = [p["bbox"][0] * sx, p["bbox"][1] * sy,
-                             p["bbox"][2] * sx, p["bbox"][3] * sy]
-                p["frame"] = hires
-                self.stats["hires_ok"] += 1
-            else:
-                self.stats["hires_fail"] += 1
         else:
-            # Path 2 (default): cheap restore. Keep the detection-time 640x360
-            # frame + its bbox as-is. AIY classifies the crop the bird was
-            # actually in.
-            self.stats["hires_skipped"] = self.stats.get("hires_skipped", 0) + 1
-            if ring_frame is None:
-                self.stats["ring_pick_empty"] += 1
+            # Detect frame stays as-is — used for tests / dry-run / any
+            # capture path that doesn't carry bgr_full. The authoritative
+            # classifier pass below still runs on whatever frame we have.
+            self.stats["hires_fail"] += 1
 
         # Capture lock-time classification values BEFORE auth call. RC3:
         # the live pipeline's vote-lock decision (yard / AIY / both_agree at
@@ -553,6 +449,11 @@ class SnapshotWriter:
                 "source": auth["model_source"] if auth else None,
             } if auth else None,
             "disagreement": bool(auth and auth["species"] != lock_time_species),
+            # PTS: canonical clock for cross-component sync. Recorded on
+            # every classification row so reviewers / debuggers / the test
+            # harness can correlate this snapshot to the SSE event and the
+            # exact video frame, without going through wall-clock.
+            "pts": float(p.get("pts", 0.0)),
         }
 
         try:
@@ -565,16 +466,3 @@ class SnapshotWriter:
             except Exception:
                 pass
             raise
-
-        # Ring-buffer sidecar: when the ring is active, record the ring's
-        # pick next to the JPG so David can eyeball ring-vs-written for
-        # trust-building before shadow_mode flips off.
-        sidecar_meta = p.get("_ring_sidecar")
-        if sidecar_meta:
-            import json as _json
-            sidecar_path = out_path.with_suffix(".ring.json")
-            try:
-                sidecar_path.write_text(_json.dumps(sidecar_meta, indent=2))
-                self.stats["shadow_sidecar_written"] += 1
-            except Exception as e:
-                log.debug("ring sidecar write failed: %s", e)

@@ -150,35 +150,14 @@ def main():
     health_server.start()
     sse_server = SSEEventServer(port=SSE_PORT)
     sse_server.start()
-    # Hi-res ring buffer for the 1b stale-bbox fix — env-gated because
-    # this adds a second 1080p ffmpeg decode (~30-50% CPU on a busy system).
-    # Off by default; set PIPELINE_HIRES_RING=1 to enable shadow mode.
-    # When ON, SnapshotWriter records the ring's pick as a .ring.json sidecar
-    # next to each JPG. After 3-4 days of David eyeballing sidecars, set
-    # PIPELINE_HIRES_RING=authoritative (or any non-"1" truthy) to flip
-    # shadow_mode off and make the ring drive the JPG choice.
-    hires_ring = None
-    hires_capture = None
-    _hr_env = os.environ.get("PIPELINE_HIRES_RING", "0")
-    if _hr_env and _hr_env != "0":
-        from pipeline.hires_ring import HiResRingBuffer, HiResCapture
-        hires_ring = HiResRingBuffer(max_seconds=2.0, expected_fps=5.0)
-        hires_capture = HiResCapture(
-            camera_name=CAMERA_FEEDER,
-            rtsp_url=CAMERAS_MAIN[CAMERA_FEEDER],
-            ring=hires_ring,
-            width=1920, height=1080, fps=5,
-        )
-        hires_capture.start()
-        shadow_mode = (_hr_env == "1")  # "1" → shadow; anything else → authoritative
-        log.info("[hires_ring] ENABLED — shadow_mode=%s (PIPELINE_HIRES_RING=%r)",
-                 shadow_mode, _hr_env)
-    else:
-        shadow_mode = True  # unused when ring is None
-
-    snapshot_writer = SnapshotWriter(hires_ring=hires_ring, shadow_mode=shadow_mode)
+    # 2026-05-10: Single-stream architecture. We decode the camera's main
+    # 1920×1080 stream once via PyAV; in-process we downscale to 640×360 for
+    # YOLO/motion/classifier and keep the full frame for SnapshotWriter.
+    # The hi-res ring buffer + separate ffmpeg-on-mainstream are gone — there
+    # is no cross-stream sync to debug. Frame.pts is the canonical clock.
+    snapshot_writer = SnapshotWriter()
     snapshot_writer.start()
-    log.info("SnapshotWriter started — classifications.db + JPG snapshots restored")
+    log.info("SnapshotWriter started — single-stream, frame.bgr_full as authoritative")
 
     regional_species = load_regional_species()
 
@@ -247,15 +226,19 @@ def main():
     # Per-camera stack
     camera_stacks = []
     camera_trackers = {}  # Store trackers for health endpoint exposure
-    for name, detect_url in CAMERAS_DETECT.items():
+    for name in CAMERAS_DETECT.keys():
         main_url = CAMERAS_MAIN[name]
         try:
             frame_q = queue.Queue(maxsize=2)
-            # Reads from feeder-sub (camera's native 640x360 substream, see
-            # CAMERAS_DETECT above). The HLS recorder below reads feeder-main
-            # at full resolution; they're independent RTSP consumers via go2rtc.
-            capture = FrameCapture(name, detect_url, out_queue=frame_q,
-                                   width=640, height=360, fps=5)
+            # Single-stream: decode the 1920×1080 main stream via PyAV.
+            # Downscale to 640×360 in-process for motion/YOLO/classifier;
+            # keep full frame on Frame.bgr_full for SnapshotWriter. Same
+            # buffer = same camera moment = no cross-stream sync.
+            capture = FrameCapture(
+                name, main_url, out_queue=frame_q,
+                capture_width=1920, capture_height=1080,
+                detect_width=640, detect_height=360,
+            )
             aoi = CAMERA_AOI_POLYGONS.get(name)
             motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
             if aoi:
