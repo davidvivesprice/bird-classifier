@@ -42,12 +42,12 @@ _INLINE_PAREN = re.compile(r"\s*\([^)]*\)\s*")
 def parse_timecode(s: str, fps: int = 30) -> Optional[float]:
     """Parse a timecode string to seconds. None if blank or unparseable.
 
-    Accepted formats (in order of preference):
-        HH:MM:SS:FF   (Final Cut native)
-        MM:SS:FF      (no hours)
-        MM:SS         (David's truncated form; no frames either)
-        H:MM:SS       (David's variant)
-        SS            (rare)
+    Accepted formats:
+        HH:MM:SS:FF   (Final Cut native, 4 parts)
+        MM:SS:FF      (3 parts, last < fps)
+        HH:MM:SS      (3 parts, last >= fps)
+        MM:SS         (David's truncated form, 2 parts)
+        SS            (rare, 1 part)
 
     Inline parens are stripped: "1:44:09 (head only)" → "1:44:09".
     """
@@ -112,9 +112,10 @@ def parse_annotations(text: str, fps: int = 30) -> list[Visit]:
                 current.parser_warnings.append(
                     f"duplicate first_identifiable line ignored: {value!r}"
                 )
-            else:
+            elif t is not None:
                 current.first_identifiable_s = t
                 saw_first_id_already = True
+            # else: blank line — leave field None and keep looking
         elif name == "last_identifiable":
             current.last_identifiable_s = parse_timecode(value, fps)
         elif name == "last_in_frame":
@@ -138,7 +139,7 @@ def parse_annotations(text: str, fps: int = 30) -> list[Visit]:
 
 
 def _maybe_keep(visits: list[Visit], v: Visit):
-    """Skip visits where ALL four windows are None and species is blank."""
+    """Skip visits where ALL four timecodes are None (likely an unfilled template block)."""
     has_any_time = any([
         v.first_in_frame_s is not None,
         v.first_identifiable_s is not None,
