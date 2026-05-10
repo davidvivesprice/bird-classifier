@@ -1396,6 +1396,199 @@
     ctx.restore();
   }
 
+  // ── Sidecar polling (native iOS path) ─────────────────────────────────
+  // Per-track and global event state. Updated by the SSE handler (B6
+  // currently still in the legacy DOM-label code path; cleaned up there).
+  // For B5, declare here so the render loop can read them. SSE handler
+  // updates trackHistory[track_id] = [{pts, cx, top, bbox_w, bbox_h,
+  // frame_width, frame_height, species, species_confidence, is_locked}, ...]
+  const eventBuf = [];               // {pts, tracks}, sorted by pts asc
+  const EVENT_BUF_MAX = 240;
+  const trackHistory = new Map();    // track_id → [{pts, cx, top, ...}]
+  let segmentsIndex = {};            // {filename: {pts_start, pts_end}}
+  let nativeMediaTimeline = [];      // [{filename, mediaStart, duration}]
+  let LEAD_TIME_S = 0;
+  if (typeof window.__leadTimeS === 'number') LEAD_TIME_S = window.__leadTimeS;
+
+  let sidecarFetchInFlight = false;
+  async function refreshSidecar() {
+    if (sidecarFetchInFlight) return;
+    sidecarFetchInFlight = true;
+    try {
+      const r = await fetch(SIDECAR_URL, { cache: 'no-store' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const next = {};
+      for (const s of (data.segments || [])) {
+        next[s.name] = s;
+      }
+      segmentsIndex = next;
+      if (usingNativeHls) rebuildNativeMediaTimeline();
+    } catch (e) {
+      // tolerate transient errors
+    } finally {
+      sidecarFetchInFlight = false;
+    }
+  }
+  setInterval(refreshSidecar, 2000);
+  refreshSidecar();
+
+  function rebuildNativeMediaTimeline() {
+    // Native iOS plays the manifest's fragments in order; cumulative
+    // durations form the media timeline. We don't have hls.js's
+    // FRAG_CHANGED event so we infer via cumulative durations.
+    // segments.json is ordered oldest-first.
+    const ordered = Object.values(segmentsIndex).sort(
+      (a, b) => a.pts_start - b.pts_start
+    );
+    let mediaStart = 0;
+    nativeMediaTimeline = ordered.map(s => {
+      const entry = { filename: s.name, mediaStart, duration: s.duration,
+                      pts_start: s.pts_start };
+      mediaStart += s.duration;
+      return entry;
+    });
+  }
+
+  // ── Frame PTS computation (universal) ────────────────────────────────
+  function computeFramePts(meta) {
+    if (hls && currentFragPdt) {
+      // hls.js path
+      const pts_at_frag_start_s = currentFragPdt.getTime() / 1000;
+      const t = (typeof meta?.mediaTime === 'number')
+        ? meta.mediaTime : video.currentTime;
+      const offset_in_frag = t - currentFragStart;
+      return pts_at_frag_start_s + offset_in_frag;
+    }
+    if (usingNativeHls && nativeMediaTimeline.length) {
+      // Native iOS path
+      const t = (typeof meta?.mediaTime === 'number')
+        ? meta.mediaTime : video.currentTime;
+      for (const frag of nativeMediaTimeline) {
+        if (t >= frag.mediaStart && t < frag.mediaStart + frag.duration) {
+          return frag.pts_start + (t - frag.mediaStart);
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── Per-frame render ──────────────────────────────────────────────────
+  // showLabels is read by the render loop. localStorage persistence + the
+  // toggle button event handler land in B6 — for now, default ON.
+  let showLabels = (localStorage.getItem('showLabels') ?? '1') !== '0';
+
+  function pruneTrackHistory(framePts) {
+    // Drop events older than 3s relative to current frame
+    const cutoff = framePts - 3.0;
+    for (const [tid, events] of trackHistory.entries()) {
+      while (events.length && events[0].pts < cutoff) events.shift();
+      if (events.length === 0) {
+        trackHistory.delete(tid);
+        trackAlphaEMA.delete(tid);
+      }
+    }
+  }
+
+  function renderAt(framePts) {
+    const dim = setCanvasSize();
+    ctx.clearRect(0, 0, dim.w, dim.h);
+    if (!showLabels) return;
+
+    pruneTrackHistory(framePts);
+
+    let drawnCount = 0;
+    for (const [tid, events] of trackHistory.entries()) {
+      if (events.length === 0) continue;
+      const firstPts = events[0].pts;
+      const lastPts = events[events.length - 1].pts;
+      // Pre-arrival fade-in (FADE_IN_S before first event)
+      let opacity;
+      if (framePts < firstPts - FADE_IN_S) continue;
+      if (framePts < firstPts) {
+        opacity = (framePts - (firstPts - FADE_IN_S)) / FADE_IN_S;
+      } else if (framePts > lastPts + STALE_S + FADE_OUT_S) {
+        continue;
+      } else if (framePts > lastPts + STALE_S) {
+        opacity = 1 - (framePts - lastPts - STALE_S) / FADE_OUT_S;
+      } else {
+        opacity = 1;
+      }
+      if (opacity <= 0) continue;
+
+      const anchor = adaptiveAnchorAt(tid, events, framePts);
+      if (!anchor) continue;
+
+      // Get the latest event for species/label info
+      const latest = events[events.length - 1];
+      const fw = latest.frame_width || 640;
+      const fh = latest.frame_height || 360;
+      const { sx, sy, offX, offY } = videoRect(dim.w, dim.h, fw, fh);
+
+      // For pre-arrival, fall back to first event's bbox; otherwise use anchor.cx/top
+      const useAnchor = framePts >= firstPts;
+      let cx, top, bboxW, bboxH;
+      if (useAnchor) {
+        // anchor.cx is bbox-center-x in detector coords; we need to reconstruct bbox dims.
+        // For now, use the latest event's bbox dimensions (the bird's size doesn't
+        // change dramatically between frames).
+        cx = anchor.cx;
+        top = anchor.top;
+        bboxW = latest.bbox_w; bboxH = latest.bbox_h;
+      } else {
+        cx = events[0].cx; top = events[0].top;
+        bboxW = events[0].bbox_w; bboxH = events[0].bbox_h;
+      }
+
+      const x = offX + (cx - bboxW / 2) * sx;
+      const y = offY + top * sy;
+      const w = bboxW * sx;
+      const h = bboxH * sy;
+
+      drawBBox(x, y, w, h, !!latest.is_locked, opacity);
+      const labelText = latest.species
+        ? `${latest.species} · ${Math.round((latest.species_confidence || 0) * 100)}%`
+        : 'identifying…';
+      drawLabel(offX + cx * sx, y, labelText, !!latest.is_locked, opacity);
+      drawnCount++;
+    }
+
+    diag.drawnTracks = drawnCount;
+    diag.lastDrawAt = performance.now();
+    diag.lastTargetPts = framePts;
+  }
+
+  // Diagnostic state used by renderAt and by the rVFC loop. The full
+  // diag chip rendering lives in B6 (gated on ?syncdiag=1). Declared here
+  // so renderAt's writes don't throw.
+  const diag = {
+    rvfcCount: 0, sseCount: 0, drawnTracks: 0, lastTargetPts: 0,
+    lastMediaT: 0, lastDrawAt: 0,
+  };
+
+  function videoFrameTick(now, meta) {
+    diag.rvfcCount++;
+    diag.lastMediaT = meta?.mediaTime ?? video.currentTime;
+    const framePts = computeFramePts(meta);
+    if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(videoFrameTick);
+    }
+  }
+
+  function startFrameSync() {
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(videoFrameTick);
+    } else {
+      // rVFC unavailable — fall back to ~30Hz interval render
+      setInterval(() => {
+        const framePts = computeFramePts(null);
+        if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
+      }, 33);
+    }
+  }
+  startFrameSync();
+
     // SSE → labels. Event shape:
     //   {camera, wall_time_ms, tracks: [{track_id, bbox, frame_width,
     //                                    frame_height, species,
