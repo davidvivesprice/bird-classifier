@@ -131,3 +131,33 @@ def serialize_manifest(
         lines.append(seg.name)
 
     return "\n".join(lines) + "\n"
+
+
+import os
+from pathlib import Path
+
+
+def atomic_write_text(path: Path | str, content: str) -> None:
+    """Write `content` to `path` atomically: write .part, fsync, rename.
+
+    POSIX rename is atomic, so a concurrent reader of `path` either
+    sees the old contents or the new contents — never a partial write.
+    """
+    path = Path(path)
+    part = path.with_suffix(path.suffix + ".part")
+    with open(part, "w") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(part, path)
+
+
+def atomic_write_bytes(path: Path | str, content: bytes) -> None:
+    """Same as atomic_write_text but bytes."""
+    path = Path(path)
+    part = path.with_suffix(path.suffix + ".part")
+    with open(part, "wb") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(part, path)
