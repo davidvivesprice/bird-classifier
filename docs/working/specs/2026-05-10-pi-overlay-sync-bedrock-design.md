@@ -582,34 +582,97 @@ Reasons to embrace this fully (vs the original "sidecar-only" plan):
 - **Discontinuity-aware**: at every `EXT-X-DISCONTINUITY` we emit a
   fresh PDT seeded from the new fragment's PTS. Players resync.
 
-#### Per-frame computation (browser side)
+#### Per-frame computation (browser side) — two paths, both deterministic
+
+The third review (SC-1) flagged that `video.getStartDate()` semantics
+across fragment rotation are not reliably documented in WebKit / hls.js
+implementations. Rather than gamble on getStartDate, we use two
+deterministic paths:
+
+**Path A — hls.js (Chrome / Firefox / desktop Safari + iPad on iOS 16+):**
+hls.js exposes `frag.programDateTime` directly per fragment. Listen for
+`Hls.Events.LEVEL_PTS_UPDATED` / `Hls.Events.FRAG_CHANGED` to track the
+currently playing fragment and read its PDT.
 
 ```js
-// Universal — works for hls.js MSE playback AND iOS native HLS.
-const PDT_EPOCH_MS = 0;  // 1970-01-01T00:00:00Z
+let currentFragPdt = null;   // Date object from frag.programDateTime
+let currentFragStart = 0;    // hls.js media-timeline anchor for current frag
+hls.on(Hls.Events.FRAG_CHANGED, (_evt, data) => {
+  const frag = data.frag;
+  currentFragPdt = frag.programDateTime
+    ? new Date(frag.programDateTime)
+    : null;
+  currentFragStart = frag.start;   // hls.js sets this on parse, stable
+});
 
 function computeFramePts(video) {
-  // getStartDate(): returns the Date from the most recent
-  // EXT-X-PROGRAM-DATE-TIME tag, anchored to the start of the
-  // currently playing media-timeline. Stable for the fragment's
-  // lifetime; auto-updates across DISCONTINUITY boundaries.
-  // Returns Invalid Date or NaN if PDT is not yet known.
-  const startDate = video.getStartDate();
-  if (!startDate || isNaN(startDate.getTime())) return null;
-  const pts_at_zero_s = (startDate.getTime() - PDT_EPOCH_MS) / 1000;
-  return pts_at_zero_s + video.currentTime;
+  if (!currentFragPdt) return null;
+  const pts_at_frag_start_s = currentFragPdt.getTime() / 1000;
+  const offset_in_frag = video.currentTime - currentFragStart;
+  return pts_at_frag_start_s + offset_in_frag;
 }
 ```
 
-That's it. No sidecar required for sync. Sidecar `segments.json` stays
-as **debug/redundancy only** — useful for the diagnostic chip and the
-test harness's per-segment cross-check, not for the hot path.
+`frag.programDateTime` is per-fragment, set when hls.js parses each
+fragment's PDT tag. Stable for that fragment's lifetime; the
+`FRAG_CHANGED` event fires when playback advances to a new fragment, at
+which point we re-anchor. No reliance on the global `getStartDate()`
+which may or may not re-anchor.
 
-For the absolute frame-accurate version, replace `video.currentTime`
-(which has ~16ms granularity) with `metadata.mediaTime` from
-`requestVideoFrameCallback` — gives sub-frame precision. Native iOS
-Safari ≥15.4 supports rVFC; older devices fall back to `currentTime`
-(still better than the iMac's wall-clock approach).
+**Path B — Native iOS HLS (iPhone, where MSE/hls.js doesn't apply):**
+We poll our sidecar `segments.json` (already being written) every 2s
+and build a local table mapping fragment URI → `pts_start`. We track
+which fragment is "currently playing" by walking `video.buffered`
+ranges and comparing to the cumulative durations from the sidecar.
+
+```js
+let segmentsIndex = {};      // {filename: {pts_start, pts_end, duration}}
+let mediaTimeline = [];      // [{filename, mediaStart, duration}], cumulative
+
+setInterval(refreshSidecar, 2000);
+async function refreshSidecar() {
+  const r = await fetch('/api/hls-live/feeder/segments.json');
+  const data = await r.json();
+  segmentsIndex = Object.fromEntries(
+    data.segments.map(s => [s.name, s])
+  );
+  // Rebuild mediaTimeline: native iOS plays fragments in the order
+  // they appeared in the manifest at attach time, with cumulative
+  // durations forming the player's media-timeline. We track which
+  // fragments have been added since attach to maintain the table.
+  // (See implementation; not reproduced here.)
+}
+
+function computeFramePtsNative(video) {
+  // Find the fragment whose [mediaStart, mediaStart+duration) contains
+  // video.currentTime. Lookup pts_start. Return pts_start + offset.
+  const t = video.currentTime;
+  for (const frag of mediaTimeline) {
+    if (t >= frag.mediaStart && t < frag.mediaStart + frag.duration) {
+      const seg = segmentsIndex[frag.filename];
+      if (!seg) return null;
+      return seg.pts_start + (t - frag.mediaStart);
+    }
+  }
+  return null;
+}
+```
+
+The sidecar is **authoritative** for native iOS. PDT in the manifest is
+still emitted (hls.js needs it; iOS native still uses it for
+DISCONTINUITY resync) but the browser doesn't read PDT directly on this
+path — the sidecar carries the full `pts_start` info.
+
+**Sub-frame precision**: replace `video.currentTime` with
+`metadata.mediaTime` from `requestVideoFrameCallback`. Both Path A and
+Path B benefit. Native iOS Safari 15.4+ supports rVFC.
+
+**Quantization (NI-2)**: PDT in the manifest is encoded with millisecond
+precision (`...:33.002Z`). The camera's PTS is at 90 kHz (~11 µs
+precision). Path A's PDT-derived `pts_at_frag_start_s` therefore has
+±0.5 ms quantization noise vs the original PTS. The sidecar (Path B)
+preserves full precision because it stores `pts_start` as a JSON float
+in seconds. Either way, well within the 50 ms `MEDIAN_LAG_MS` gate.
 
 #### Player setup
 
@@ -713,7 +776,10 @@ Reviewer concern: iOS Safari does NOT honor `EXT-X-DISCONTINUITY` for
 live without `EXT-X-DISCONTINUITY-SEQUENCE` (RFC 8216 §4.3.3.3) and
 without an `EXT-X-PROGRAM-DATE-TIME` tag at the discontinuity boundary.
 
-Resolution: manifest format updated to include both. Example:
+Resolution: manifest format updated to include both, and PDT carries
+**our PTS encoded as 1970-epoch ISO 8601** (per C2/S3 unified resolution
+above) — NOT wall-clock. Example, where `pts_start = 873.000` and the
+next segment's `pts_start = 875.000`:
 
 ```
 #EXTM3U
@@ -722,39 +788,54 @@ Resolution: manifest format updated to include both. Example:
 #EXT-X-MEDIA-SEQUENCE:123456
 #EXT-X-DISCONTINUITY-SEQUENCE:0
 #EXT-X-INDEPENDENT-SEGMENTS
-#EXT-X-PROGRAM-DATE-TIME:2026-05-10T15:00:00.000Z
+#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:14:33.000Z
 #EXTINF:2.000,
 seg_0000123456.ts
 #EXTINF:2.050,
 seg_0000123457.ts
 #EXT-X-DISCONTINUITY
-#EXT-X-PROGRAM-DATE-TIME:2026-05-10T15:00:30.500Z
+#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:00:00.000Z
 #EXTINF:2.050,
 seg_0000123458.ts
 ```
 
-`PROGRAM-DATE-TIME` here is wall-clock-at-segment-write (NOT our PTS —
-PDT is for player resync purposes only; our internal sync still uses
-the sidecar). `DISCONTINUITY-SEQUENCE` increments on every actual
+PDT carries our **internal PTS clock**, not wall-clock-at-write. Reasons:
+naturally monotonic (camera PTS is monotonic), epoch-1970 keeps the
+encoded value small enough to fit JS `Date` safely (camera PTS resets
+~every 26.5h at 90kHz so always < 100,000 seconds), no NTP dependency.
+hls.js's `frag.programDateTime` exposes this as a `Date` object; the
+browser computation in C2/S3 above derives `pts_at_frag_start_s` from
+it directly. `DISCONTINUITY-SEQUENCE` increments on every actual
 discontinuity, persisted across segmenter restart in `state.json`.
+
+The discontinuity in the example shows a typical case: camera RTSP
+reconnect resets PTS to 0, `EXT-X-DISCONTINUITY` fires, the next PDT
+is `1970-01-01T00:00:00.000Z` (encoding `pts_start = 0`). Players
+resync; browser code re-anchors via `FRAG_CHANGED` event (hls.js) or
+sidecar refresh (native iOS).
 
 ### I2 — RESOLVED. Two distinct tolerances, defined explicitly.
 
 Old spec had `±0.5s` (event matching window) and `±50ms` (median lag
 pass criterion) without distinguishing them. Resolution:
 
-- **MATCH_WINDOW_MS = 500**: maximum allowed gap between an annotation's
-  identifiable midpoint and the matching SSE event's PTS. If no event
-  within this window, the annotation is unmatched (FAIL).
+- **DETECTION_MATCH_WINDOW_MS = 500**: maximum allowed gap between an
+  annotation's `first_in_frame` ↔ `last_in_frame` window and *any* SSE
+  event (no species check). If no event within ±500 ms of the
+  in-frame window, **detection FAIL** for that visit.
+- **SPECIES_MATCH_WINDOW_MS = 1000**: separate, wider window for the
+  species-correctness assertion. Vote-lock latency is ~200-800 ms after
+  the bird first becomes identifiable (≥3 frames + 60 % agreement),
+  so the matching SSE event with the correct species name can lag
+  considerably. Looser-than-detection by design (NI-4 from third audit).
 - **MEDIAN_LAG_MS = 50**: pass criterion on the *distribution* of
   `frame_pts - matched_event_pts` across all matched annotations. The
-  median must be within ±50ms of zero (a distribution centered on the
-  pipeline's natural ~200-400ms processing lag is acceptable; a
-  distribution that's growing/drifting is the failure signal).
+  median must be within ±50 ms of zero. Centered on the pipeline's
+  natural ~200-400 ms lag is acceptable; growing/drifting is failure.
 - **MAX_LAG_MS = 1000**: any single matched event whose lag exceeds
   this is reported as a per-annotation warning even if median passes.
 
-These are now properties on the harness config, not magic numbers.
+These are properties on the harness config, not magic numbers.
 
 ### I3 — RESOLVED. 1:1 matching via greedy nearest.
 
@@ -1026,17 +1107,33 @@ Deleted from code:
 ## Acceptance
 
 Design is bedrock-correct when:
-1. **Layer 2a (LAN)**: replay harness passes against ≥5 annotated
-   visits in `may10_demo_video.annotations.md`, on three browsers
-   (Playwright headless Chromium, Firefox, WebKit).
-2. **Layer 2b (tunnel)**: same harness passes through
-   `https://pi5.vivessato.com` with CF Access service token.
-3. **Manual iPad smoke** (per N-2 / N-I5): real iPad Safari
-   add-to-home-screen install, open the PWA, observe video plays +
-   labels track + sync diagnostic numbers healthy. Captured as
-   screenshots in `~/docs/bird-observatory-pi/05-dashboard.md`.
-4. The Pi dashboard runs in production for 7 consecutive days without
+
+1. **Layer 2a (LAN)**: replay harness passes **5/5 of the configured
+   annotated visits** in `may10_demo_video.annotations.md` (gate count
+   set in harness config; defaults to first 5 visits with both windows
+   + species filled in). All 5 must pass; partial pass is failure.
+   Tested on three browsers via Playwright (headless Chromium, Firefox,
+   WebKit).
+2. **Layer 2b (tunnel)**: same harness, same 5/5 gate, but Playwright
+   drives `https://pi5.vivessato.com` with CF Access service token.
+3. **Manual iPad smoke** (per N-2): real iPad Safari add-to-home-screen
+   install, open the PWA, observe (a) video autoplays inline,
+   (b) overlay labels track birds without trailing tail, (c) sync
+   diagnostic numbers healthy (rVFC ≥ 25 fps, lag bounded). Screenshots
+   captured in `~/docs/bird-observatory-pi/05-dashboard.md`.
+4. **Manual macOS Safari smoke** (added per NI-1): macOS Safari uses
+   the native HLS path (canPlayType branch), which has known
+   `EXT-X-DISCONTINUITY` quirks. One manual session crossing a
+   discontinuity (e.g., `systemctl --user restart bird-pipeline` on
+   the Pi while watching) confirms recovery without a full reload.
+5. The Pi dashboard runs in production for 7 consecutive days without
    the production sentinel firing.
 
-After (4), this design is considered locked. Future changes to the sync
+After (5), this design is considered locked. Future changes to the sync
 path require Layers 2a + 2b to pass before merge.
+
+**Why 5/5 strict, not 4/5 tolerant**: a single failing annotation is a
+real failure mode. Partial pass would mean we accept some birds being
+mislabeled or missed. That's not bedrock. If a specific visit is
+inherently flaky (e.g., bird only visible 5 frames before flying off),
+remove it from the annotation file rather than weaken the gate.
