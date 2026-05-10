@@ -198,33 +198,33 @@ class SnapshotWriter:
         hires_frame_snap = None
         if self.hires_ring is not None and not self.shadow_mode:
             try:
-                from pipeline.hires_ring import score_frame as _sfn
-                low_w = frame_bgr.shape[1] or 1
-                low_h = frame_bgr.shape[0] or 1
-                sx = 1920.0 / low_w
-                sy = 1080.0 / low_h
-                bbox_h = [
-                    track.bbox[0] * sx, track.bbox[1] * sy,
-                    track.bbox[2] * sx, track.bbox[3] * sy,
-                ]
-                # Search the full track lifetime (first detection → lock frame)
-                # so we pick the sharpest moment the bird was in frame, not
-                # just whatever happened to be near the lock timestamp.
-                created_ms = getattr(track, "created_at_ms", wall_time_ms)
-                det_conf = float(track.confidence or 0.3)
-                cands = self.hires_ring.find_in_window(
-                    start_ms=created_ms - 200,
-                    end_ms=wall_time_ms + 200,
+                # Use the ring frame nearest to lock time — not the "sharpest"
+                # frame in the track window.
+                #
+                # At lock time, YOLO just confirmed the bird is at track.bbox.
+                # The ring frame ±200ms of wall_time_ms therefore also has the
+                # bird at that position. Proximity to lock time IS the quality
+                # signal — sharpness scoring is unreliable because an empty
+                # seed-feeder has high Laplacian variance and can outscore a
+                # partially-in-frame bird.
+                #
+                # Tolerance 400ms: accommodates the ~200ms desync between the
+                # substream (detection) and mainstream (ring) ffmpeg processes
+                # plus one-frame jitter at 5fps (another 200ms).
+                cand = self.hires_ring.find_nearest(
+                    wall_time_ms, tolerance_ms=400
                 )
-                if not cands:
-                    # Window fell outside ring history (very short-lived track
-                    # or ring just restarted); nearest-neighbour fallback.
-                    cands = self.hires_ring.find_candidates(wall_time_ms, k=5)
-                if cands:
-                    scored = [(_sfn(c.frame, bbox_h, det_conf), c) for c in cands]
-                    scored.sort(key=lambda x: x[0], reverse=True)
-                    if scored[0][0] > 0:
-                        hires_frame_snap = scored[0][1].frame.copy()
+                if cand is not None:
+                    hires_frame_snap = cand.frame.copy()
+                else:
+                    # Ring frame not within 400ms of lock — ring restarted or
+                    # clock skew. Fall back to the closest available frame
+                    # sorted by proximity to lock time (still better than the
+                    # background-thread lookup which would be seconds stale).
+                    cands = self.hires_ring.find_candidates(wall_time_ms, k=3)
+                    if cands:
+                        cands.sort(key=lambda c: abs(c.wall_ms - wall_time_ms))
+                        hires_frame_snap = cands[0].frame.copy()
             except Exception:
                 pass  # non-fatal — _write_one falls back to 640×360
 
