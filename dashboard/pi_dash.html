@@ -1233,6 +1233,169 @@
       return;
     }
 
+  // ── Adaptive Lock — symmetric Gaussian kernel ─────────────────────────
+  // Ported from iMac dashboard/index.html:8355 with the symmetric upgrade
+  // (events with d > 0 are valid because HLS buffer means current frame
+  // has future events available).
+
+  const SIGMA_WIDE_S    = 0.380;
+  const SIGMA_NARROW_S  = 0.190;
+  const VEL_LO_PX_S     = 20;
+  const VEL_HI_PX_S     = 80;
+  const VEL_LOOKBACK_S  = 0.150;
+  const ALPHA_EMA_GAIN  = 0.1;
+  const ANCHOR_LERP     = 0.5;
+  const FADE_IN_S       = 0.30;
+  const STALE_S         = 0.80;
+  const FADE_OUT_S      = 0.40;
+  const trackAlphaEMA   = new Map();   // track_id → alphaEMA
+
+  function bisectInsertEvent(arr, evt) {
+    // events sorted by pts asc. Linear walk from tail is fine for ~60 entries.
+    let i = arr.length;
+    while (i > 0 && arr[i - 1].pts > evt.pts) i--;
+    arr.splice(i, 0, evt);
+  }
+
+  function gaussianAt(events, T_pts, sigma_s) {
+    if (events.length === 0) return null;
+    const sigma2 = sigma_s * sigma_s;
+    const halfWindow = sigma_s * 3.2;
+    // Binary search for insertion index of T_pts
+    let lo = 0, hi = events.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (events[mid].pts < T_pts) lo = mid + 1; else hi = mid;
+    }
+    const center = lo;
+    let sx = 0, sy = 0, sw = 0;
+    // Past
+    for (let i = center - 1; i >= 0; i--) {
+      const d = events[i].pts - T_pts;
+      if (d < -halfWindow) break;
+      const w = Math.exp(-(d * d) / (2 * sigma2));
+      sx += events[i].cx * w; sy += events[i].top * w; sw += w;
+    }
+    // Future
+    for (let i = center; i < events.length; i++) {
+      const d = events[i].pts - T_pts;
+      if (d > halfWindow) break;
+      const w = Math.exp(-(d * d) / (2 * sigma2));
+      sx += events[i].cx * w; sy += events[i].top * w; sw += w;
+    }
+    if (sw === 0) return null;
+    return { cx: sx / sw, top: sy / sw };
+  }
+
+  function adaptiveAnchorAt(trackId, events, T_pts) {
+    if (!events.length) return null;
+    const narrow = gaussianAt(events, T_pts, SIGMA_NARROW_S);
+    if (!narrow) {
+      const last = events[events.length - 1];
+      return { cx: last.cx, top: last.top };
+    }
+    let wide = gaussianAt(events, T_pts, SIGMA_WIDE_S);
+    if (!wide) wide = narrow;
+    // Velocity on the narrow kernel
+    const past = gaussianAt(events, T_pts - VEL_LOOKBACK_S, SIGMA_NARROW_S);
+    let vel = 0;
+    if (past) {
+      const dx = narrow.cx - past.cx, dy = narrow.top - past.top;
+      vel = Math.sqrt(dx*dx + dy*dy) / VEL_LOOKBACK_S;
+    }
+    let alphaRaw = (vel - VEL_LO_PX_S) / (VEL_HI_PX_S - VEL_LO_PX_S);
+    alphaRaw = Math.max(0, Math.min(1, alphaRaw));
+    let alphaEMA = trackAlphaEMA.get(trackId);
+    if (alphaEMA == null) alphaEMA = alphaRaw;
+    else alphaEMA += (alphaRaw - alphaEMA) * ALPHA_EMA_GAIN;
+    trackAlphaEMA.set(trackId, alphaEMA);
+    return {
+      cx:  (1 - alphaEMA) * wide.cx  + alphaEMA * narrow.cx,
+      top: (1 - alphaEMA) * wide.top + alphaEMA * narrow.top,
+    };
+  }
+
+  // ── Canvas drawing ────────────────────────────────────────────────────
+  const canvas = document.getElementById('live-overlay');
+  const ctx = canvas.getContext('2d');
+
+  function setCanvasSize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: rect.width, h: rect.height };
+  }
+
+  function videoRect(canvasW, canvasH, fw, fh) {
+    const stageAR = canvasW / canvasH;
+    const videoAR = fw / fh;
+    let renderW, renderH, offX = 0, offY = 0;
+    if (videoAR > stageAR) {
+      renderW = canvasW; renderH = canvasW / videoAR;
+      offY = (canvasH - renderH) / 2;
+    } else {
+      renderH = canvasH; renderW = canvasH * videoAR;
+      offX = (canvasW - renderW) / 2;
+    }
+    return { sx: renderW / fw, sy: renderH / fh, offX, offY };
+  }
+
+  function drawBBox(x, y, w, h, locked, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.strokeStyle = locked
+      ? 'rgba(74, 222, 128, 0.95)'
+      : 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 1.6;
+    ctx.shadowColor = locked
+      ? 'rgba(74, 222, 128, 0.55)' : 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 12;
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  function drawLabel(cx, topY, text, locked, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+    const padX = 8;
+    const tw = ctx.measureText(text).width;
+    const w = tw + 2 * padX;
+    const h = 22;
+    const rx = cx - w / 2;
+    const ry = topY - h - 4;
+    const r = 4;
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = locked ? '#4ade80' : 'rgba(255, 255, 255, 0.18)';
+    ctx.beginPath();
+    ctx.moveTo(rx + r, ry);
+    ctx.lineTo(rx + w - r, ry);
+    ctx.quadraticCurveTo(rx + w, ry, rx + w, ry + r);
+    ctx.lineTo(rx + w, ry + h - r);
+    ctx.quadraticCurveTo(rx + w, ry + h, rx + w - r, ry + h);
+    ctx.lineTo(rx + r, ry + h);
+    ctx.quadraticCurveTo(rx, ry + h, rx, ry + h - r);
+    ctx.lineTo(rx, ry + r);
+    ctx.quadraticCurveTo(rx, ry, rx + r, ry);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.fillStyle = locked ? '#0a0a0a' : '#fff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, ry + h / 2);
+    ctx.restore();
+  }
+
     // SSE → labels. Event shape:
     //   {camera, wall_time_ms, tracks: [{track_id, bbox, frame_width,
     //                                    frame_height, species,
