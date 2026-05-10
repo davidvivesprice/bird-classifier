@@ -38,6 +38,20 @@ CAMERAS_MAIN = {
     # CAMERA_GROUND: "rtsp://127.0.0.1:8554/ground-main",
 }
 
+# Test override: when set, the pipeline reads from this URL instead of go2rtc.
+# Used by tools/sync_replay_assert.py to point at mediamtx-on-iMac (per spec §4).
+_test_url = os.environ.get("PIPELINE_TEST_RTSP_URL")
+if _test_url:
+    log_msg = f"[PIPELINE_TEST_RTSP_URL] overriding camera URLs → {_test_url}"
+    # mutate both dicts; harness expects feeder-main behaviour from the test stream
+    for k in list(CAMERAS_DETECT.keys()):
+        CAMERAS_DETECT[k] = _test_url
+    for k in list(CAMERAS_MAIN.keys()):
+        CAMERAS_MAIN[k] = _test_url
+else:
+    log_msg = None
+# defer logging until main() so we don't double-log on import
+
 YOLO_MODEL = str(MODELS_DIR / "yolov8n_bird.onnx")
 YARD_MODEL = str(MODELS_DIR / "yard_model.tflite")
 YARD_LABELS = str(MODELS_DIR / "yard_model_labels.txt")
@@ -131,6 +145,8 @@ def main():
     from pipeline.snapshot_writer import SnapshotWriter
 
     log.info("Starting bird_pipeline_v3...")
+    if log_msg:
+        log.info(log_msg)
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
@@ -287,6 +303,22 @@ def main():
             # (RTP timestamp → SSE alignment) — TODO, not yet implemented.
             # Do not re-enable here until that design is settled.
             recorder = None if PI_MODE else HlsRecorder(name, main_url, str(HLS_DIR / name))
+
+            # HLS segmenter — single-stream PTS-aware segmenter writing to
+            # ~/bird-snapshots/hls/feeder/, served by existing
+            # /api/hls-live/{camera}/{path:path} route. Spec:
+            # docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+            from pipeline.hls_segmenter import HlsSegmenter
+            seg_dir = HLS_DIR / name
+            hls_segmenter = HlsSegmenter(
+                camera=name,
+                input_url=main_url,
+                out_dir=seg_dir,
+                window_segments=30,
+                retention_s=60.0,
+            )
+            hls_segmenter.start()
+            log.info("[%s] HlsSegmenter started → %s", name, seg_dir)
 
             capture.start()
             process.start()

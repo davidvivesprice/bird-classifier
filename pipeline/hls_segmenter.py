@@ -419,3 +419,27 @@ class HlsSegmenter:
         )
         atomic_write_text(self.out_dir / "live.m3u8", manifest_str)
         self.stats["manifest_updates"] += 1
+
+    def run_forever(self) -> None:
+        """Production entry point: run until stop() is called, recovering
+        from RTSP disconnects by re-opening the container. Use in a daemon
+        thread.
+        """
+        while not self._stop.is_set():
+            try:
+                self.run_until_eof()
+            except Exception as e:
+                log.warning("[%s] segmenter session ended: %s — reopening in 2s",
+                            self.camera, e)
+            if self._stop.is_set():
+                break
+            time.sleep(2.0)
+
+    def start(self) -> None:
+        """Start the segmenter in a daemon thread."""
+        self._thread = threading.Thread(
+            target=self.run_forever,
+            name=f"hls-segmenter-{self.camera}",
+            daemon=True,
+        )
+        self._thread.start()
