@@ -284,14 +284,17 @@
     pointer-events: none;
   }
   .sync-diag {
-    position: absolute; left: 8px; bottom: 8px;
-    font-family: var(--font-mono); font-size: 10px;
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(0, 0, 0, 0.45);
-    padding: 2px 6px; border-radius: 3px;
+    position: absolute; bottom: 6px; left: 8px;
+    font-family: var(--font-mono); font-size: 10px; line-height: 1.4;
+    color: rgba(255,255,255,0.85);
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px; border-radius: 4px;
     pointer-events: none;
+    white-space: pre;
+    display: none;
     z-index: 2;
   }
+  .sync-diag.visible { display: block; }
   .overlay-toggle {
     position: absolute; top: 8px; right: 8px;
     background: rgba(0, 0, 0, 0.55);
@@ -1188,8 +1191,6 @@
   function setupLiveView() {
     const stage = document.getElementById('live-stage');
     const video = document.getElementById('live-video');
-    const labelsRoot = document.getElementById('live-labels');
-    const emptyEl = document.getElementById('live-empty');
     const statusEl = document.getElementById('live-status');
     const dotEl = document.getElementById('live-dot');
 
@@ -1589,141 +1590,100 @@
   }
   startFrameSync();
 
-    // SSE → labels. Event shape:
-    //   {camera, wall_time_ms, tracks: [{track_id, bbox, frame_width,
-    //                                    frame_height, species,
-    //                                    species_confidence, is_locked}]}
-    // bbox is in detector frame coords (typ. 640x360); frame_width/height
-    // come in the event so we don't hardcode them.
-    const tracks = new Map();  // track_id → {bboxEl, labelEl, last_seen, last_data}
-    let lastEventTs = 0;
+  // ── SSE subscriber ───────────────────────────────────────────────────
+  let lastEventTs = 0;
+  function ingestEvent(evt) {
+    if (typeof evt.pts !== 'number') return;
+    // Update global event buffer (for any future cross-track logic)
+    eventBuf.push({ pts: evt.pts, tracks: evt.tracks || [] });
+    while (eventBuf.length > EVENT_BUF_MAX) eventBuf.shift();
+    diag.sseCount++;
 
-    function ensureTrackEls(tid) {
-      let entry = tracks.get(tid);
-      if (entry) return entry;
-      const bboxEl = document.createElement('div');
-      bboxEl.className = 'live-bbox';
-      bboxEl.style.opacity = '0';
-      const labelEl = document.createElement('div');
-      labelEl.className = 'live-label pending';
-      labelEl.style.opacity = '0';
-      labelEl.textContent = '…';
-      labelsRoot.appendChild(bboxEl);
-      labelsRoot.appendChild(labelEl);
-      entry = { bboxEl, labelEl, last_seen: 0 };
-      tracks.set(tid, entry);
-      // Fade in on next frame so the transition fires
-      requestAnimationFrame(() => {
-        bboxEl.style.opacity = '1';
-        labelEl.style.opacity = '1';
+    // Update per-track history
+    for (const t of (evt.tracks || [])) {
+      const tid = t.track_id;
+      if (!trackHistory.has(tid)) trackHistory.set(tid, []);
+      const events = trackHistory.get(tid);
+      const cx = (t.bbox[0] + t.bbox[2]) / 2;
+      const top = t.bbox[1];
+      bisectInsertEvent(events, {
+        pts: evt.pts,
+        cx, top,
+        bbox_w: t.bbox[2] - t.bbox[0],
+        bbox_h: t.bbox[3] - t.bbox[1],
+        frame_width: t.frame_width,
+        frame_height: t.frame_height,
+        species: t.species,
+        species_confidence: t.species_confidence,
+        is_locked: t.is_locked,
       });
-      return entry;
     }
+    // Update status indicator
+    const n = (evt.tracks || []).length;
+    statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
+    lastEventTs = performance.now();
+  }
 
-    function updateTrack(t) {
-      const entry = ensureTrackEls(t.track_id);
-      entry.last_seen = performance.now();
-      entry.last_data = t;
-      const fw = t.frame_width || 640;
-      const fh = t.frame_height || 360;
-      const stageRect = stage.getBoundingClientRect();
-      // Account for object-fit: contain — the displayed video may be
-      // letterboxed inside the stage. Compute the rendered video rect
-      // and offset bbox into it.
-      const stageAR = stageRect.width / stageRect.height;
-      const videoAR = fw / fh;
-      let renderW, renderH, offX = 0, offY = 0;
-      if (videoAR > stageAR) {
-        // Pillarbox: width fills, height letterboxed (shouldn't happen on 16:9 vs 16:9)
-        renderW = stageRect.width;
-        renderH = stageRect.width / videoAR;
-        offY = (stageRect.height - renderH) / 2;
-      } else {
-        // Letterbox: height fills, width pillarboxed
-        renderH = stageRect.height;
-        renderW = stageRect.height * videoAR;
-        offX = (stageRect.width - renderW) / 2;
-      }
-      const sx = renderW / fw;
-      const sy = renderH / fh;
+  let sse;
+  function connectSSE() {
+    sse = new EventSource(SSE_URL);
+    sse.onopen = () => {
+      statusEl.textContent = 'live';
+      dotEl.classList.remove('offline');
+    };
+    sse.onmessage = (e) => {
+      try { ingestEvent(JSON.parse(e.data)); }
+      catch (err) { /* ignore */ }
+    };
+    sse.onerror = () => {
+      statusEl.textContent = 'reconnecting…';
+      dotEl.classList.add('offline');
+    };
+  }
 
-      const [x1, y1, x2, y2] = t.bbox;
-      const dx = offX + x1 * sx;
-      const dy = offY + y1 * sy;
-      const w = Math.max(2, (x2 - x1) * sx);
-      const h = Math.max(2, (y2 - y1) * sy);
+  // ── Labels toggle ────────────────────────────────────────────────────
+  const toggleBtn = document.getElementById('overlay-toggle');
+  function refreshToggleUi() {
+    toggleBtn.classList.toggle('off', !showLabels);
+    toggleBtn.textContent = showLabels ? 'Labels' : 'Labels off';
+  }
+  refreshToggleUi();
+  toggleBtn.addEventListener('click', () => {
+    showLabels = !showLabels;
+    localStorage.setItem('showLabels', showLabels ? '1' : '0');
+    refreshToggleUi();
+    // Force a redraw immediately
+    setCanvasSize();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  });
 
-      entry.bboxEl.style.transform = `translate(${dx}px, ${dy}px)`;
-      entry.bboxEl.style.width = `${w}px`;
-      entry.bboxEl.style.height = `${h}px`;
-      entry.bboxEl.classList.toggle('locked', !!t.is_locked);
+  // ── Diagnostic chip ──────────────────────────────────────────────────
+  const diagEl = document.getElementById('sync-diag');
+  const showDiag = new URLSearchParams(window.location.search).get('syncdiag') === '1';
+  if (showDiag) {
+    diagEl.classList.add('visible');
+    let lastRvfc = 0, lastSse = 0, lastDiagAt = performance.now();
+    setInterval(() => {
+      const nowT = performance.now();
+      const dt = (nowT - lastDiagAt) / 1000;
+      const rvfcFps = (diag.rvfcCount - lastRvfc) / dt;
+      const sseHz = (diag.sseCount - lastSse) / dt;
+      lastRvfc = diag.rvfcCount; lastSse = diag.sseCount;
+      lastDiagAt = nowT;
+      const drawAge = ((nowT - diag.lastDrawAt) / 1000).toFixed(1);
+      diagEl.textContent =
+        `rVFC: ${rvfcFps.toFixed(1)} fps  (n=${diag.rvfcCount})\n` +
+        `SSE:  ${sseHz.toFixed(1)} Hz   (n=${diag.sseCount})\n` +
+        `buf:  ${eventBuf.length} ev    tracks:${trackHistory.size}\n` +
+        `mediaT: ${diag.lastMediaT.toFixed(2)}s\n` +
+        `targetPTS: ${diag.lastTargetPts.toFixed(2)}s\n` +
+        `drawn: ${diag.drawnTracks} (${drawAge}s ago)`;
+    }, 500);
+  }
 
-      // Label position: centered above the bbox, clamped inside the stage.
-      const cx = dx + w / 2;
-      const labelTop = Math.max(4, dy - 28);
-      entry.labelEl.style.transform =
-        `translate(calc(${cx}px - 50%), ${labelTop}px)`;
-
-      if (t.species) {
-        const conf = Math.round((t.species_confidence || 0) * 100);
-        entry.labelEl.textContent = `${t.species} · ${conf}%`;
-        entry.labelEl.classList.toggle('pending', !t.is_locked);
-      } else {
-        entry.labelEl.textContent = 'identifying…';
-        entry.labelEl.classList.add('pending');
-      }
-    }
-
-    function gcTracks() {
-      const now = performance.now();
-      let alive = 0;
-      for (const [id, entry] of tracks.entries()) {
-        if (now - entry.last_seen > 1500) {
-          // Fade out, then remove
-          entry.bboxEl.style.opacity = '0';
-          entry.labelEl.style.opacity = '0';
-          setTimeout(() => {
-            entry.bboxEl.remove();
-            entry.labelEl.remove();
-          }, 220);
-          tracks.delete(id);
-        } else {
-          alive++;
-        }
-      }
-      emptyEl.classList.toggle('hidden', alive > 0);
-      // SSE liveness: if no event in 4s, mark stale
-      if (now - lastEventTs > 4000 && lastEventTs > 0) {
-        statusEl.textContent = 'paused (no recent events)';
-      }
-    }
-
-    let sse;
-    function connectSSE() {
-      sse = new EventSource('/api/pipeline/events/sse?camera=feeder');
-      sse.onopen = () => {
-        statusEl.textContent = 'live';
-        dotEl.classList.remove('offline');
-      };
-      sse.onmessage = (e) => {
-        try {
-          const evt = JSON.parse(e.data);
-          lastEventTs = performance.now();
-          if (Array.isArray(evt.tracks)) {
-            for (const t of evt.tracks) updateTrack(t);
-          }
-          const n = (evt.tracks || []).length;
-          statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
-        } catch (err) { /* ignore */ }
-      };
-      sse.onerror = () => {
-        statusEl.textContent = 'reconnecting…';
-        dotEl.classList.add('offline');
-        // EventSource auto-reconnects; we just update the status indicator.
-      };
-    }
-    connectSSE();
-    setInterval(gcTracks, 400);
+  // ── Boot ─────────────────────────────────────────────────────────────
+  connectSSE();
+  window.addEventListener('resize', () => setCanvasSize());
   }
 
   // ── Init ──────────────────────────────────────────────────────────
