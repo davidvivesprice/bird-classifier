@@ -5142,3 +5142,63 @@ async def pipeline_events_proxy(camera: str, start: int, end: int):
             store.shutdown()
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Overlay-sync sentinel (Task D1) ────────────────────────────────────────
+
+class OverlaySyncSentinel:
+    """Background invariant checker for the overlay-sync subsystem.
+
+    Per spec §6 N-I6: detects pipeline stalls, disk-low, and the cases
+    the offline harness can't catch in live operation.
+    """
+    def __init__(self):
+        self.counters = {
+            "checks_total": 0,
+            "manifest_stale_alerts": 0,
+            "disk_low_alerts": 0,
+            "sse_silent_alerts": 0,
+        }
+
+    def run_forever(self):
+        import time
+        from pathlib import Path
+        while True:
+            try:
+                self.counters["checks_total"] += 1
+                hls_dir = Path.home() / "bird-snapshots" / "hls" / "feeder"
+                # Manifest staleness: live.m3u8 mtime > 30s old → stalled
+                manifest = hls_dir / "live.m3u8"
+                if manifest.exists():
+                    age = time.time() - manifest.stat().st_mtime
+                    if age > 30:
+                        self.counters["manifest_stale_alerts"] += 1
+                        logging.warning("[overlay-sync] manifest stale %.0fs", age)
+                # Disk low: <1 GB free under HLS dir
+                import shutil
+                if hls_dir.exists():
+                    free_b = shutil.disk_usage(hls_dir).free
+                    if free_b < (1 << 30):
+                        self.counters["disk_low_alerts"] += 1
+                        logging.warning("[overlay-sync] disk low: %d MB free",
+                                        free_b // (1 << 20))
+            except Exception:
+                logging.exception("[overlay-sync] sentinel error")
+            time.sleep(30)
+
+
+@app.on_event("startup")
+async def start_overlay_sync_sentinel():
+    import threading
+    sentinel = OverlaySyncSentinel()
+    sentinel_thread = threading.Thread(
+        target=sentinel.run_forever, daemon=True, name="overlay-sync-sentinel"
+    )
+    sentinel_thread.start()
+    app.state.overlay_sync_sentinel = sentinel
+
+
+@app.get("/api/overlay-sync-health")
+def overlay_sync_health():
+    s = app.state.overlay_sync_sentinel
+    return s.counters
