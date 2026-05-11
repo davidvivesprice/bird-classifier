@@ -64,8 +64,10 @@ def test_manifest_basic_live():
     assert "#EXT-X-INDEPENDENT-SEGMENTS" in lines
     # No ENDLIST (live)
     assert "#EXT-X-ENDLIST" not in lines
-    # First segment's PDT should be 1970-epoch encoding of pts_start=1230
-    assert "#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:20:30.000Z" in lines
+    # No PDT — see segmenter docstring; hls.js misinterprets 1970-epoch PDT
+    # as wall-clock and stalls the live-edge logic. Browser uses sidecar
+    # for PTS lookup instead.
+    assert not any(l.startswith("#EXT-X-PROGRAM-DATE-TIME") for l in lines)
     # EXTINF + segment URI lines
     assert "#EXTINF:2.000," in lines
     assert "seg_0000000123.ts" in lines
@@ -92,9 +94,9 @@ def test_manifest_with_discontinuity():
     idx2 = lines.index("seg_0000000011.ts")
     disc_idx = lines.index("#EXT-X-DISCONTINUITY")
     assert idx1 < disc_idx < idx2
-    # New PDT after DISCONTINUITY anchors at pts_start=0 → 1970-01-01T00:00:00
-    pdt_for_new = [l for l in lines[disc_idx:idx2] if l.startswith("#EXT-X-PROGRAM-DATE-TIME")]
-    assert pdt_for_new == ["#EXT-X-PROGRAM-DATE-TIME:1970-01-01T00:00:00.000Z"]
+    # No PDT after the discontinuity either (browser uses sidecar for PTS).
+    pdt_lines = [l for l in lines if l.startswith("#EXT-X-PROGRAM-DATE-TIME")]
+    assert pdt_lines == []
 
 
 def test_manifest_target_duration_at_least_max():

@@ -113,20 +113,18 @@ def serialize_manifest(
         "#EXT-X-INDEPENDENT-SEGMENTS",
     ]
 
-    last_pdt_emitted_pts: Optional[float] = None
-
+    # NOTE (2026-05-10): we deliberately DO NOT emit EXT-X-PROGRAM-DATE-TIME.
+    # Earlier design encoded our PTS as 1970-epoch ISO 8601 in PDT, but
+    # hls.js interprets PDT as wall-clock and uses it for live-edge math.
+    # A PDT in 1970 makes hls.js compute "live edge" billions of ms in
+    # the past relative to Date.now(), so it stops loading fragments
+    # (LEVEL_LOADED fires forever; FRAG_LOADED never fires; video stays
+    # readyState=0). The browser uses the segments.json sidecar to look
+    # up pts_start by fragment filename — same code path for both hls.js
+    # and native iOS HLS, no PDT needed.
     for i, seg in enumerate(segments):
-        is_disc_boundary = seg.name in discontinuity_boundaries
-        # Emit DISCONTINUITY tag before this segment if needed.
-        if is_disc_boundary:
+        if seg.name in discontinuity_boundaries:
             lines.append("#EXT-X-DISCONTINUITY")
-            last_pdt_emitted_pts = None  # force re-anchor after disc
-
-        # Emit PDT at first segment AND after each discontinuity.
-        if i == 0 or last_pdt_emitted_pts is None:
-            lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{pts_to_pdt(seg.pts_start)}")
-            last_pdt_emitted_pts = seg.pts_start
-
         lines.append(f"#EXTINF:{seg.duration:.3f},")
         lines.append(seg.name)
 

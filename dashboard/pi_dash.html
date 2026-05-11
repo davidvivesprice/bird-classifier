@@ -199,6 +199,23 @@
   .chip.live::before { content: "● "; animation: blink 1.8s ease infinite; }
   @keyframes blink { 50% { opacity: 0.35; } }
 
+  #demo-mode-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer;
+  }
+  #demo-mode-toggle:hover { background: rgba(255,255,255,0.10); }
+  #demo-mode-toggle:disabled { opacity: 0.6; cursor: progress; }
+  #demo-mode-toggle.demo-on {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #demo-mode-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-muted);
+  }
+  #demo-mode-toggle.demo-on #demo-mode-dot { background: var(--accent); }
+
   .shell { max-width: 1280px; margin: 0 auto; padding: 32px; }
   @media (max-width: 900px) { .shell { padding: 20px 14px; } }
 
@@ -663,6 +680,10 @@
     <span class="chip" id="chip-model">model: —</span>
     <span class="chip" id="chip-detect">detector: Hailo-8L</span>
     <span class="chip" id="chip-uptime">uptime: —</span>
+    <button id="demo-mode-toggle" class="chip" type="button" title="Toggle demo mode (recorded video)">
+      <span class="dot" id="demo-mode-dot"></span>
+      <span id="demo-mode-label">live</span>
+    </button>
     <div class="theme-picker">
       <button class="theme-btn tb-observatory active" data-theme="observatory" title="Observatory"></button>
       <button class="theme-btn tb-fieldguide"  data-theme="fieldguide"  title="Field Guide"></button>
@@ -1201,19 +1222,23 @@
     const SIDECAR_URL = '/api/hls-live/feeder/segments.json';
     const SSE_URL = '/api/pipeline/events/sse?camera=feeder';
 
-    // PTS sync state (used by B4-B6; declared here so B3 player setup can
-    // wire FRAG_CHANGED into them — values are populated later).
+    // PTS sync state. Both transport paths (hls.js + native iOS HLS) look
+    // up PTS via the segments.json sidecar — keyed by fragment filename.
+    // We tried embedding PTS in PROGRAM-DATE-TIME, but hls.js misinterprets
+    // PDT as wall-clock and stalls the live-edge logic if PDT is in 1970.
+    // Sidecar path is unified, deterministic, and PDT-independent.
     let hls = null;
     let usingNativeHls = false;
-    let currentFragPdt = null;     // Date object from frag.programDateTime
-    let currentFragStart = 0;      // hls.js media-timeline anchor
+    let currentFragName = null;    // hls.js: filename of currently playing frag
+    let currentFragStart = 0;      // hls.js: media-timeline anchor for that frag
 
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // iOS Safari (and macOS Safari): native HLS path. canPlayType FIRST
-      // because Safari may also have MSE but native HLS is more reliable on iOS.
-      usingNativeHls = true;
-      video.src = HLS_URL;
-    } else if (window.Hls && window.Hls.isSupported()) {
+    // Player selection. KEY BUG FIX (2026-05-10): Chrome on Mac/Linux
+    // returns canPlayType('application/vnd.apple.mpegurl') == "maybe" but
+    // doesn't actually play HLS natively — silent failure (video.src set,
+    // readyState=0, paused=true forever). Native HLS is ONLY a real path
+    // on Safari. Prefer hls.js when MSE is available; fall back to native
+    // only when hls.js can't run (iOS Safari, which has no MSE).
+    if (window.Hls && window.Hls.isSupported()) {
       hls = new window.Hls({
         liveSyncDuration: 8,
         liveMaxLatencyDuration: 12,
@@ -1224,10 +1249,17 @@
       hls.attachMedia(video);
       hls.on(window.Hls.Events.FRAG_CHANGED, (_evt, data) => {
         const frag = data.frag;
-        currentFragPdt = frag.programDateTime
-          ? new Date(frag.programDateTime) : null;
+        // Use the fragment's filename (relurl) to look up pts_start in the
+        // sidecar. Same code path as native iOS — see computeFramePts.
+        currentFragName = (frag.relurl || frag.url || '').split('/').pop();
         currentFragStart = frag.start;
       });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // No MSE (iOS Safari) — use the native HLS player. canPlayType
+      // returns "maybe" or "probably" on Safari; on iOS Safari this is
+      // the only path because hls.js needs MSE which iOS doesn't expose.
+      usingNativeHls = true;
+      video.src = HLS_URL;
     } else {
       statusEl.textContent = 'video unsupported';
       dotEl.classList.add('offline');
@@ -1451,20 +1483,19 @@
     });
   }
 
-  // ── Frame PTS computation (universal) ────────────────────────────────
+  // ── Frame PTS computation (universal — both transport paths) ────────
+  // hls.js path: FRAG_CHANGED gave us the currentFragName + currentFragStart.
+  // Look up pts_start in the sidecar by filename, then add (mediaTime − fragStart).
+  // Native iOS path: walk the cumulative-duration table built from the sidecar.
   function computeFramePts(meta) {
-    if (hls && currentFragPdt) {
-      // hls.js path
-      const pts_at_frag_start_s = currentFragPdt.getTime() / 1000;
-      const t = (typeof meta?.mediaTime === 'number')
-        ? meta.mediaTime : video.currentTime;
-      const offset_in_frag = t - currentFragStart;
-      return pts_at_frag_start_s + offset_in_frag;
+    const t = (typeof meta?.mediaTime === 'number')
+      ? meta.mediaTime : video.currentTime;
+    if (hls && currentFragName) {
+      const seg = segmentsIndex[currentFragName];
+      if (!seg) return null;
+      return seg.pts_start + (t - currentFragStart);
     }
     if (usingNativeHls && nativeMediaTimeline.length) {
-      // Native iOS path
-      const t = (typeof meta?.mediaTime === 'number')
-        ? meta.mediaTime : video.currentTime;
       for (const frag of nativeMediaTimeline) {
         if (t >= frag.mediaStart && t < frag.mediaStart + frag.duration) {
           return frag.pts_start + (t - frag.mediaStart);
@@ -1684,6 +1715,45 @@
   // ── Boot ─────────────────────────────────────────────────────────────
   connectSSE();
   window.addEventListener('resize', () => setCanvasSize());
+  }
+
+  // ── Demo mode toggle ─────────────────────────────────────────────────
+  const demoBtn = document.getElementById('demo-mode-toggle');
+  const demoLabel = document.getElementById('demo-mode-label');
+
+  async function refreshDemoState() {
+    try {
+      const r = await fetch('/api/demo-mode');
+      const data = await r.json();
+      demoBtn.classList.toggle('demo-on', !!data.enabled);
+      demoLabel.textContent = data.enabled ? 'demo mode' : 'live';
+    } catch (e) { /* tolerate */ }
+  }
+
+  if (demoBtn) {
+    demoBtn.addEventListener('click', async () => {
+      const wasEnabled = demoBtn.classList.contains('demo-on');
+      demoBtn.disabled = true;
+      demoLabel.textContent = wasEnabled ? 'switching to live…' : 'switching to demo…';
+      try {
+        await fetch('/api/demo-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !wasEnabled }),
+        });
+        // Pipeline restart takes ~10s; poll state until stable
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          await refreshDemoState();
+          attempts++;
+          if (attempts > 30) clearInterval(poll);
+        }, 1000);
+      } finally {
+        demoBtn.disabled = false;
+      }
+    });
+    refreshDemoState();
+    setInterval(refreshDemoState, 5000);
   }
 
   // ── Init ──────────────────────────────────────────────────────────
