@@ -1588,6 +1588,49 @@
     diag.drawnTracks = drawnCount;
     diag.lastDrawAt = performance.now();
     diag.lastTargetPts = framePts;
+    // Debug hook: expose per-track PTS ranges so Playwright probes can
+    // see WHY drawn=0 when tracks>0. Updated each renderAt call.
+    const summary = [];
+    for (const [tid, events] of trackHistory.entries()) {
+      if (events.length === 0) continue;
+      summary.push({
+        tid,
+        n: events.length,
+        firstPts: events[0].pts,
+        lastPts: events[events.length-1].pts,
+        species: events[events.length-1].species,
+        gap_to_frame: framePts - events[events.length-1].pts,
+      });
+    }
+    // Expose hls.js state too — to verify currentFragName + currentFragStart
+    // are sensible relative to sidecar.
+    const currentSeg = currentFragName ? segmentsIndex[currentFragName] : null;
+    window.__overlayDebug = {
+      framePts,
+      n_tracks: trackHistory.size,
+      eventBuf_len: eventBuf.length,
+      eventBuf_first_pts: eventBuf.length ? eventBuf[0].pts : null,
+      eventBuf_last_pts: eventBuf.length ? eventBuf[eventBuf.length-1].pts : null,
+      tracks: summary,
+      drawn: drawnCount,
+      // hls.js / sidecar state:
+      currentFragName,
+      currentFragStart,
+      currentSeg_pts_start: currentSeg ? currentSeg.pts_start : null,
+      currentSeg_pts_end: currentSeg ? currentSeg.pts_end : null,
+      videoCurrentTime: video.currentTime,
+      sidecar_first_pts: (() => {
+        const names = Object.keys(segmentsIndex);
+        if (!names.length) return null;
+        return Math.min(...names.map(n => segmentsIndex[n].pts_start));
+      })(),
+      sidecar_last_pts: (() => {
+        const names = Object.keys(segmentsIndex);
+        if (!names.length) return null;
+        return Math.max(...names.map(n => segmentsIndex[n].pts_end));
+      })(),
+      sidecar_n_segments: Object.keys(segmentsIndex).length,
+    };
   }
 
   // Diagnostic state used by renderAt and by the rVFC loop. The full
@@ -1600,9 +1643,19 @@
 
   function videoFrameTick(now, meta) {
     diag.rvfcCount++;
-    diag.lastMediaT = meta?.mediaTime ?? video.currentTime;
-    const framePts = computeFramePts(meta);
-    if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
+    // CRITICAL: the re-arm at the end MUST fire even if anything inside
+    // throws, otherwise rVFC stops forever after a single exception (the
+    // earlier "rVFC died after 7 frames" bug). Wrap the body in try/catch
+    // so the loop is resilient to renderer hiccups.
+    try {
+      diag.lastMediaT = meta?.mediaTime ?? video.currentTime;
+      const framePts = computeFramePts(meta);
+      if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
+    } catch (err) {
+      // Record the error in the diag so it's visible without DevTools
+      diag.lastError = String(err);
+      if (typeof console !== 'undefined') console.error('[rVFC]', err);
+    }
     if (typeof video.requestVideoFrameCallback === 'function') {
       video.requestVideoFrameCallback(videoFrameTick);
     }
