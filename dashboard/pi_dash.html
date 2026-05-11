@@ -1495,7 +1495,8 @@
             for (const t of evt.tracks) updateTrack(t);
           }
           const n = (evt.tracks || []).length;
-          statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
+          const prefix = currentSrc === 'feeder-demo' ? 'demo · ' : '';
+          statusEl.textContent = `${prefix}${n === 1 ? '1 track' : n + ' tracks'}`;
         } catch (err) { /* tolerate malformed */ }
       };
       sse.onerror = () => {

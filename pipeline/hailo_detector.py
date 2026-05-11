@@ -54,7 +54,7 @@ class HailoDetector:
         # Previously _letterbox allocated `canvas = np.full((640,640,3), 114)`
         # AND `cv2.resize` allocated a new array each call — ~3-4 MB/frame
         # of malloc/free pressure at 30fps = 90-120 MB/s alloc traffic.
-        # Now: allocate once, refill region each frame in place.
+        # Now: allocate once, refill region each frame.
         h_in, w_in = self._input_shape[0], self._input_shape[1]
         # Hailo model wants (1, H, W, 3) uint8. Pre-fill padding with 114 (gray).
         self._input_buf = np.full((1, h_in, w_in, 3), 114, dtype=np.uint8)
@@ -62,6 +62,15 @@ class HailoDetector:
         # reset the padding to 114 when the input frame resolution changes
         # (rare — once on camera reconfig).
         self._last_letterbox_dims: Optional[tuple] = None
+        # Resize work buffer: contiguous (sh, sw, 3) uint8 — cv2 needs a
+        # contiguous dst. _input_buf slices are contiguous only when the
+        # inscribed rect spans the full input width (sw == w_in). To stay
+        # safe across any future camera resolution, we resize into this
+        # contiguous temp, do BGR→RGB in place on it, then memcpy into
+        # the input_buf slice. Cost: one ~700 KB memcpy per frame
+        # (~20 MB/s @30fps) — still far below the prior 90-120 MB/s alloc
+        # traffic this preallocation pattern replaced.
+        self._resize_temp: Optional[np.ndarray] = None
 
         self.stats = {
             "detect_calls": 0,
@@ -101,20 +110,23 @@ class HailoDetector:
         off_y = (h_in - sh) // 2
 
         # If the inscribed region changed (rare — camera res change), reset
-        # the padding to 114. Otherwise the prior frame's pixels in the
-        # target region get overwritten and the padding is already gray.
+        # the padding to 114 and re-allocate the contiguous resize temp.
         dims = (sw, sh, off_x, off_y)
         if dims != self._last_letterbox_dims:
             self._input_buf.fill(114)
             self._last_letterbox_dims = dims
+            self._resize_temp = np.empty((sh, sw, 3), dtype=np.uint8)
 
-        # Resize BGR straight into the target slice of the input buffer.
-        # cv2 handles non-contiguous dst views (OpenCV 3+).
-        target_slice = self._input_buf[0, off_y:off_y + sh, off_x:off_x + sw, :]
-        cv2.resize(bgr, (sw, sh), dst=target_slice,
+        # Resize BGR into the contiguous temp, convert in place to RGB, then
+        # memcpy into the input_buf slice. The temp pattern is robust across
+        # all camera resolutions (slice into input_buf is non-contiguous
+        # when sw < w_in, which cv2.resize's dst= cannot accept on some
+        # builds). Cost: one ~700 KB memcpy per frame at 360×640.
+        cv2.resize(bgr, (sw, sh), dst=self._resize_temp,
                    interpolation=cv2.INTER_LINEAR)
-        # BGR → RGB in place (Hailo HEF expects RGB).
-        cv2.cvtColor(target_slice, cv2.COLOR_BGR2RGB, dst=target_slice)
+        cv2.cvtColor(self._resize_temp, cv2.COLOR_BGR2RGB,
+                     dst=self._resize_temp)
+        self._input_buf[0, off_y:off_y + sh, off_x:off_x + sw, :] = self._resize_temp
 
         output = self._model.infer({self._input_name: self._input_buf})
 
