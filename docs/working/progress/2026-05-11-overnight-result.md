@@ -162,6 +162,8 @@ ssh vives@pi5.local "sed -i 's|may10_demo_640x360|may10_demo_normalized|' /home/
 ## Commits tonight
 
 ```
+82cdc30  fix(hailo): contiguous resize-temp for slice safety; ui: demo prefix in status
+01f505f  docs: overnight execution result handoff (2026-05-11)
 47fed11  perf+audit: HailoDetector buffer pool, SnapshotWriter copy elim, dashboard hardening
 994d749  perf+demo: PyAV threads=1, 640x360 demo loop, dashboard auto-switch source
 5331a1d  perf(pipeline): FrameCapture → feeder-sub substream; dashboard resize fix
@@ -169,6 +171,46 @@ c06b694  fix(dashboard): restore WebRTC + DOM-label live view per CLAUDE.md
 901d98b  debug(overlay): window.__overlayDebug hook + rVFC resilience  (pre-rewrite cleanup)
 1c701db  feat(dashboard): /api/demo-mode toggle endpoint  (David's parallel work, committed for clean baseline)
 ```
+
+## Final verified state (as of 02:30 local, post all deploys)
+
+Last Playwright headless probe (60s window against `http://pi5.local:8099/?syncdiag=1`):
+
+```
+=== PASS ===
+  video 640x360 rs=4
+  sse=1673 tracks=3 evtAge=14ms
+  DOM bboxes=3 labels=3
+```
+
+i.e., over 60 seconds: WebRTC playing the 640×360 demo loop at HAVE_ENOUGH_DATA, 1673 SSE events delivered (~28 Hz), 3 active tracks with 3 DOM bboxes + 3 DOM labels currently rendered on screen, last event 14 ms old.
+
+Final pipeline state on Pi (post-restart for contiguity fix, ~02:29):
+
+```
+PID    %CPU  %MEM  RSS         threads
+1998467 119   9.9   410 MB     34
+temp=77.9°C
+throttled=0xe0000   (historical only; bit 2 cleared)
+services: pipeline + dashboard + demo-loop + go2rtc all active
+```
+
+Screenshots:
+- `/tmp/dash_phase1a.png` — Phase 1A first PASS (2 birds, real-camera feed mismatch caught)
+- `/tmp/dash_phase1bplus.png` — Phase 1B+ PASS (5 birds, demo loop video)
+- `/tmp/dash_phase2.png` — Phase 2 deploy PASS
+- `/tmp/dash_final.png` — Post-Phase-2 final state
+- `/tmp/dash_60s.png` — 60s sustained state (3 birds with labels)
+
+(All in `/tmp/` on the iMac. Re-run with `venv/bin/python3 /tmp/dash_probe_webrtc.py 'http://pi5.local:8099/?syncdiag=1' /tmp/out.png 30`.)
+
+## Background tasks still running at handoff
+
+1. **15-min stability monitor** — bash poller started at 02:22, samples CPU/temp/throttle/SSE every 60s, will write "DONE after 900 seconds" when finished (~02:37). Output file (on the iMac): `/private/tmp/claude-501/-Users-vives/413cfab1-f36f-4871-b004-67a6ced0e875/tasks/bnfwk8woh.output`. Format: CSV `sample_t,age_s,pipeline_cpu,temp_c,throttled,sse_3s,restarts,active`.
+
+   Samples through 02:30 show: CPU stable 130-133% (with the t≥372s rows reading 0% because the monitor's stored PID went stale after my contiguity-fix restart at 02:27:52 — the pipeline is healthy; the monitor's pgrep needed refresh), thermals stable 74-78°C (no throttle), SSE consistently 88-90 events/3s, zero service restarts, service active throughout.
+
+2. **Phase 2 deploy audit** — already returned PASS with one MED issue (contiguity claim was fragile); MED issue fixed in commit `82cdc30`. Full audit output preserved in the conversation.
 
 ## What I did NOT do tonight (deliberate)
 
