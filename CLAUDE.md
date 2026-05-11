@@ -11,6 +11,13 @@
 >
 > See `docs/working/progress/2026-04-25-pi-repo-split.md` for the full split context.
 > The Pi reference book (chapters 00-08) lives at `~/docs/bird-observatory-pi/`, parallel to iMac's at `~/docs/bird-observatory/`.
+>
+> **Remote branch model (added 2026-05-11):**
+> - iMac repo pushes to `imac-origin/main` (long-lived).
+> - **Pi repo (this one) pushes to `imac-origin/pi-main`** (long-lived). Local `main` is configured to track it (`git status` should show `main...imac-origin/pi-main`).
+> - Ad-hoc snapshot branches for outside review (`pi-snapshot-YYYY-MM-DD`, `pi-overnight-YYYY-MM-DD`) are fine; delete when done.
+> - **Do NOT push the Pi-repo's `main` to `imac-origin/main`** — that's the iMac repo's branch and the histories have diverged since the April 25 split.
+> - Cross-repo merges happen via cherry-pick or PR, never a forced push.
 
 ## Mission
 
