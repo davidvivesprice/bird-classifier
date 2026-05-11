@@ -11,7 +11,6 @@
 <!-- hls.js (vendored at /hls.js, served by dashboard/api.py).
      Loads as a regular script so window.Hls is available before the
      dashboard JS runs setupLiveView(). -->
-<script src="/hls.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { min-height: 100%; }
@@ -296,10 +295,61 @@
     display: block;
     background: #000;
   }
-  .live-overlay {
+  /* video-stream custom element wraps an internal <video>; style both. */
+  .live-video video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .live-labels {
     position: absolute; inset: 0;
     pointer-events: none;
   }
+  .live-bbox {
+    position: absolute; left: 0; top: 0;
+    border: 1.5px solid rgba(255, 255, 255, 0.85);
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
+                0 0 28px 6px var(--accent-glow);
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 200ms ease-out;
+    will-change: transform;
+  }
+  .live-bbox.locked {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
+                0 0 36px 8px var(--accent-glow);
+  }
+  .live-bbox.hidden { display: none; }
+  .live-label {
+    position: absolute; left: 0; top: 0;
+    background: var(--accent);
+    color: var(--bg);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 200ms ease-out;
+    will-change: transform;
+    transform-origin: 50% 100%;
+  }
+  .live-label.pending {
+    background: rgba(255, 255, 255, 0.18);
+    color: var(--text);
+    backdrop-filter: blur(4px);
+    font-weight: 500;
+    font-style: italic;
+  }
+  .live-label.hidden { display: none; }
+  .live-empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-family: var(--font-mono); font-size: 13px;
+    pointer-events: none;
+  }
+  .live-empty.hidden { display: none; }
   .sync-diag {
     position: absolute; bottom: 6px; left: 8px;
     font-family: var(--font-mono); font-size: 10px; line-height: 1.4;
@@ -725,16 +775,13 @@
       </div>
     </div>
     <div class="live-stage" id="live-stage">
-      <!-- Vanilla <video> with iOS-friendly attributes. iOS Safari plays HLS
-           natively via `src`; Chrome/Firefox/Edge use hls.js to MSE. -->
-      <video id="live-video"
-             class="live-video"
-             playsinline
-             webkit-playsinline
-             muted
-             autoplay
-             preload="auto"></video>
-      <canvas class="live-overlay" id="live-overlay"></canvas>
+      <!-- WebRTC live transport via go2rtc's <video-stream> custom element.
+           video-stream.js handles WebRTC → MSE → MJPEG fallback per browser.
+           Labels rendered as DOM nodes (.live-bbox + .live-label) with CSS
+           transition smoothing, driven by SSE events. See setupLiveView(). -->
+      <video-stream id="live-video" class="live-video" mode="webrtc,mse"></video-stream>
+      <div class="live-labels" id="live-labels"></div>
+      <div class="live-empty" id="live-empty">No birds in frame.</div>
       <div class="sync-diag" id="sync-diag"></div>
       <button class="overlay-toggle" id="overlay-toggle" type="button">Labels</button>
     </div>
@@ -1201,573 +1248,263 @@
   });
 
   // ── Live view: WebRTC video + SSE labels with CSS-driven smoothing ──
-  // Architecture (compare iMac's /live.html — 600 lines, HLS+sidecar+two
-  // Gaussian kernels): we trade math smoothing for visual smoothing.
-  // - Video: go2rtc WebRTC, sub-second latency
-  // - Labels: SSE `/api/pipeline/events/sse?camera=feeder` (~5 events/sec)
-  // - Smoothing: CSS `transform` transitions (240ms cubic-bezier) — the
-  //   browser interpolates between SSE updates for free
-  // - Track lifecycle: lazy-create DOM nodes per track_id; GC after 1.5s
-  //   without an update; bbox + label fade out via opacity transition.
+  // Architecture per CLAUDE.md (restored 2026-05-11 from pre-1503435).
+  // The HLS + canvas + sidecar PTS attempt (commits 1503435..c12f82c)
+  // failed at scale because:
+  //   1. PyAV decoded the 1080p stream twice (FrameCapture + HlsSegmenter)
+  //      → Pi 5 thermally throttled at 213% CPU
+  //   2. hls.js + sidecar PTS lookup required all five tabs (Mac+iPad+
+  //      Firefox+Safari+CF tunnel) to behave identically, they didn't
+  //   3. SSE through Cloudflare tunnel buffers (0 events through, 84/4s LAN)
+  // Current shape:
+  //   - Video: go2rtc <video-stream> custom element. WebRTC primary,
+  //     MSE/MJPEG fallback (auto-negotiated by video-rtc.js). Sub-second
+  //     latency. Works on iPad Safari "Install as App" (PWA).
+  //   - Labels: SSE `/api/pipeline/events/sse?camera=feeder` (~5-30 ev/s).
+  //   - Smoothing: CSS `transform` transitions (240ms cubic-bezier) — the
+  //     browser interpolates between SSE updates for free.
+  //   - Track lifecycle: lazy-create DOM nodes per track_id; GC after 1.5s
+  //     of no update; opacity-fade out on remove.
+  //   - Diag chip (?syncdiag=1): SSE rate, track count, last-event age.
+  //   - Labels toggle: persisted in localStorage; hides .live-labels.
   function setupLiveView() {
     const stage = document.getElementById('live-stage');
     const video = document.getElementById('live-video');
+    const labelsRoot = document.getElementById('live-labels');
+    const emptyEl = document.getElementById('live-empty');
     const statusEl = document.getElementById('live-status');
     const dotEl = document.getElementById('live-dot');
+    const diagEl = document.getElementById('sync-diag');
+    const toggleBtn = document.getElementById('overlay-toggle');
 
-    // Universal HLS player setup. iOS Safari plays HLS natively from
-    // <video src="...m3u8">; everywhere else uses hls.js to MSE.
-    // Per spec §3 (player setup) — single transport, no fallback chain.
-    const HLS_URL = '/api/hls-live/feeder/live.m3u8';
-    const SIDECAR_URL = '/api/hls-live/feeder/segments.json';
-    const SSE_URL = '/api/pipeline/events/sse?camera=feeder';
-
-    // PTS sync state. Both transport paths (hls.js + native iOS HLS) look
-    // up PTS via the segments.json sidecar — keyed by fragment filename.
-    // We tried embedding PTS in PROGRAM-DATE-TIME, but hls.js misinterprets
-    // PDT as wall-clock and stalls the live-edge logic if PDT is in 1970.
-    // Sidecar path is unified, deterministic, and PDT-independent.
-    let hls = null;
-    let usingNativeHls = false;
-    let currentFragName = null;    // hls.js: filename of currently playing frag
-    let currentFragStart = 0;      // hls.js: media-timeline anchor for that frag
-
-    // Player selection. KEY BUG FIX (2026-05-10): Chrome on Mac/Linux
-    // returns canPlayType('application/vnd.apple.mpegurl') == "maybe" but
-    // doesn't actually play HLS natively — silent failure (video.src set,
-    // readyState=0, paused=true forever). Native HLS is ONLY a real path
-    // on Safari. Prefer hls.js when MSE is available; fall back to native
-    // only when hls.js can't run (iOS Safari, which has no MSE).
-    if (window.Hls && window.Hls.isSupported()) {
-      hls = new window.Hls({
-        liveSyncDuration: 8,
-        liveMaxLatencyDuration: 12,
-        enableWorker: true,
-        lowLatencyMode: false,
-      });
-      hls.loadSource(HLS_URL);
-      hls.attachMedia(video);
-      hls.on(window.Hls.Events.FRAG_CHANGED, (_evt, data) => {
-        const frag = data.frag;
-        // Use the fragment's filename (relurl) to look up pts_start in the
-        // sidecar. Same code path as native iOS — see computeFramePts.
-        currentFragName = (frag.relurl || frag.url || '').split('/').pop();
-        currentFragStart = frag.start;
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // No MSE (iOS Safari) — use the native HLS player. canPlayType
-      // returns "maybe" or "probably" on Safari; on iOS Safari this is
-      // the only path because hls.js needs MSE which iOS doesn't expose.
-      usingNativeHls = true;
-      video.src = HLS_URL;
+    // ── go2rtc base URL (LAN vs Cloudflare tunnel) ───────────────────
+    const HOST = window.location.hostname;
+    let go2rtcHttp, go2rtcWs;
+    if (HOST === 'pi5.vivessato.com') {
+      go2rtcHttp = 'https://go2rtc.vivessato.com';
+      go2rtcWs   = 'wss://go2rtc.vivessato.com';
     } else {
-      statusEl.textContent = 'video unsupported';
+      go2rtcHttp = `http://${HOST}:1984`;
+      go2rtcWs   = `ws://${HOST}:1984`;
+    }
+
+    // Load go2rtc's <video-stream> custom element (which depends on
+    // video-rtc.js). After defined, set the src and let it negotiate
+    // WebRTC → MSE → MJPEG by browser capability.
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = `${go2rtcHttp}/video-stream.js`;
+    script.onerror = () => {
+      statusEl.textContent = 'video offline';
       dotEl.classList.add('offline');
-      return;
-    }
-
-  // ── Adaptive Lock — symmetric Gaussian kernel ─────────────────────────
-  // Ported from iMac dashboard/index.html:8355 with the symmetric upgrade
-  // (events with d > 0 are valid because HLS buffer means current frame
-  // has future events available).
-
-  const SIGMA_WIDE_S    = 0.380;
-  const SIGMA_NARROW_S  = 0.190;
-  const VEL_LO_PX_S     = 20;
-  const VEL_HI_PX_S     = 80;
-  const VEL_LOOKBACK_S  = 0.150;
-  const ALPHA_EMA_GAIN  = 0.1;
-  const ANCHOR_LERP     = 0.5;
-  const FADE_IN_S       = 0.30;
-  const STALE_S         = 0.80;
-  const FADE_OUT_S      = 0.40;
-  const trackAlphaEMA   = new Map();   // track_id → alphaEMA
-
-  function bisectInsertEvent(arr, evt) {
-    // events sorted by pts asc. Linear walk from tail is fine for ~60 entries.
-    let i = arr.length;
-    while (i > 0 && arr[i - 1].pts > evt.pts) i--;
-    arr.splice(i, 0, evt);
-  }
-
-  function gaussianAt(events, T_pts, sigma_s) {
-    if (events.length === 0) return null;
-    const sigma2 = sigma_s * sigma_s;
-    const halfWindow = sigma_s * 3.2;
-    // Binary search for insertion index of T_pts
-    let lo = 0, hi = events.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (events[mid].pts < T_pts) lo = mid + 1; else hi = mid;
-    }
-    const center = lo;
-    let sx = 0, sy = 0, sw = 0;
-    // Past
-    for (let i = center - 1; i >= 0; i--) {
-      const d = events[i].pts - T_pts;
-      if (d < -halfWindow) break;
-      const w = Math.exp(-(d * d) / (2 * sigma2));
-      sx += events[i].cx * w; sy += events[i].top * w; sw += w;
-    }
-    // Future
-    for (let i = center; i < events.length; i++) {
-      const d = events[i].pts - T_pts;
-      if (d > halfWindow) break;
-      const w = Math.exp(-(d * d) / (2 * sigma2));
-      sx += events[i].cx * w; sy += events[i].top * w; sw += w;
-    }
-    if (sw === 0) return null;
-    return { cx: sx / sw, top: sy / sw };
-  }
-
-  function adaptiveAnchorAt(trackId, events, T_pts) {
-    if (!events.length) return null;
-    const narrow = gaussianAt(events, T_pts, SIGMA_NARROW_S);
-    if (!narrow) {
-      const last = events[events.length - 1];
-      return { cx: last.cx, top: last.top };
-    }
-    let wide = gaussianAt(events, T_pts, SIGMA_WIDE_S);
-    if (!wide) wide = narrow;
-    // Velocity on the narrow kernel
-    const past = gaussianAt(events, T_pts - VEL_LOOKBACK_S, SIGMA_NARROW_S);
-    let vel = 0;
-    if (past) {
-      const dx = narrow.cx - past.cx, dy = narrow.top - past.top;
-      vel = Math.sqrt(dx*dx + dy*dy) / VEL_LOOKBACK_S;
-    }
-    let alphaRaw = (vel - VEL_LO_PX_S) / (VEL_HI_PX_S - VEL_LO_PX_S);
-    alphaRaw = Math.max(0, Math.min(1, alphaRaw));
-    let alphaEMA = trackAlphaEMA.get(trackId);
-    if (alphaEMA == null) alphaEMA = alphaRaw;
-    else alphaEMA += (alphaRaw - alphaEMA) * ALPHA_EMA_GAIN;
-    trackAlphaEMA.set(trackId, alphaEMA);
-    return {
-      cx:  (1 - alphaEMA) * wide.cx  + alphaEMA * narrow.cx,
-      top: (1 - alphaEMA) * wide.top + alphaEMA * narrow.top,
     };
-  }
-
-  // ── Canvas drawing ────────────────────────────────────────────────────
-  const canvas = document.getElementById('live-overlay');
-  const ctx = canvas.getContext('2d');
-
-  function setCanvasSize() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.floor(rect.width * dpr));
-    const h = Math.max(1, Math.floor(rect.height * dpr));
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w; canvas.height = h;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { w: rect.width, h: rect.height };
-  }
-
-  function videoRect(canvasW, canvasH, fw, fh) {
-    const stageAR = canvasW / canvasH;
-    const videoAR = fw / fh;
-    let renderW, renderH, offX = 0, offY = 0;
-    if (videoAR > stageAR) {
-      renderW = canvasW; renderH = canvasW / videoAR;
-      offY = (canvasH - renderH) / 2;
-    } else {
-      renderH = canvasH; renderW = canvasH * videoAR;
-      offX = (canvasW - renderW) / 2;
-    }
-    return { sx: renderW / fw, sy: renderH / fh, offX, offY };
-  }
-
-  function drawBBox(x, y, w, h, locked, opacity) {
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.strokeStyle = locked
-      ? 'rgba(74, 222, 128, 0.95)'
-      : 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 1.6;
-    ctx.shadowColor = locked
-      ? 'rgba(74, 222, 128, 0.55)' : 'rgba(0, 0, 0, 0.6)';
-    ctx.shadowBlur = 12;
-    ctx.strokeRect(x, y, w, h);
-    ctx.restore();
-  }
-
-  function drawLabel(cx, topY, text, locked, opacity) {
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace';
-    const padX = 8;
-    const tw = ctx.measureText(text).width;
-    const w = tw + 2 * padX;
-    const h = 22;
-    const rx = cx - w / 2;
-    const ry = topY - h - 4;
-    const r = 4;
-
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 2;
-    ctx.fillStyle = locked ? '#4ade80' : 'rgba(255, 255, 255, 0.18)';
-    ctx.beginPath();
-    ctx.moveTo(rx + r, ry);
-    ctx.lineTo(rx + w - r, ry);
-    ctx.quadraticCurveTo(rx + w, ry, rx + w, ry + r);
-    ctx.lineTo(rx + w, ry + h - r);
-    ctx.quadraticCurveTo(rx + w, ry + h, rx + w - r, ry + h);
-    ctx.lineTo(rx + r, ry + h);
-    ctx.quadraticCurveTo(rx, ry + h, rx, ry + h - r);
-    ctx.lineTo(rx, ry + r);
-    ctx.quadraticCurveTo(rx, ry, rx + r, ry);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-    ctx.fillStyle = locked ? '#0a0a0a' : '#fff';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, cx, ry + h / 2);
-    ctx.restore();
-  }
-
-  // ── Sidecar polling (native iOS path) ─────────────────────────────────
-  // Per-track and global event state. Updated by the SSE handler (B6
-  // currently still in the legacy DOM-label code path; cleaned up there).
-  // For B5, declare here so the render loop can read them. SSE handler
-  // updates trackHistory[track_id] = [{pts, cx, top, bbox_w, bbox_h,
-  // frame_width, frame_height, species, species_confidence, is_locked}, ...]
-  const eventBuf = [];               // {pts, tracks}, sorted by pts asc
-  const EVENT_BUF_MAX = 240;
-  const trackHistory = new Map();    // track_id → [{pts, cx, top, ...}]
-  let segmentsIndex = {};            // {filename: {pts_start, pts_end}}
-  let nativeMediaTimeline = [];      // [{filename, mediaStart, duration}]
-  let LEAD_TIME_S = 0;
-  if (typeof window.__leadTimeS === 'number') LEAD_TIME_S = window.__leadTimeS;
-
-  let sidecarFetchInFlight = false;
-  async function refreshSidecar() {
-    if (sidecarFetchInFlight) return;
-    sidecarFetchInFlight = true;
-    try {
-      const r = await fetch(SIDECAR_URL, { cache: 'no-store' });
-      if (!r.ok) return;
-      const data = await r.json();
-      const next = {};
-      for (const s of (data.segments || [])) {
-        next[s.name] = s;
-      }
-      segmentsIndex = next;
-      if (usingNativeHls) rebuildNativeMediaTimeline();
-    } catch (e) {
-      // tolerate transient errors
-    } finally {
-      sidecarFetchInFlight = false;
-    }
-  }
-  setInterval(refreshSidecar, 2000);
-  refreshSidecar();
-
-  function rebuildNativeMediaTimeline() {
-    // Native iOS plays the manifest's fragments in order; cumulative
-    // durations form the media timeline. We don't have hls.js's
-    // FRAG_CHANGED event so we infer via cumulative durations.
-    // segments.json is ordered oldest-first.
-    const ordered = Object.values(segmentsIndex).sort(
-      (a, b) => a.pts_start - b.pts_start
-    );
-    let mediaStart = 0;
-    nativeMediaTimeline = ordered.map(s => {
-      const entry = { filename: s.name, mediaStart, duration: s.duration,
-                      pts_start: s.pts_start };
-      mediaStart += s.duration;
-      return entry;
+    document.head.appendChild(script);
+    customElements.whenDefined('video-stream').then(() => {
+      video.src = `${go2rtcWs}/api/ws?src=feeder-main`;
     });
-  }
 
-  // ── Frame PTS computation (universal — both transport paths) ────────
-  // hls.js path: FRAG_CHANGED gave us the currentFragName + currentFragStart.
-  // Look up pts_start in the sidecar by filename, then add (mediaTime − fragStart).
-  // Native iOS path: walk the cumulative-duration table built from the sidecar.
-  function computeFramePts(meta) {
-    const t = (typeof meta?.mediaTime === 'number')
-      ? meta.mediaTime : video.currentTime;
-    if (hls && currentFragName) {
-      const seg = segmentsIndex[currentFragName];
-      if (!seg) return null;
-      return seg.pts_start + (t - currentFragStart);
+    // ── SSE event shape ───────────────────────────────────────────────
+    //   {camera, wall_time_ms, pts, tracks: [{
+    //      track_id, bbox:[x1,y1,x2,y2], frame_width, frame_height,
+    //      species, species_confidence, is_locked
+    //   }]}
+    const tracks = new Map();
+    let showLabels = localStorage.getItem('showLabels') !== '0';
+    let lastEventTs = 0;
+    let sseCount = 0;
+
+    function ensureTrackEls(tid) {
+      let entry = tracks.get(tid);
+      if (entry) return entry;
+      const bboxEl = document.createElement('div');
+      bboxEl.className = 'live-bbox';
+      bboxEl.style.opacity = '0';
+      const labelEl = document.createElement('div');
+      labelEl.className = 'live-label pending';
+      labelEl.style.opacity = '0';
+      labelEl.textContent = '…';
+      labelsRoot.appendChild(bboxEl);
+      labelsRoot.appendChild(labelEl);
+      if (!showLabels) {
+        bboxEl.classList.add('hidden');
+        labelEl.classList.add('hidden');
+      }
+      entry = { bboxEl, labelEl, last_seen: 0 };
+      tracks.set(tid, entry);
+      // Fade in on next frame so the CSS opacity transition fires
+      requestAnimationFrame(() => {
+        bboxEl.style.opacity = '1';
+        labelEl.style.opacity = '1';
+      });
+      return entry;
     }
-    if (usingNativeHls && nativeMediaTimeline.length) {
-      for (const frag of nativeMediaTimeline) {
-        if (t >= frag.mediaStart && t < frag.mediaStart + frag.duration) {
-          return frag.pts_start + (t - frag.mediaStart);
+
+    function updateTrack(t) {
+      const entry = ensureTrackEls(t.track_id);
+      entry.last_seen = performance.now();
+      entry.last_data = t;
+      const fw = t.frame_width || 640;
+      const fh = t.frame_height || 360;
+      const stageRect = stage.getBoundingClientRect();
+      // object-fit: contain — find the rendered video rect inside the stage
+      const stageAR = stageRect.width / stageRect.height;
+      const videoAR = fw / fh;
+      let renderW, renderH, offX = 0, offY = 0;
+      if (videoAR > stageAR) {
+        renderW = stageRect.width;
+        renderH = stageRect.width / videoAR;
+        offY = (stageRect.height - renderH) / 2;
+      } else {
+        renderH = stageRect.height;
+        renderW = stageRect.height * videoAR;
+        offX = (stageRect.width - renderW) / 2;
+      }
+      const sx = renderW / fw;
+      const sy = renderH / fh;
+
+      const [x1, y1, x2, y2] = t.bbox;
+      const dx = offX + x1 * sx;
+      const dy = offY + y1 * sy;
+      const w = Math.max(2, (x2 - x1) * sx);
+      const h = Math.max(2, (y2 - y1) * sy);
+
+      entry.bboxEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      entry.bboxEl.style.width = `${w}px`;
+      entry.bboxEl.style.height = `${h}px`;
+      entry.bboxEl.classList.toggle('locked', !!t.is_locked);
+
+      const cx = dx + w / 2;
+      const labelTop = Math.max(4, dy - 28);
+      entry.labelEl.style.transform =
+        `translate(calc(${cx}px - 50%), ${labelTop}px)`;
+
+      if (t.species) {
+        const conf = Math.round((t.species_confidence || 0) * 100);
+        entry.labelEl.textContent = `${t.species} · ${conf}%`;
+        entry.labelEl.classList.toggle('pending', !t.is_locked);
+      } else {
+        entry.labelEl.textContent = 'identifying…';
+        entry.labelEl.classList.add('pending');
+      }
+    }
+
+    function gcTracks() {
+      const now = performance.now();
+      let alive = 0;
+      for (const [id, entry] of tracks.entries()) {
+        if (now - entry.last_seen > 1500) {
+          entry.bboxEl.style.opacity = '0';
+          entry.labelEl.style.opacity = '0';
+          setTimeout(() => {
+            entry.bboxEl.remove();
+            entry.labelEl.remove();
+          }, 220);
+          tracks.delete(id);
+        } else {
+          alive++;
         }
       }
-    }
-    return null;
-  }
-
-  // ── Per-frame render ──────────────────────────────────────────────────
-  // showLabels is read by the render loop. localStorage persistence + the
-  // toggle button event handler land in B6 — for now, default ON.
-  let showLabels = (localStorage.getItem('showLabels') ?? '1') !== '0';
-
-  function pruneTrackHistory(framePts) {
-    // Drop events older than 3s relative to current frame
-    const cutoff = framePts - 3.0;
-    for (const [tid, events] of trackHistory.entries()) {
-      while (events.length && events[0].pts < cutoff) events.shift();
-      if (events.length === 0) {
-        trackHistory.delete(tid);
-        trackAlphaEMA.delete(tid);
+      emptyEl.classList.toggle('hidden', alive > 0);
+      if (now - lastEventTs > 4000 && lastEventTs > 0) {
+        statusEl.textContent = 'paused (no recent events)';
       }
     }
-  }
 
-  function renderAt(framePts) {
-    const dim = setCanvasSize();
-    ctx.clearRect(0, 0, dim.w, dim.h);
-    if (!showLabels) return;
-
-    pruneTrackHistory(framePts);
-
-    let drawnCount = 0;
-    for (const [tid, events] of trackHistory.entries()) {
-      if (events.length === 0) continue;
-      const firstPts = events[0].pts;
-      const lastPts = events[events.length - 1].pts;
-      // Pre-arrival fade-in (FADE_IN_S before first event)
-      let opacity;
-      if (framePts < firstPts - FADE_IN_S) continue;
-      if (framePts < firstPts) {
-        opacity = (framePts - (firstPts - FADE_IN_S)) / FADE_IN_S;
-      } else if (framePts > lastPts + STALE_S + FADE_OUT_S) {
-        continue;
-      } else if (framePts > lastPts + STALE_S) {
-        opacity = 1 - (framePts - lastPts - STALE_S) / FADE_OUT_S;
-      } else {
-        opacity = 1;
+    // ── SSE connect ──────────────────────────────────────────────────
+    let sse;
+    function connectSSE() {
+      try { sse = new EventSource('/api/pipeline/events/sse?camera=feeder'); }
+      catch (e) {
+        statusEl.textContent = 'sse error';
+        dotEl.classList.add('offline');
+        return;
       }
-      if (opacity <= 0) continue;
+      sse.onopen = () => {
+        statusEl.textContent = 'live';
+        dotEl.classList.remove('offline');
+      };
+      sse.onmessage = (e) => {
+        try {
+          const evt = JSON.parse(e.data);
+          lastEventTs = performance.now();
+          sseCount++;
+          if (Array.isArray(evt.tracks)) {
+            for (const t of evt.tracks) updateTrack(t);
+          }
+          const n = (evt.tracks || []).length;
+          statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
+        } catch (err) { /* tolerate malformed */ }
+      };
+      sse.onerror = () => {
+        statusEl.textContent = 'reconnecting…';
+        dotEl.classList.add('offline');
+        // EventSource auto-reconnects
+      };
+    }
 
-      const anchor = adaptiveAnchorAt(tid, events, framePts);
-      if (!anchor) continue;
-
-      // Get the latest event for species/label info
-      const latest = events[events.length - 1];
-      const fw = latest.frame_width || 640;
-      const fh = latest.frame_height || 360;
-      const { sx, sy, offX, offY } = videoRect(dim.w, dim.h, fw, fh);
-
-      // For pre-arrival, fall back to first event's bbox; otherwise use anchor.cx/top
-      const useAnchor = framePts >= firstPts;
-      let cx, top, bboxW, bboxH;
-      if (useAnchor) {
-        // anchor.cx is bbox-center-x in detector coords; we need to reconstruct bbox dims.
-        // For now, use the latest event's bbox dimensions (the bird's size doesn't
-        // change dramatically between frames).
-        cx = anchor.cx;
-        top = anchor.top;
-        bboxW = latest.bbox_w; bboxH = latest.bbox_h;
-      } else {
-        cx = events[0].cx; top = events[0].top;
-        bboxW = events[0].bbox_w; bboxH = events[0].bbox_h;
+    // ── Labels toggle ────────────────────────────────────────────────
+    function refreshToggleUi() {
+      toggleBtn.classList.toggle('off', !showLabels);
+      toggleBtn.textContent = showLabels ? 'Labels' : 'Labels off';
+      for (const { bboxEl, labelEl } of tracks.values()) {
+        bboxEl.classList.toggle('hidden', !showLabels);
+        labelEl.classList.toggle('hidden', !showLabels);
       }
-
-      const x = offX + (cx - bboxW / 2) * sx;
-      const y = offY + top * sy;
-      const w = bboxW * sx;
-      const h = bboxH * sy;
-
-      drawBBox(x, y, w, h, !!latest.is_locked, opacity);
-      const labelText = latest.species
-        ? `${latest.species} · ${Math.round((latest.species_confidence || 0) * 100)}%`
-        : 'identifying…';
-      drawLabel(offX + cx * sx, y, labelText, !!latest.is_locked, opacity);
-      drawnCount++;
     }
-
-    diag.drawnTracks = drawnCount;
-    diag.lastDrawAt = performance.now();
-    diag.lastTargetPts = framePts;
-    // Debug hook: expose per-track PTS ranges so Playwright probes can
-    // see WHY drawn=0 when tracks>0. Updated each renderAt call.
-    const summary = [];
-    for (const [tid, events] of trackHistory.entries()) {
-      if (events.length === 0) continue;
-      summary.push({
-        tid,
-        n: events.length,
-        firstPts: events[0].pts,
-        lastPts: events[events.length-1].pts,
-        species: events[events.length-1].species,
-        gap_to_frame: framePts - events[events.length-1].pts,
-      });
-    }
-    // Expose hls.js state too — to verify currentFragName + currentFragStart
-    // are sensible relative to sidecar.
-    const currentSeg = currentFragName ? segmentsIndex[currentFragName] : null;
-    window.__overlayDebug = {
-      framePts,
-      n_tracks: trackHistory.size,
-      eventBuf_len: eventBuf.length,
-      eventBuf_first_pts: eventBuf.length ? eventBuf[0].pts : null,
-      eventBuf_last_pts: eventBuf.length ? eventBuf[eventBuf.length-1].pts : null,
-      tracks: summary,
-      drawn: drawnCount,
-      // hls.js / sidecar state:
-      currentFragName,
-      currentFragStart,
-      currentSeg_pts_start: currentSeg ? currentSeg.pts_start : null,
-      currentSeg_pts_end: currentSeg ? currentSeg.pts_end : null,
-      videoCurrentTime: video.currentTime,
-      sidecar_first_pts: (() => {
-        const names = Object.keys(segmentsIndex);
-        if (!names.length) return null;
-        return Math.min(...names.map(n => segmentsIndex[n].pts_start));
-      })(),
-      sidecar_last_pts: (() => {
-        const names = Object.keys(segmentsIndex);
-        if (!names.length) return null;
-        return Math.max(...names.map(n => segmentsIndex[n].pts_end));
-      })(),
-      sidecar_n_segments: Object.keys(segmentsIndex).length,
-    };
-  }
-
-  // Diagnostic state used by renderAt and by the rVFC loop. The full
-  // diag chip rendering lives in B6 (gated on ?syncdiag=1). Declared here
-  // so renderAt's writes don't throw.
-  const diag = {
-    rvfcCount: 0, sseCount: 0, drawnTracks: 0, lastTargetPts: 0,
-    lastMediaT: 0, lastDrawAt: 0,
-  };
-
-  function videoFrameTick(now, meta) {
-    diag.rvfcCount++;
-    // CRITICAL: the re-arm at the end MUST fire even if anything inside
-    // throws, otherwise rVFC stops forever after a single exception (the
-    // earlier "rVFC died after 7 frames" bug). Wrap the body in try/catch
-    // so the loop is resilient to renderer hiccups.
-    try {
-      diag.lastMediaT = meta?.mediaTime ?? video.currentTime;
-      const framePts = computeFramePts(meta);
-      if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
-    } catch (err) {
-      // Record the error in the diag so it's visible without DevTools
-      diag.lastError = String(err);
-      if (typeof console !== 'undefined') console.error('[rVFC]', err);
-    }
-    if (typeof video.requestVideoFrameCallback === 'function') {
-      video.requestVideoFrameCallback(videoFrameTick);
-    }
-  }
-
-  function startFrameSync() {
-    if (typeof video.requestVideoFrameCallback === 'function') {
-      video.requestVideoFrameCallback(videoFrameTick);
-    } else {
-      // rVFC unavailable — fall back to ~30Hz interval render
-      setInterval(() => {
-        const framePts = computeFramePts(null);
-        if (framePts !== null) renderAt(framePts + LEAD_TIME_S);
-      }, 33);
-    }
-  }
-  startFrameSync();
-
-  // ── SSE subscriber ───────────────────────────────────────────────────
-  let lastEventTs = 0;
-  function ingestEvent(evt) {
-    if (typeof evt.pts !== 'number') return;
-    // Update global event buffer (for any future cross-track logic)
-    eventBuf.push({ pts: evt.pts, tracks: evt.tracks || [] });
-    while (eventBuf.length > EVENT_BUF_MAX) eventBuf.shift();
-    diag.sseCount++;
-
-    // Update per-track history
-    for (const t of (evt.tracks || [])) {
-      const tid = t.track_id;
-      if (!trackHistory.has(tid)) trackHistory.set(tid, []);
-      const events = trackHistory.get(tid);
-      const cx = (t.bbox[0] + t.bbox[2]) / 2;
-      const top = t.bbox[1];
-      bisectInsertEvent(events, {
-        pts: evt.pts,
-        cx, top,
-        bbox_w: t.bbox[2] - t.bbox[0],
-        bbox_h: t.bbox[3] - t.bbox[1],
-        frame_width: t.frame_width,
-        frame_height: t.frame_height,
-        species: t.species,
-        species_confidence: t.species_confidence,
-        is_locked: t.is_locked,
-      });
-    }
-    // Update status indicator
-    const n = (evt.tracks || []).length;
-    statusEl.textContent = n === 1 ? '1 track' : `${n} tracks`;
-    lastEventTs = performance.now();
-  }
-
-  let sse;
-  function connectSSE() {
-    sse = new EventSource(SSE_URL);
-    sse.onopen = () => {
-      statusEl.textContent = 'live';
-      dotEl.classList.remove('offline');
-    };
-    sse.onmessage = (e) => {
-      try { ingestEvent(JSON.parse(e.data)); }
-      catch (err) { /* ignore */ }
-    };
-    sse.onerror = () => {
-      statusEl.textContent = 'reconnecting…';
-      dotEl.classList.add('offline');
-    };
-  }
-
-  // ── Labels toggle ────────────────────────────────────────────────────
-  const toggleBtn = document.getElementById('overlay-toggle');
-  function refreshToggleUi() {
-    toggleBtn.classList.toggle('off', !showLabels);
-    toggleBtn.textContent = showLabels ? 'Labels' : 'Labels off';
-  }
-  refreshToggleUi();
-  toggleBtn.addEventListener('click', () => {
-    showLabels = !showLabels;
-    localStorage.setItem('showLabels', showLabels ? '1' : '0');
     refreshToggleUi();
-    // Force a redraw immediately
-    setCanvasSize();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  });
+    toggleBtn.addEventListener('click', () => {
+      showLabels = !showLabels;
+      localStorage.setItem('showLabels', showLabels ? '1' : '0');
+      refreshToggleUi();
+    });
 
-  // ── Diagnostic chip ──────────────────────────────────────────────────
-  const diagEl = document.getElementById('sync-diag');
-  const showDiag = new URLSearchParams(window.location.search).get('syncdiag') === '1';
-  if (showDiag) {
-    diagEl.classList.add('visible');
-    let lastRvfc = 0, lastSse = 0, lastDiagAt = performance.now();
-    setInterval(() => {
-      const nowT = performance.now();
-      const dt = (nowT - lastDiagAt) / 1000;
-      const rvfcFps = (diag.rvfcCount - lastRvfc) / dt;
-      const sseHz = (diag.sseCount - lastSse) / dt;
-      lastRvfc = diag.rvfcCount; lastSse = diag.sseCount;
-      lastDiagAt = nowT;
-      const drawAge = ((nowT - diag.lastDrawAt) / 1000).toFixed(1);
-      diagEl.textContent =
-        `rVFC: ${rvfcFps.toFixed(1)} fps  (n=${diag.rvfcCount})\n` +
-        `SSE:  ${sseHz.toFixed(1)} Hz   (n=${diag.sseCount})\n` +
-        `buf:  ${eventBuf.length} ev    tracks:${trackHistory.size}\n` +
-        `mediaT: ${diag.lastMediaT.toFixed(2)}s\n` +
-        `targetPTS: ${diag.lastTargetPts.toFixed(2)}s\n` +
-        `drawn: ${diag.drawnTracks} (${drawAge}s ago)`;
-    }, 500);
-  }
+    // ── Diagnostic chip (?syncdiag=1) ─────────────────────────────────
+    const showDiag = new URLSearchParams(window.location.search).get('syncdiag') === '1';
+    if (showDiag) {
+      diagEl.classList.add('visible');
+      let lastSseCount = 0, lastDiagAt = performance.now();
+      setInterval(() => {
+        const nowT = performance.now();
+        const dt = (nowT - lastDiagAt) / 1000;
+        const sseHz = (sseCount - lastSseCount) / Math.max(dt, 0.001);
+        lastSseCount = sseCount; lastDiagAt = nowT;
+        const lastEventAge = lastEventTs > 0
+          ? ((nowT - lastEventTs) / 1000).toFixed(1) : '∞';
+        diagEl.textContent =
+          `arch: webrtc+dom\n` +
+          `SSE: ${sseHz.toFixed(1)} Hz (n=${sseCount})\n` +
+          `tracks: ${tracks.size}\n` +
+          `last evt: ${lastEventAge}s ago`;
+      }, 500);
+    }
 
-  // ── Boot ─────────────────────────────────────────────────────────────
-  connectSSE();
-  window.addEventListener('resize', () => setCanvasSize());
+    // Expose state for Playwright / dash_probe.py automation
+    window.__overlayDebug = {
+      arch: 'webrtc+dom',
+      get n_tracks() { return tracks.size; },
+      get lastEventAgeMs() {
+        return lastEventTs > 0 ? (performance.now() - lastEventTs) : null;
+      },
+      get sseCount() { return sseCount; },
+      get tracksSummary() {
+        const out = [];
+        for (const [id, entry] of tracks.entries()) {
+          const d = entry.last_data;
+          out.push({
+            track_id: id,
+            species: d?.species,
+            is_locked: d?.is_locked,
+            confidence: d?.species_confidence,
+            last_seen_ms_ago: performance.now() - entry.last_seen,
+          });
+        }
+        return out;
+      },
+    };
+
+    // ── Boot ─────────────────────────────────────────────────────────
+    connectSSE();
+    setInterval(gcTracks, 400);
   }
 
   // ── Demo mode toggle ─────────────────────────────────────────────────
