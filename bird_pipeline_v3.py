@@ -243,16 +243,21 @@ def main():
     camera_stacks = []
     camera_trackers = {}  # Store trackers for health endpoint exposure
     for name in CAMERAS_DETECT.keys():
-        main_url = CAMERAS_MAIN[name]
+        main_url = CAMERAS_MAIN[name]        # HlsSegmenter source — keeps full-res for replay/recording
+        detect_url = CAMERAS_DETECT[name]    # FrameCapture source — substream for live inference + display
         try:
             frame_q = queue.Queue(maxsize=2)
-            # Single-stream: decode the 1920×1080 main stream via PyAV.
-            # Downscale to 640×360 in-process for motion/YOLO/classifier;
-            # keep full frame on Frame.bgr_full for SnapshotWriter. Same
-            # buffer = same camera moment = no cross-stream sync.
+            # FrameCapture decodes the camera's NATIVE 640×360 substream
+            # (per CLAUDE.md). Pi 5 has no hardware H.264 decoder (only HEVC),
+            # so software-decoding the 1080p main stream costs ~76% of a core;
+            # substream decode is ~14% of a core (Track A audit 2026-05-11).
+            # With substream == detect resolution, no cv2.resize is needed
+            # (frame_capture.py:181 takes the no-op branch).
+            # Snapshots are 640×360 tonight; 1080p on-demand pull from
+            # main_url is a follow-up (see 2026-05-11-overnight-execution.md).
             capture = FrameCapture(
-                name, main_url, out_queue=frame_q,
-                capture_width=1920, capture_height=1080,
+                name, detect_url, out_queue=frame_q,
+                capture_width=640, capture_height=360,
                 detect_width=640, detect_height=360,
             )
             aoi = CAMERA_AOI_POLYGONS.get(name)

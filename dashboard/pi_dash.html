@@ -8,9 +8,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Crimson+Pro:wght@400;600&family=Space+Grotesk:wght@300;500;700&family=DM+Serif+Display:wght@400&family=DM+Mono:wght@300;500&family=IBM+Plex+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<!-- hls.js (vendored at /hls.js, served by dashboard/api.py).
-     Loads as a regular script so window.Hls is available before the
-     dashboard JS runs setupLiveView(). -->
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { min-height: 100%; }
@@ -1501,6 +1498,22 @@
         return out;
       },
     };
+
+    // ── Window resize: reflow all current bboxes ────────────────────
+    // updateTrack reads stage.getBoundingClientRect() — if a track stops
+    // emitting events while the user resizes / rotates, the bbox would
+    // float off the bird. On resize, re-apply geometry for every active
+    // track using its last-known data (rAF-coalesced).
+    let resizeRaf = 0;
+    window.addEventListener('resize', () => {
+      if (resizeRaf) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        for (const entry of tracks.values()) {
+          if (entry.last_data) updateTrack(entry.last_data);
+        }
+      });
+    });
 
     // ── Boot ─────────────────────────────────────────────────────────
     connectSSE();
