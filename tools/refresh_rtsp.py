@@ -114,14 +114,48 @@ def write_rtsp_urls(tokens):
     log(f"Wrote {RTSP_URLS_FILE}")
 
 
+def _load_existing_extras():
+    """Return a dict of {stream_name: [source_list]} for any streams already
+    in go2rtc.yaml that are NOT managed by this script (i.e. not in
+    GO2RTC_STREAMS). These typically include hand-added relay streams like
+    `feeder-demo` (pointed at the local mediamtx demo loop). Without this,
+    every nightly refresh_rtsp run wipes them out.
+    """
+    if not GO2RTC_CONFIG.exists():
+        return {}
+    try:
+        import yaml
+        data = yaml.safe_load(GO2RTC_CONFIG.read_text()) or {}
+    except Exception as e:
+        log(f"Warning: could not parse existing go2rtc.yaml for extras: {e}")
+        return {}
+    streams = (data.get("streams") or {})
+    managed = set(GO2RTC_STREAMS.keys())
+    extras = {}
+    for name, sources in streams.items():
+        if name in managed:
+            continue
+        # Normalize to list of strings
+        if isinstance(sources, str):
+            sources = [sources]
+        elif not isinstance(sources, list):
+            continue
+        extras[name] = [str(s) for s in sources]
+    if extras:
+        log(f"Preserving non-managed go2rtc streams: {sorted(extras.keys())}")
+    return extras
+
+
 def write_go2rtc_config(tokens):
     """Write go2rtc.yaml with fresh stream URLs. Atomic write via .tmp + rename.
 
-    Partial-failure safe: cameras whose token fetch failed upstream are
-    omitted from the config rather than KeyError'ing. api.listen +
-    origin "*" must be present so the dashboard WebSocket from
-    pi5.vivessato.com can talk to go2rtc.
+    Preserves any non-managed streams already in the existing config (e.g.
+    feeder-demo for the dashboard's demo-mode toggle). Cameras whose token
+    fetch failed upstream are omitted rather than KeyError'ing.
+    api.listen + origin "*" must be present so the dashboard WebSocket
+    from pi5.vivessato.com can talk to go2rtc.
     """
+    existing_extras = _load_existing_extras()
     lines = ["streams:"]
     for stream_name, (camera, quality) in GO2RTC_STREAMS.items():
         if camera not in tokens:
@@ -131,6 +165,13 @@ def write_go2rtc_config(tokens):
             continue
         lines.append(f"  {stream_name}:")
         lines.append(f"    - {url}#tcp")
+    # Append preserved non-managed streams verbatim.
+    for name, sources in existing_extras.items():
+        lines.append("")
+        lines.append(f"  # Preserved by refresh_rtsp.py (non-managed stream).")
+        lines.append(f"  {name}:")
+        for src in sources:
+            lines.append(f"    - {src}")
     lines.extend([
         "",
         "api:",
