@@ -152,11 +152,21 @@ class FrameCapture:
         self._container = container
         try:
             stream = container.streams.video[0]
-            # PyAV decodes packets to frames; we iterate frames directly.
+            # Pin libavcodec to a single decode thread. Default `thread_count=auto`
+            # spawns 3-4 slice-decoder workers per container (Track B audit
+            # 2026-05-11 caught them at 20-30% of a core each, ~80% of a core
+            # total). At substream resolution (640×360) one thread is plenty
+            # for 30fps. Set BEFORE the first decode() call.
+            try:
+                stream.codec_context.thread_count = 1
+                stream.codec_context.thread_type = "NONE"
+            except Exception as e:
+                log.warning("[%s] could not pin decoder threads=1: %s", self.camera_name, e)
             log.info(
-                "[%s] PyAV stream open: %sx%s codec=%s rate=%s time_base=%s",
+                "[%s] PyAV stream open: %sx%s codec=%s rate=%s time_base=%s threads=%s",
                 self.camera_name, stream.width, stream.height,
                 stream.codec_context.name, stream.average_rate, stream.time_base,
+                stream.codec_context.thread_count,
             )
             for av_frame in container.decode(stream):
                 if self._stop_event.is_set():

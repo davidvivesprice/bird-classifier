@@ -1296,8 +1296,38 @@
       dotEl.classList.add('offline');
     };
     document.head.appendChild(script);
-    customElements.whenDefined('video-stream').then(() => {
-      video.src = `${go2rtcWs}/api/ws?src=feeder-main`;
+
+    // Live-source selection. When demo mode is on (GET /api/demo-mode →
+    // enabled=true), play the looped demo video instead of the live camera —
+    // so the labels drawn on top match the video the user sees. Pipeline
+    // analyzes the same stream via PIPELINE_TEST_RTSP_URL override.
+    async function pickLiveSrc() {
+      try {
+        const r = await fetch('/api/demo-mode');
+        if (r.ok) {
+          const data = await r.json();
+          if (data.enabled) return 'feeder-demo';
+        }
+      } catch (e) { /* tolerate: fall through to camera */ }
+      return 'feeder-main';
+    }
+
+    Promise.all([
+      customElements.whenDefined('video-stream'),
+      pickLiveSrc(),
+    ]).then(([_, src]) => {
+      video.src = `${go2rtcWs}/api/ws?src=${src}`;
+      // Re-resolve src whenever demo mode toggles. (Demo toggle button
+      // refreshes its own UI state separately; we listen for the same
+      // event via a periodic re-check so a single toggle action propagates.)
+      let currentSrc = src;
+      setInterval(async () => {
+        const next = await pickLiveSrc();
+        if (next !== currentSrc) {
+          currentSrc = next;
+          video.src = `${go2rtcWs}/api/ws?src=${next}`;
+        }
+      }, 5000);
     });
 
     // ── SSE event shape ───────────────────────────────────────────────
