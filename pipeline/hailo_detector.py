@@ -13,6 +13,7 @@ import logging
 from typing import List, Optional
 
 import numpy as np
+import cv2
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,20 @@ class HailoDetector:
         self._output_name = self._model.output_names[0]
         self._input_shape = self._model.input_shape()    # (h, w, c)
         self._output_shape = self._model.output_shape()
+
+        # ── Preallocated input buffer (Track B audit 2026-05-11) ─────────
+        # Previously _letterbox allocated `canvas = np.full((640,640,3), 114)`
+        # AND `cv2.resize` allocated a new array each call — ~3-4 MB/frame
+        # of malloc/free pressure at 30fps = 90-120 MB/s alloc traffic.
+        # Now: allocate once, refill region each frame in place.
+        h_in, w_in = self._input_shape[0], self._input_shape[1]
+        # Hailo model wants (1, H, W, 3) uint8. Pre-fill padding with 114 (gray).
+        self._input_buf = np.full((1, h_in, w_in, 3), 114, dtype=np.uint8)
+        # Cache of the active inscribed-rect (sw, sh, off_x, off_y) so we only
+        # reset the padding to 114 when the input frame resolution changes
+        # (rare — once on camera reconfig).
+        self._last_letterbox_dims: Optional[tuple] = None
+
         self.stats = {
             "detect_calls": 0,
             "total_detections": 0,
@@ -75,13 +90,33 @@ class HailoDetector:
             bgr = frame
 
         t0 = time.monotonic()
-        # Preprocess: BGR -> RGB, resize to model size, uint8
+        # Preprocess: BGR -> RGB, resize to model size into preallocated
+        # buffer (no per-frame allocations).
         h_in, w_in = self._input_shape[0], self._input_shape[1]
-        resized = _letterbox(bgr, (w_in, h_in))
-        rgb = resized[..., ::-1]  # BGR -> RGB
-        x = rgb.astype(np.uint8)[np.newaxis, ...]  # (1, H, W, 3)
+        h, w = bgr.shape[:2]
+        scale = min(w_in / w, h_in / h)
+        sw = max(1, int(w * scale))
+        sh = max(1, int(h * scale))
+        off_x = (w_in - sw) // 2
+        off_y = (h_in - sh) // 2
 
-        output = self._model.infer({self._input_name: x})
+        # If the inscribed region changed (rare — camera res change), reset
+        # the padding to 114. Otherwise the prior frame's pixels in the
+        # target region get overwritten and the padding is already gray.
+        dims = (sw, sh, off_x, off_y)
+        if dims != self._last_letterbox_dims:
+            self._input_buf.fill(114)
+            self._last_letterbox_dims = dims
+
+        # Resize BGR straight into the target slice of the input buffer.
+        # cv2 handles non-contiguous dst views (OpenCV 3+).
+        target_slice = self._input_buf[0, off_y:off_y + sh, off_x:off_x + sw, :]
+        cv2.resize(bgr, (sw, sh), dst=target_slice,
+                   interpolation=cv2.INTER_LINEAR)
+        # BGR → RGB in place (Hailo HEF expects RGB).
+        cv2.cvtColor(target_slice, cv2.COLOR_BGR2RGB, dst=target_slice)
+
+        output = self._model.infer({self._input_name: self._input_buf})
 
         # InferModel's NMS-baked YOLO HEF returns a flat (N,) FLOAT32 buffer:
         # densely packed [count_c0, det0_c0_5fl, det1_c0_5fl, ..., count_c1, ...]
@@ -109,23 +144,6 @@ class HailoDetector:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
-
-
-def _letterbox(img, new_wh):
-    """Resize img (HxW BGR) to (new_wh[0] x new_wh[1]) preserving aspect ratio
-    with gray padding. Return a copy ready for the model."""
-    new_w, new_h = new_wh
-    h, w = img.shape[:2]
-    scale = min(new_w / w, new_h / h)
-    sw = int(w * scale)
-    sh = int(h * scale)
-    import cv2
-    resized = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_LINEAR)
-    canvas = np.full((new_h, new_w, 3), 114, dtype=np.uint8)
-    off_x = (new_w - sw) // 2
-    off_y = (new_h - sh) // 2
-    canvas[off_y:off_y + sh, off_x:off_x + sw] = resized
-    return canvas
 
 
 def _parse_yolo_flat_output(raw_out,

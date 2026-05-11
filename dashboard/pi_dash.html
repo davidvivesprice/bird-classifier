@@ -1301,34 +1301,70 @@
     // enabled=true), play the looped demo video instead of the live camera —
     // so the labels drawn on top match the video the user sees. Pipeline
     // analyzes the same stream via PIPELINE_TEST_RTSP_URL override.
+    //
+    // Phase 1B+ audit hardening: in-flight guard, interval handle stored
+    // and cleared on pagehide/visibilitychange to avoid BFCache timer leaks,
+    // and a public `window.__refreshLiveSrc()` hook the demo-toggle handler
+    // can call to switch the src immediately on user click (no 5s lag).
+    let pickInFlight = false;
     async function pickLiveSrc() {
+      if (pickInFlight) return null;        // suppress concurrent fetches
+      pickInFlight = true;
       try {
         const r = await fetch('/api/demo-mode');
         if (r.ok) {
           const data = await r.json();
-          if (data.enabled) return 'feeder-demo';
+          return data.enabled ? 'feeder-demo' : 'feeder-main';
         }
-      } catch (e) { /* tolerate: fall through to camera */ }
+      } catch (e) { /* tolerate */ } finally { pickInFlight = false; }
       return 'feeder-main';
+    }
+
+    let currentSrc = null;
+    let livePollHandle = null;
+    function applySrc(next) {
+      if (!next || next === currentSrc) return;
+      currentSrc = next;
+      video.src = `${go2rtcWs}/api/ws?src=${next}`;
     }
 
     Promise.all([
       customElements.whenDefined('video-stream'),
       pickLiveSrc(),
     ]).then(([_, src]) => {
-      video.src = `${go2rtcWs}/api/ws?src=${src}`;
-      // Re-resolve src whenever demo mode toggles. (Demo toggle button
-      // refreshes its own UI state separately; we listen for the same
-      // event via a periodic re-check so a single toggle action propagates.)
-      let currentSrc = src;
-      setInterval(async () => {
+      applySrc(src || 'feeder-main');
+      livePollHandle = setInterval(async () => {
         const next = await pickLiveSrc();
-        if (next !== currentSrc) {
-          currentSrc = next;
-          video.src = `${go2rtcWs}/api/ws?src=${next}`;
-        }
+        if (next) applySrc(next);
       }, 5000);
     });
+
+    // Public hook used by the demo-mode toggle button so user clicks
+    // propagate immediately instead of waiting for the 5s poll.
+    window.__refreshLiveSrc = async () => {
+      const next = await pickLiveSrc();
+      if (next) applySrc(next);
+    };
+
+    // Stop the poll when the page is hidden/backgrounded; resume on show.
+    // Avoids BFCache timer accumulation across tab restores.
+    function pauseLivePoll() {
+      if (livePollHandle) { clearInterval(livePollHandle); livePollHandle = null; }
+    }
+    function resumeLivePoll() {
+      if (!livePollHandle) {
+        livePollHandle = setInterval(async () => {
+          const next = await pickLiveSrc();
+          if (next) applySrc(next);
+        }, 5000);
+      }
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') pauseLivePoll();
+      else resumeLivePoll();
+    });
+    window.addEventListener('pagehide', pauseLivePoll);
+    window.addEventListener('pageshow', resumeLivePoll);
 
     // ── SSE event shape ───────────────────────────────────────────────
     //   {camera, wall_time_ms, pts, tracks: [{
@@ -1581,6 +1617,14 @@
           attempts++;
           if (attempts > 30) clearInterval(poll);
         }, 1000);
+        // Tell the live-view to switch the <video-stream> src immediately
+        // (no 5s lag) — the pipeline will reconnect to the new stream as
+        // it comes back up; the dashboard now points at the right source
+        // from the user's perspective.
+        if (typeof window.__refreshLiveSrc === 'function') {
+          // Slight delay so the server has flipped the env before we ask
+          setTimeout(() => window.__refreshLiveSrc(), 300);
+        }
       } finally {
         demoBtn.disabled = false;
       }

@@ -190,12 +190,14 @@ class SnapshotWriter:
         """
         payload = {
             "camera": camera,
-            # Detect-sized copy (kept as fallback if bgr_full is missing).
-            "frame": frame_bgr.copy(),
-            # Full-resolution frame from the SAME camera moment as `frame`.
-            # In single-stream mode this is always present.
-            "hires_frame": (frame_bgr_full.copy()
-                            if frame_bgr_full is not None else None),
+            # No .copy() (Track B audit 2026-05-11): FrameCapture allocates
+            # fresh ndarrays per frame via PyAV.to_ndarray — the producer
+            # never mutates a frame after put_nowait, so holding the
+            # reference is enough to keep this buffer alive until the
+            # worker processes it. Two ~6 MB copies per locked track were
+            # pure defensive overhead.
+            "frame": frame_bgr,
+            "hires_frame": frame_bgr_full,
             "wall_time_ms": wall_time_ms,
             "pts": float(pts),
             "track_id": track.track_id,

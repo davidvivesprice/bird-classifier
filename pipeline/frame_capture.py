@@ -186,12 +186,16 @@ class FrameCapture:
             return
 
         h, w = bgr_full.shape[:2]
-        # Downscale for the detect path. INTER_AREA is the right resampler
-        # for shrinking — better than INTER_LINEAR for our 3× shrink.
+        # Downscale for the detect path. With the substream/main streams
+        # already matching detect res (640×360), this branch is a no-op
+        # in normal operation — the `else` returns bgr_full directly.
+        # The resize remains as a fallback for demo sources / future
+        # configs that don't match. INTER_LINEAR > INTER_AREA on CPU
+        # cost; quality difference is invisible to YOLO at this scale.
         if (w, h) != (self.detect_width, self.detect_height):
             bgr_detect = cv2.resize(
                 bgr_full, (self.detect_width, self.detect_height),
-                interpolation=cv2.INTER_AREA,
+                interpolation=cv2.INTER_LINEAR,
             )
         else:
             bgr_detect = bgr_full
