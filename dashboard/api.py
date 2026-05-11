@@ -5202,3 +5202,70 @@ async def start_overlay_sync_sentinel():
 def overlay_sync_health():
     s = app.state.overlay_sync_sentinel
     return s.counters
+
+
+# ── Demo mode ────────────────────────────────────────────────────────────
+import subprocess as _sp_for_demo
+
+
+def _systemctl(*args):
+    """Run `systemctl --user <args>` and return (stdout, returncode). No raise."""
+    proc = _sp_for_demo.run(
+        ["systemctl", "--user", *args],
+        capture_output=True, text=True, timeout=10,
+    )
+    return proc.stdout + proc.stderr, proc.returncode
+
+
+def _demo_mode_active() -> bool:
+    """True iff PIPELINE_TEST_RTSP_URL is currently set on the user environment."""
+    out, _ = _systemctl("show-environment")
+    for line in out.splitlines():
+        if line.startswith("PIPELINE_TEST_RTSP_URL="):
+            return bool(line.split("=", 1)[1].strip())
+    return False
+
+
+@app.get("/api/demo-mode")
+def get_demo_mode():
+    """Report current demo-mode state."""
+    looper_out, looper_rc = _systemctl("is-active", "bird-demo-loop.service")
+    pipeline_test = _demo_mode_active()
+    return {
+        "enabled": pipeline_test and looper_out.strip() == "active",
+        "looper_state": looper_out.strip(),
+        "pipeline_test_url_set": pipeline_test,
+    }
+
+
+@app.post("/api/demo-mode")
+def set_demo_mode(payload: dict):
+    """Switch demo mode on/off. Body: {"enabled": true|false}.
+
+    ON:  start bird-demo-loop.service, set PIPELINE_TEST_RTSP_URL on user env,
+         restart bird-pipeline.service.
+    OFF: unset PIPELINE_TEST_RTSP_URL, restart bird-pipeline.service, stop
+         bird-demo-loop.service.
+    """
+    enabled = bool(payload.get("enabled"))
+    actions = []
+    if enabled:
+        out, rc = _systemctl("start", "bird-demo-loop.service")
+        actions.append({"step": "start_looper", "rc": rc, "out": out})
+        # Give the looper a moment to bind its RTSP port before the pipeline
+        # tries to open it.
+        import time as _t
+        _t.sleep(2)
+        out, rc = _systemctl("set-environment",
+                             "PIPELINE_TEST_RTSP_URL=rtsp://localhost:8654/feeder-main")
+        actions.append({"step": "set_env", "rc": rc, "out": out})
+        out, rc = _systemctl("restart", "bird-pipeline.service")
+        actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
+    else:
+        out, rc = _systemctl("unset-environment", "PIPELINE_TEST_RTSP_URL")
+        actions.append({"step": "unset_env", "rc": rc, "out": out})
+        out, rc = _systemctl("restart", "bird-pipeline.service")
+        actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
+        out, rc = _systemctl("stop", "bird-demo-loop.service")
+        actions.append({"step": "stop_looper", "rc": rc, "out": out})
+    return {"enabled": enabled, "actions": actions}
