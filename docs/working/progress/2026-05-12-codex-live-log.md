@@ -166,3 +166,41 @@ What remains true:
 High-res acceptance surface:
 
 - Real camera / real high-res main stream, not the current low-res demo loop.
+
+## Plan: Live Label Sync After Snapshot Fix
+
+- Saved detailed plan at `/Users/vives/bird-classifier-pi/docs/superpowers/plans/2026-05-12-live-label-sync-plan.md`.
+- Remaining path:
+  1. Add video/event sync telemetry.
+  2. Add an event buffer and browser-side clock bridge behind a flag.
+  3. Add interpolation/prediction so labels stay attached during motion.
+  4. Reuse the annotated demo for replay/timing gates.
+  5. Tune label-only UX after boxes are no longer needed for debugging.
+  6. Accept on real camera and Cloudflare/LAN browsers separately.
+
+## Implementation: Sync Telemetry Slice
+
+- Added `tests/test_dashboard_sync_diagnostics.py`.
+- Red test confirmed the dashboard did not expose `requestVideoFrameCallback`/sync telemetry yet.
+- Added diagnostic-only browser metrics in `dashboard/pi_dash.html`:
+  - `lastVideoMediaTime`
+  - `videoFrameHz`
+  - `lastEventPts`
+  - `eventAgeMsRough`
+  - `clockDeltaMs`
+- Exposed the metrics in the `?syncdiag=1` chip and `window.__overlayDebug.sync`.
+- No label placement behavior changed in this slice.
+
+## Verification: Sync Telemetry Slice
+
+- Pi test command:
+  - `./venv/bin/python -m pytest tests/test_dashboard_sync_diagnostics.py tests/test_dashboard_live_video_proxy.py -q`
+  - Result: `5 passed, 4 warnings`.
+- Browser smoke:
+  - URL: `https://pi5.vivessato.com/?syncdiag=1&cb=sync-telemetry-20260512`
+  - Diagnostic text included:
+    - `video: 4 1920x1080`
+    - `vclock: 15.808s @ 24.3fps`
+    - `evt pts: n/a delta: n/a`
+  - Browser console warnings/errors: none.
+- No active track events appeared during the smoke sample, so event/video delta remained `n/a`. That is expected until a bird/track event arrives.

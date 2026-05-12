@@ -1369,6 +1369,46 @@
     let showLabels = localStorage.getItem('showLabels') !== '0';
     let lastEventTs = 0;
     let sseCount = 0;
+    const syncStats = {
+      lastVideoMediaTime: null,
+      lastVideoCallbackAt: 0,
+      lastVideoFrames: 0,
+      videoFrameHz: 0,
+      lastEventPts: null,
+      lastEventWallTimeMs: null,
+      lastEventArrivedAt: 0,
+      clockDeltaMs: null,
+      eventAgeMsRough: null,
+    };
+
+    let videoFrameClockStarted = false;
+    let videoFrameHandle = 0;
+    let videoClockProbe = 0;
+    function innerVideoEl() {
+      return video.querySelector('video');
+    }
+    function onVideoFrame(now, metadata) {
+      const frames = metadata?.presentedFrames || 0;
+      if (syncStats.lastVideoCallbackAt > 0) {
+        const dt = (now - syncStats.lastVideoCallbackAt) / 1000;
+        const df = frames - syncStats.lastVideoFrames;
+        if (dt > 0 && df >= 0) syncStats.videoFrameHz = df / dt;
+      }
+      syncStats.lastVideoMediaTime =
+        typeof metadata?.mediaTime === 'number' ? metadata.mediaTime : null;
+      syncStats.lastVideoCallbackAt = now;
+      syncStats.lastVideoFrames = frames;
+      const inner = innerVideoEl();
+      if (inner?.requestVideoFrameCallback) {
+        videoFrameHandle = inner.requestVideoFrameCallback(onVideoFrame);
+      }
+    }
+    function ensureVideoFrameClock() {
+      const inner = innerVideoEl();
+      if (!inner?.requestVideoFrameCallback || videoFrameClockStarted) return;
+      videoFrameClockStarted = true;
+      videoFrameHandle = inner.requestVideoFrameCallback(onVideoFrame);
+    }
 
     function ensureTrackEls(tid) {
       let entry = tracks.get(tid);
@@ -1472,6 +1512,16 @@
         const evt = JSON.parse(raw);
         lastEventTs = performance.now();
         sseCount++;
+        syncStats.lastEventPts = typeof evt.pts === 'number' ? evt.pts : null;
+        syncStats.lastEventWallTimeMs =
+          typeof evt.wall_time_ms === 'number' ? evt.wall_time_ms : null;
+        syncStats.lastEventArrivedAt = lastEventTs;
+        syncStats.eventAgeMsRough = syncStats.lastEventWallTimeMs !== null
+          ? Date.now() - syncStats.lastEventWallTimeMs : null;
+        syncStats.clockDeltaMs =
+          syncStats.lastEventPts !== null && syncStats.lastVideoMediaTime !== null
+            ? (syncStats.lastEventPts - syncStats.lastVideoMediaTime) * 1000
+            : null;
         if (Array.isArray(evt.tracks)) {
           for (const t of evt.tracks) updateTrack(t);
         }
@@ -1543,6 +1593,11 @@
     window.addEventListener('pagehide', () => {
       labelEventsShuttingDown = true;
       if (labelWsReconnect) window.clearTimeout(labelWsReconnect);
+      if (videoClockProbe) window.clearInterval(videoClockProbe);
+      const inner = innerVideoEl();
+      if (inner?.cancelVideoFrameCallback && videoFrameHandle) {
+        inner.cancelVideoFrameCallback(videoFrameHandle);
+      }
       if (labelWs) labelWs.close();
       if (sse) sse.close();
     });
@@ -1573,6 +1628,20 @@
         if (!inner) return 'missing';
         return `${inner.readyState} ${inner.videoWidth || 0}x${inner.videoHeight || 0}`;
       };
+      const syncDiag = () => {
+        const mt = syncStats.lastVideoMediaTime !== null
+          ? syncStats.lastVideoMediaTime.toFixed(3) : 'n/a';
+        const fps = syncStats.videoFrameHz ? syncStats.videoFrameHz.toFixed(1) : 'n/a';
+        const pts = syncStats.lastEventPts !== null
+          ? syncStats.lastEventPts.toFixed(3) : 'n/a';
+        const delta = syncStats.clockDeltaMs !== null
+          ? `${Math.round(syncStats.clockDeltaMs)}ms` : 'n/a';
+        const age = syncStats.eventAgeMsRough !== null
+          ? `${Math.round(syncStats.eventAgeMsRough)}ms` : 'n/a';
+        return `vclock: ${mt}s @ ${fps}fps\n` +
+          `evt pts: ${pts} delta: ${delta}\n` +
+          `evt age: ${age}`;
+      };
       setInterval(() => {
         const nowT = performance.now();
         const dt = (nowT - lastDiagAt) / 1000;
@@ -1585,6 +1654,7 @@
           `events: ${sseHz.toFixed(1)} Hz (n=${sseCount})\n` +
           `tracks: ${tracks.size}\n` +
           `video: ${videoDiag()}\n` +
+          `${syncDiag()}\n` +
           `last evt: ${lastEventAge}s ago`;
       }, 500);
     }
@@ -1606,6 +1676,7 @@
           paused: inner.paused,
         } : null;
       },
+      get sync() { return { ...syncStats }; },
       get tracksSummary() {
         const out = [];
         for (const [id, entry] of tracks.entries()) {
@@ -1640,6 +1711,8 @@
 
     // ── Boot ─────────────────────────────────────────────────────────
     connectLabelEvents();
+    videoClockProbe = window.setInterval(ensureVideoFrameClock, 250);
+    ensureVideoFrameClock();
     setInterval(gcTracks, 400);
   }
 
