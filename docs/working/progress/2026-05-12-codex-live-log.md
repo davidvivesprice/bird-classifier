@@ -234,3 +234,36 @@ Verification:
   - After enabling demo via `/api/demo-mode`: same page URL, `#live-video.wsURL = ws://pi5.local:8099/api/ws?src=feeder-demo`, UI label `demo mode`.
   - After disabling demo: same page URL, `#live-video.wsURL = ws://pi5.local:8099/api/ws?src=feeder-main`, UI label `live`.
 - Headless Playwright did not produce usable video dimensions for the WebRTC element, so this smoke verifies the in-page source switch/reconnect machinery, not visual WebRTC playback.
+
+## Fix: Reconnect Guard Regression
+
+David reported that after the source-switch fix, video persisted briefly, went black, came back, and repeated on both local and remote dashboard URLs. This matched a reconnect loop.
+
+Root cause:
+
+- `reconnectLiveVideo(next)` guarded on `next === currentSrc && video.src === url`.
+- The `<video-stream>` custom element defines a `src` setter but no corresponding getter.
+- Reading `video.src` therefore does not reliably return the current WebSocket URL.
+- The 5-second demo/live poll kept calling `reconnectLiveVideo()` for the same source and repeatedly ran `video.ondisconnect()`.
+
+Fix:
+
+- Changed the guard to `if (next === currentSrc) return;`.
+- Added regression coverage that forbids the broken `video.src` getter guard.
+
+Verification:
+
+- Red test failed against the deployed runtime before the fix.
+- Pi tests:
+  - `tests/test_dashboard_live_video_proxy.py tests/test_dashboard_sync_diagnostics.py tests/test_pipeline_events_ws.py`
+  - Result: `8 passed, 4 warnings`.
+- Browser automation check on `http://pi5.local:8099/?syncdiag=1&cb=reconnect-guard-20260512`:
+  - Wrapped `#live-video.ondisconnect` with a counter.
+  - Waited 12 seconds with the same selected source.
+  - `disconnects` stayed `0`.
+  - Current source during the check was `feeder-demo`; diagnostic video field showed `video: 4 640x360`.
+
+User-eye check still needed:
+
+- Reload the dashboard once to pick up the patched HTML.
+- Confirm `/?syncdiag=1` no longer cycles black every few seconds in normal local and remote browsers.

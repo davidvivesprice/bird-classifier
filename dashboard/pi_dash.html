@@ -1318,8 +1318,8 @@
     let livePollHandle = null;
     function reconnectLiveVideo(next) {
       if (!next) return;
+      if (next === currentSrc) return;
       const url = `${go2rtcWs}/api/ws?src=${next}`;
-      if (next === currentSrc && video.src === url) return;
 
       // VideoRTC's src setter only calls onconnect(); if an existing WS/PC is
       // still alive, onconnect() returns early and the old stream keeps

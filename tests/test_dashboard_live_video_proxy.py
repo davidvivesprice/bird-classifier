@@ -50,6 +50,8 @@ def test_live_source_switch_disconnects_existing_video_rtc_session():
     html = (ROOT / "dashboard" / "pi_dash.html").read_text()
 
     assert "function reconnectLiveVideo(next)" in html
+    assert "if (next === currentSrc) return;" in html
+    assert "next === currentSrc && video.src === url" not in html
     assert "video.ondisconnect();" in html
     assert "video.reconnectTID = 0;" in html
     assert "video.src = url;" in html
