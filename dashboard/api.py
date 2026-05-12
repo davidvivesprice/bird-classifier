@@ -331,6 +331,12 @@ def serve_video_rtc_js():
     return FileResponse(str(DASHBOARD_DIR / "video-rtc.js"), media_type="application/javascript")
 
 
+@app.get("/video-stream.js")
+def serve_video_stream_js():
+    """Serve the lightweight <video-stream> wrapper used by the Pi dashboard."""
+    return FileResponse(str(DASHBOARD_DIR / "video-stream.js"), media_type="application/javascript")
+
+
 @app.get("/hls.js")
 def serve_hlsjs():
     """Serve vendored hls.js (≥1.5.7) for same-origin loading.
@@ -4147,7 +4153,7 @@ GO2RTC_PORT = int(os.environ.get("GO2RTC_PORT", "1984"))
 _PIPELINE_HEALTH_URL = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
 _PIPELINE_SSE_URL = os.environ.get("PIPELINE_SSE_URL", "http://127.0.0.1:8105")
 
-ALLOWED_STREAMS = {"feeder-main", "ground-main"}
+ALLOWED_STREAMS = {"feeder-main", "ground-main", "feeder-demo"}
 
 
 @app.get("/api/stream.mp4")

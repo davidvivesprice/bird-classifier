@@ -1254,10 +1254,11 @@
   //      Firefox+Safari+CF tunnel) to behave identically, they didn't
   //   3. SSE through Cloudflare tunnel buffers (0 events through, 84/4s LAN)
   // Current shape:
-  //   - Video: go2rtc <video-stream> custom element. WebRTC primary,
-  //     MSE/MJPEG fallback (auto-negotiated by video-rtc.js). Sub-second
-  //     latency. Works on iPad Safari "Install as App" (PWA).
-  //   - Labels: SSE `/api/pipeline/events/sse?camera=feeder` (~5-30 ev/s).
+  //   - Video: same-origin go2rtc <video-stream> custom element through the
+  //     dashboard's /api/ws proxy. WebRTC primary, MSE/MJPEG fallback
+  //     (auto-negotiated by video-rtc.js). Sub-second latency. Works on iPad
+  //     Safari "Install as App" (PWA).
+  //   - Labels: LAN uses SSE; Cloudflare uses the same-origin WebSocket mirror.
   //   - Smoothing: CSS `transform` transitions (240ms cubic-bezier) — the
   //     browser interpolates between SSE updates for free.
   //   - Track lifecycle: lazy-create DOM nodes per track_id; GC after 1.5s
@@ -1274,23 +1275,16 @@
     const diagEl = document.getElementById('sync-diag');
     const toggleBtn = document.getElementById('overlay-toggle');
 
-    // ── go2rtc base URL (LAN vs Cloudflare tunnel) ───────────────────
+    // ── go2rtc player/signaling — same-origin through dashboard proxy ──
     const HOST = window.location.hostname;
-    let go2rtcHttp, go2rtcWs;
-    if (HOST === 'pi5.vivessato.com') {
-      go2rtcHttp = 'https://go2rtc.vivessato.com';
-      go2rtcWs   = 'wss://go2rtc.vivessato.com';
-    } else {
-      go2rtcHttp = `http://${HOST}:1984`;
-      go2rtcWs   = `ws://${HOST}:1984`;
-    }
+    const go2rtcWs = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 
     // Load go2rtc's <video-stream> custom element (which depends on
     // video-rtc.js). After defined, set the src and let it negotiate
     // WebRTC → MSE → MJPEG by browser capability.
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = `${go2rtcHttp}/video-stream.js`;
+    script.src = '/video-stream.js';
     script.onerror = () => {
       statusEl.textContent = 'video offline';
       dotEl.classList.add('offline');
@@ -1574,6 +1568,11 @@
     if (showDiag) {
       diagEl.classList.add('visible');
       let lastSseCount = 0, lastDiagAt = performance.now();
+      const videoDiag = () => {
+        const inner = video.querySelector('video');
+        if (!inner) return 'missing';
+        return `${inner.readyState} ${inner.videoWidth || 0}x${inner.videoHeight || 0}`;
+      };
       setInterval(() => {
         const nowT = performance.now();
         const dt = (nowT - lastDiagAt) / 1000;
@@ -1585,6 +1584,7 @@
           `arch: webrtc+dom\n` +
           `events: ${sseHz.toFixed(1)} Hz (n=${sseCount})\n` +
           `tracks: ${tracks.size}\n` +
+          `video: ${videoDiag()}\n` +
           `last evt: ${lastEventAge}s ago`;
       }, 500);
     }
@@ -1597,6 +1597,15 @@
         return lastEventTs > 0 ? (performance.now() - lastEventTs) : null;
       },
       get sseCount() { return sseCount; },
+      get videoState() {
+        const inner = video.querySelector('video');
+        return inner ? {
+          readyState: inner.readyState,
+          videoWidth: inner.videoWidth,
+          videoHeight: inner.videoHeight,
+          paused: inner.paused,
+        } : null;
+      },
       get tracksSummary() {
         const out = [];
         for (const [id, entry] of tracks.entries()) {
