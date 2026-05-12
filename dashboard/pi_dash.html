@@ -1316,10 +1316,29 @@
 
     let currentSrc = null;
     let livePollHandle = null;
-    function applySrc(next) {
-      if (!next || next === currentSrc) return;
+    function reconnectLiveVideo(next) {
+      if (!next) return;
+      const url = `${go2rtcWs}/api/ws?src=${next}`;
+      if (next === currentSrc && video.src === url) return;
+
+      // VideoRTC's src setter only calls onconnect(); if an existing WS/PC is
+      // still alive, onconnect() returns early and the old stream keeps
+      // playing. Tear down the current session before assigning the new src.
+      if (currentSrc !== null && typeof video.ondisconnect === 'function') {
+        try {
+          if (video.reconnectTID) {
+            window.clearTimeout(video.reconnectTID);
+            video.reconnectTID = 0;
+          }
+          video.ondisconnect();
+        } catch (e) { /* tolerate and still assign the new src */ }
+      }
+
       currentSrc = next;
-      video.src = `${go2rtcWs}/api/ws?src=${next}`;
+      video.src = url;
+    }
+    function applySrc(next) {
+      reconnectLiveVideo(next);
     }
 
     Promise.all([

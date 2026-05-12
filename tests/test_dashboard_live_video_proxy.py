@@ -12,7 +12,8 @@ def test_pi_dashboard_uses_same_origin_video_proxy():
 
     assert "go2rtc.vivessato.com" not in html
     assert "script.src = '/video-stream.js?v=20260512-visibility';" in html
-    assert "video.src = `${go2rtcWs}/api/ws?src=${next}`;" in html
+    assert "const url = `${go2rtcWs}/api/ws?src=${next}`;" in html
+    assert "video.src = url;" in html
     assert "`video: ${videoDiag()}\\n`" in html
 
 
@@ -43,3 +44,13 @@ def test_demo_stream_is_allowed_through_go2rtc_proxy():
     import dashboard.api as api
 
     assert "feeder-demo" in api.ALLOWED_STREAMS
+
+
+def test_live_source_switch_disconnects_existing_video_rtc_session():
+    html = (ROOT / "dashboard" / "pi_dash.html").read_text()
+
+    assert "function reconnectLiveVideo(next)" in html
+    assert "video.ondisconnect();" in html
+    assert "video.reconnectTID = 0;" in html
+    assert "video.src = url;" in html
+    assert "location.reload" not in html

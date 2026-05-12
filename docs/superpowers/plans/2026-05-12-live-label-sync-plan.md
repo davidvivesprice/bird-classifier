@@ -229,4 +229,4 @@ Wait for real birds. Confirm labels appear, stay attached, and no high-res snaps
 
 Confirm demo remains useful for label timing and transport checks, while documenting that it is low-resolution and cannot validate high-res snapshot capture.
 
-Important testing constraint: after toggling between live and demo mode, refresh the dashboard before judging sync. The source switch currently does not reliably complete in the already-loaded browser view.
+Important testing constraint: live/demo switching should happen in-place. If a regression makes manual refresh necessary again, treat that as a dashboard source-reconnect bug before judging sync.

@@ -205,12 +205,32 @@ High-res acceptance surface:
   - Browser console warnings/errors: none.
 - No active track events appeared during the smoke sample, so event/video delta remained `n/a`. That is expected until a bird/track event arrives.
 
-## Operational Note: Demo/Live Switching
+## Fix: Demo/Live Switching Without Manual Refresh
 
-David clarified that switching between the live pipeline and demo pipeline currently requires a browser refresh before judging the dashboard. The backend can switch the pipeline source, but the already-loaded browser view does not reliably swap all the way over without reloading.
+David clarified the actual requirement: the dashboard should switch between live and demo in-place. If a full page refresh is required, it should happen automatically, not be left to the user.
 
-Testing rule going forward:
+Root cause:
 
-- After toggling demo mode on or off, refresh the dashboard before evaluating label/video sync.
-- Do not diagnose overlay drift from a stale, non-refreshed page immediately after a live/demo switch.
-- Treat a future no-refresh source swap as a separate dashboard hardening task, not as part of the core label-sync math.
+- `dashboard/pi_dash.html` changed the `<video-stream>` source by assigning `video.src`.
+- `VideoRTC.src` updates `wsURL` and calls `onconnect()`.
+- `VideoRTC.onconnect()` returns early if an existing WebSocket or PeerConnection is still alive.
+- Result: the dashboard state could flip to live/demo while the old media session kept playing until a manual refresh destroyed it.
+
+Fix:
+
+- Added `reconnectLiveVideo(next)` in `dashboard/pi_dash.html`.
+- On source changes, it clears any pending reconnect timer, calls `video.ondisconnect()` to close the existing VideoRTC session, then assigns the new same-origin `/api/ws?src=...` URL.
+- No `location.reload` path was added.
+
+Verification:
+
+- Added regression coverage in `tests/test_dashboard_live_video_proxy.py`.
+- Red test failed before the fix because the reconnect helper did not exist.
+- Pi tests:
+  - `tests/test_dashboard_live_video_proxy.py tests/test_dashboard_sync_diagnostics.py tests/test_pipeline_events_ws.py`
+  - Result: `8 passed, 4 warnings`.
+- Runtime switch smoke with terminal Playwright on `http://pi5.local:8099/?syncdiag=1&cb=switch-test-20260512`:
+  - Before switch: page URL unchanged, `#live-video.wsURL = ws://pi5.local:8099/api/ws?src=feeder-main`.
+  - After enabling demo via `/api/demo-mode`: same page URL, `#live-video.wsURL = ws://pi5.local:8099/api/ws?src=feeder-demo`, UI label `demo mode`.
+  - After disabling demo: same page URL, `#live-video.wsURL = ws://pi5.local:8099/api/ws?src=feeder-main`, UI label `live`.
+- Headless Playwright did not produce usable video dimensions for the WebRTC element, so this smoke verifies the in-page source switch/reconnect machinery, not visual WebRTC playback.
