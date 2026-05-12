@@ -1284,7 +1284,7 @@
     // WebRTC → MSE → MJPEG by browser capability.
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/video-stream.js';
+    script.src = '/video-stream.js?v=20260512-visibility';
     script.onerror = () => {
       statusEl.textContent = 'video offline';
       dotEl.classList.add('offline');

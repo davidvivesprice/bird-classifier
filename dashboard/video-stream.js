@@ -2,6 +2,8 @@ import {VideoRTC} from './video-rtc.js';
 
 class VideoStream extends VideoRTC {
   oninit() {
+    this.background = true;
+    this.visibilityCheck = false;
     super.oninit();
     this.video.controls = false;
     this.video.muted = true;

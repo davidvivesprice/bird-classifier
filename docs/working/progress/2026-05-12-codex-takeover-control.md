@@ -54,6 +54,10 @@ Do not reason from `git status` on the Pi alone. Compare deployed files to
   `https://pi5.vivessato.com/?syncdiag=1&cb=20260512T0215`:
   video and labels visible together; diag showed ~30 Hz events and
   `video: 4 640x360`.
+- Embedded Codex browser probe of
+  `https://pi5.vivessato.com/?syncdiag=1&cb=visibility-fix-20260512T0230`:
+  video and labels stayed visible across the stability sample; diag stayed at
+  `video: 4 640x360` after initial player creation.
 - Label toggle verified in Playwright: `Labels` hides `.live-label` nodes and
   `Labels off` restores them.
 
@@ -64,16 +68,21 @@ Do not reason from `git status` on the Pi alone. Compare deployed files to
    If a tab is blank, open a new tab or hard reload with a changed query string
    before debugging server code.
 
-2. **Snapshots are still 640x360.**
+2. **The video player must not disconnect on page visibility changes.**
+   `dashboard/video-stream.js` sets `background=true` and
+   `visibilityCheck=false` before `VideoRTC.oninit()` so the embedded browser
+   does not drop video while labels continue.
+
+3. **Snapshots are still 640x360.**
    The current substream FrameCapture keeps CPU under control, but the high-res
    review/training requirement is not restored. Do not accept "fetch current
    frame from main stream" as equivalent to a time-aligned high-res ring.
 
-3. **Spatial subtitles remain the long-term architecture.**
+4. **Spatial subtitles remain the long-term architecture.**
    The current WebRTC + DOM overlay is the `Live Now` mode. It is useful, but it
    is not the exact delayed, classifier-aware spatial-subtitle renderer.
 
-4. **Runtime directory needs cleanup later.**
+5. **Runtime directory needs cleanup later.**
    Do not clean it during feature work. First make a separate cleanup plan with
    a file inventory and exclusions.
 

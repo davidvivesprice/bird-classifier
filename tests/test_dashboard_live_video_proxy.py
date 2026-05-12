@@ -11,7 +11,7 @@ def test_pi_dashboard_uses_same_origin_video_proxy():
     html = (ROOT / "dashboard" / "pi_dash.html").read_text()
 
     assert "go2rtc.vivessato.com" not in html
-    assert "script.src = '/video-stream.js';" in html
+    assert "script.src = '/video-stream.js?v=20260512-visibility';" in html
     assert "video.src = `${go2rtcWs}/api/ws?src=${next}`;" in html
     assert "`video: ${videoDiag()}\\n`" in html
 
@@ -26,6 +26,17 @@ def test_dashboard_serves_video_stream_wrapper():
     assert response.status_code == 200
     assert "customElements.define('video-stream'" in response.text
     assert "from './video-rtc.js'" in response.text
+
+
+def test_video_stream_disables_visibility_disconnect_before_base_init():
+    js = (ROOT / "dashboard" / "video-stream.js").read_text()
+
+    background_pos = js.index("this.background = true;")
+    visibility_pos = js.index("this.visibilityCheck = false;")
+    super_pos = js.index("super.oninit();")
+
+    assert background_pos < super_pos
+    assert visibility_pos < super_pos
 
 
 def test_demo_stream_is_allowed_through_go2rtc_proxy():
