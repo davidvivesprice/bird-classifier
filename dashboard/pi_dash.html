@@ -1473,8 +1473,26 @@
       }
     }
 
-    // ── SSE connect ──────────────────────────────────────────────────
+    function handleTrackEvent(raw) {
+      try {
+        const evt = JSON.parse(raw);
+        lastEventTs = performance.now();
+        sseCount++;
+        if (Array.isArray(evt.tracks)) {
+          for (const t of evt.tracks) updateTrack(t);
+        }
+        const n = (evt.tracks || []).length;
+        const prefix = currentSrc === 'feeder-demo' ? 'demo · ' : '';
+        statusEl.textContent = `${prefix}${n === 1 ? '1 track' : n + ' tracks'}`;
+      } catch (err) { /* tolerate malformed */ }
+    }
+
+    // ── Label event transport ────────────────────────────────────────
     let sse;
+    let labelWs;
+    let labelWsReconnect = 0;
+    let labelEventsShuttingDown = false;
+
     function connectSSE() {
       try { sse = new EventSource('/api/pipeline/events/sse?camera=feeder'); }
       catch (e) {
@@ -1487,17 +1505,7 @@
         dotEl.classList.remove('offline');
       };
       sse.onmessage = (e) => {
-        try {
-          const evt = JSON.parse(e.data);
-          lastEventTs = performance.now();
-          sseCount++;
-          if (Array.isArray(evt.tracks)) {
-            for (const t of evt.tracks) updateTrack(t);
-          }
-          const n = (evt.tracks || []).length;
-          const prefix = currentSrc === 'feeder-demo' ? 'demo · ' : '';
-          statusEl.textContent = `${prefix}${n === 1 ? '1 track' : n + ' tracks'}`;
-        } catch (err) { /* tolerate malformed */ }
+        handleTrackEvent(e.data);
       };
       sse.onerror = () => {
         statusEl.textContent = 'reconnecting…';
@@ -1505,6 +1513,45 @@
         // EventSource auto-reconnects
       };
     }
+
+    function connectLabelWebSocket() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${window.location.host}/api/pipeline/events/ws?camera=feeder`;
+      try { labelWs = new WebSocket(url); }
+      catch (e) {
+        statusEl.textContent = 'label ws error';
+        dotEl.classList.add('offline');
+        labelWsReconnect = window.setTimeout(connectLabelWebSocket, 1500);
+        return;
+      }
+      labelWs.onopen = () => {
+        statusEl.textContent = 'live';
+        dotEl.classList.remove('offline');
+      };
+      labelWs.onmessage = (e) => handleTrackEvent(e.data);
+      labelWs.onerror = () => {
+        statusEl.textContent = 'label ws error';
+        dotEl.classList.add('offline');
+      };
+      labelWs.onclose = () => {
+        if (labelEventsShuttingDown) return;
+        statusEl.textContent = 'reconnecting labels…';
+        dotEl.classList.add('offline');
+        labelWsReconnect = window.setTimeout(connectLabelWebSocket, 1500);
+      };
+    }
+
+    function connectLabelEvents() {
+      if (HOST === 'pi5.vivessato.com') connectLabelWebSocket();
+      else connectSSE();
+    }
+
+    window.addEventListener('pagehide', () => {
+      labelEventsShuttingDown = true;
+      if (labelWsReconnect) window.clearTimeout(labelWsReconnect);
+      if (labelWs) labelWs.close();
+      if (sse) sse.close();
+    });
 
     // ── Labels toggle ────────────────────────────────────────────────
     function refreshToggleUi() {
@@ -1536,7 +1583,7 @@
           ? ((nowT - lastEventTs) / 1000).toFixed(1) : '∞';
         diagEl.textContent =
           `arch: webrtc+dom\n` +
-          `SSE: ${sseHz.toFixed(1)} Hz (n=${sseCount})\n` +
+          `events: ${sseHz.toFixed(1)} Hz (n=${sseCount})\n` +
           `tracks: ${tracks.size}\n` +
           `last evt: ${lastEventAge}s ago`;
       }, 500);
@@ -1583,7 +1630,7 @@
     });
 
     // ── Boot ─────────────────────────────────────────────────────────
-    connectSSE();
+    connectLabelEvents();
     setInterval(gcTracks, 400);
   }
 

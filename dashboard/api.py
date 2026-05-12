@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -4146,9 +4147,6 @@ GO2RTC_PORT = int(os.environ.get("GO2RTC_PORT", "1984"))
 _PIPELINE_HEALTH_URL = os.environ.get("PIPELINE_HEALTH_URL", "http://127.0.0.1:8100")
 _PIPELINE_SSE_URL = os.environ.get("PIPELINE_SSE_URL", "http://127.0.0.1:8105")
 
-from fastapi import WebSocket as FastAPIWebSocket
-
-
 ALLOWED_STREAMS = {"feeder-main", "ground-main"}
 
 
@@ -5108,6 +5106,67 @@ async def proxy_pipeline_sse(camera: str = "feeder"):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _extract_sse_data_events(buffer: str) -> tuple[list[str], str]:
+    """Extract complete SSE `data:` payloads from a text buffer.
+
+    The pipeline emits JSON as `data: ...\n\n`. WebSocket clients do not need
+    the SSE framing, so the dashboard bridge forwards only the JSON payload.
+    """
+    buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
+    events: list[str] = []
+    while "\n\n" in buffer:
+        raw_event, buffer = buffer.split("\n\n", 1)
+        data_lines = []
+        for line in raw_event.split("\n"):
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+        if data_lines:
+            events.append("\n".join(data_lines))
+    return events, buffer
+
+
+async def _iter_pipeline_sse_payloads(camera: str):
+    import httpx
+
+    tail = ""
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream(
+            "GET",
+            f"{_PIPELINE_SSE_URL}/events/sse",
+            params={"camera": camera},
+        ) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_text():
+                tail += chunk
+                events, tail = _extract_sse_data_events(tail)
+                for payload in events:
+                    yield payload
+
+
+@app.websocket("/api/pipeline/events/ws")
+async def proxy_pipeline_events_ws(websocket: FastAPIWebSocket, camera: str = "feeder"):
+    """WebSocket mirror of pipeline SSE events for Cloudflare clients.
+
+    Cloudflare Access/tunnel has buffered the SSE route in practice, while
+    WebSockets already work for go2rtc video. This bridge preserves the pipeline
+    SSE server as the source and changes only the browser-facing transport.
+    """
+    from starlette.websockets import WebSocketDisconnect
+
+    await websocket.accept()
+    try:
+        async for payload in _iter_pipeline_sse_payloads(camera):
+            await websocket.send_text(payload)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logging.warning("[pipeline-events-ws] %s", e)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 @app.get("/api/pipeline/debug/latest.jpg")
