@@ -148,3 +148,21 @@ The lowest-load path to real high-res snapshots is to extract one frame from the
     - bbox scaled from `[100, 100, 300, 300]` to `[300.0, 300.0, 900.0, 900.0]`
     - `hires_hls_ok=1`
 
+### User Confirmation and Demo Boundary
+
+David clarified that the prior "can't confirm" message was a typo: the live pipeline high-res snapshot behavior can be confirmed. The separate caveat is that the demo source is low-resolution, so demo-mode snapshots are expected to be low-resolution and should not be used as the acceptance surface for high-res capture.
+
+What is verified:
+
+- The deployed writer path can locate an HLS segment by PTS.
+- The deployed writer path can extract a high-resolution frame when the HLS source is high-resolution.
+- The deployed writer path correctly scales the bbox and writes high-resolution raw/annotated JPGs in an end-to-end probe.
+- Live pipeline high-res snapshots are confirmed outside the low-res demo context.
+
+What remains true:
+
+- If the demo overrides both detect and main/HLS streams to the same low-res file, the HLS-backed path can only produce a frame at the demo file's resolution.
+
+High-res acceptance surface:
+
+- Real camera / real high-res main stream, not the current low-res demo loop.
