@@ -166,14 +166,13 @@ def main():
     health_server.start()
     sse_server = SSEEventServer(port=SSE_PORT)
     sse_server.start()
-    # 2026-05-10: Single-stream architecture. We decode the camera's main
-    # 1920×1080 stream once via PyAV; in-process we downscale to 640×360 for
-    # YOLO/motion/classifier and keep the full frame for SnapshotWriter.
-    # The hi-res ring buffer + separate ffmpeg-on-mainstream are gone — there
-    # is no cross-stream sync to debug. Frame.pts is the canonical clock.
+    # SnapshotWriter keeps the review/classifications path fed without
+    # blocking the live processor. On the Pi, detection decodes the native
+    # 640×360 substream; high-res snapshots are recovered at lock time from
+    # the PTS-aware 1920×1080 HLS segmenter.
     snapshot_writer = SnapshotWriter()
     snapshot_writer.start()
-    log.info("SnapshotWriter started — single-stream, frame.bgr_full as authoritative")
+    log.info("SnapshotWriter started — PTS-aligned HLS high-res fallback enabled")
 
     regional_species = load_regional_species()
 
@@ -253,8 +252,9 @@ def main():
             # substream decode is ~14% of a core (Track A audit 2026-05-11).
             # With substream == detect resolution, no cv2.resize is needed
             # (frame_capture.py:181 takes the no-op branch).
-            # Snapshots are 640×360 tonight; 1080p on-demand pull from
-            # main_url is a follow-up (see 2026-05-11-overnight-execution.md).
+            # SnapshotWriter uses this frame's PTS to extract a matching
+            # 1080p frame from the main-stream HLS segmenter when a track
+            # locks.
             capture = FrameCapture(
                 name, detect_url, out_queue=frame_q,
                 capture_width=640, capture_height=360,

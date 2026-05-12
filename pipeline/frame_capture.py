@@ -1,10 +1,13 @@
 """FrameCapture — PyAV decoder + downscaler + queue.
 
-Single-stream architecture (2026-05-10): one decoder per camera reads the
-full-resolution main stream, exposes:
-  - bgr_full (1920×1080) for SnapshotWriter
-  - bgr (downscaled, e.g. 640×360) for motion gate / YOLO / classifier
-  - pts (stream timestamp in seconds) — the canonical clock
+FrameCapture decodes the configured detection input and exposes:
+  - bgr_full: the decoded input frame
+  - bgr: the detector-sized frame, downscaled when needed
+  - pts: stream timestamp in seconds, the canonical clock
+
+On the Pi production path, the configured input is the camera's native
+640×360 substream, so bgr_full is also 640×360. SnapshotWriter uses the PTS
+to recover the matching 1920×1080 frame from the main-stream HLS segmenter.
 
 We use PyAV instead of subprocess+ffmpeg+rawvideo because rawvideo discards
 PTS. PyAV exposes per-frame PTS as `frame.time` (seconds) and `frame.pts`

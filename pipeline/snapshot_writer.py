@@ -17,6 +17,7 @@ the plumbing must keep flowing — reviewers correct labels downstream.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -37,6 +38,7 @@ log = logging.getLogger(__name__)
 SNAPSHOT_ROOT = Path.home() / "bird-snapshots" / "classified"
 ANNOTATED_ROOT = Path.home() / "bird-snapshots" / "annotated"
 PENDING_ROOT = Path.home() / "bird-snapshots" / "pending"  # pre-classification holding, for parity
+HLS_ROOT = Path.home() / "bird-snapshots" / "hls"
 
 
 def _draw_annotated_brackets(frame, bbox, label: str, inflate: float = 0.10):
@@ -126,11 +128,12 @@ class SnapshotWriter:
 
     def __init__(self, maxsize: int = 32, classifier=None,
                  go2rtc_url: str = "http://localhost:1984",
-                 # Legacy params kept for call-site compat — no-ops in
-                 # single-stream architecture (2026-05-10). hires_ring is
-                 # always None now; shadow_mode is irrelevant. The full
-                 # frame arrives in the payload from the same decoder that
-                 # produced the detection frame; there is nothing to A/B.
+                 hls_root: Path | str = HLS_ROOT,
+                 hls_wait_timeout_s: float = 7.0,
+                 # Legacy params kept for call-site compat. hires_ring is
+                 # still not wired in this path; the Pi recovers high-res
+                 # frames from the PTS-aware HLS segmenter when inline
+                 # bgr_full is only detector-sized.
                  hires_ring=None, shadow_mode: bool = False):
         """
         Args:
@@ -139,9 +142,12 @@ class SnapshotWriter:
                 snapshot writer re-runs the classifier on the (now hi-res)
                 crop at write time and records it as the "authoritative"
                 second-opinion alongside the lock-time vote.
-            go2rtc_url: legacy parameter, no longer used (the go2rtc
-                /api/frame.mp4 fallback is gone — Frame.bgr_full is always
-                present in single-stream mode).
+            go2rtc_url: legacy parameter, no longer used by the primary path.
+            hls_root: root containing per-camera HLS segmenter output. Used
+                when Frame.bgr_full is only the low-res detector frame.
+            hls_wait_timeout_s: max time to wait for the lock-time PTS to
+                appear in segments.json. The matching segment may still be
+                open when the track locks.
             hires_ring: legacy, must be None.
             shadow_mode: legacy, must be False.
         """
@@ -151,13 +157,19 @@ class SnapshotWriter:
         self._thread: Optional[threading.Thread] = None
         self.classifier = classifier
         self.go2rtc_url = go2rtc_url.rstrip("/")
+        self.hls_root = Path(hls_root)
+        self.hls_wait_timeout_s = float(hls_wait_timeout_s)
         self.stats = {
             "submitted": 0,
             "written": 0,
             "dropped_full": 0,
             "errors": 0,
-            "hires_ok": 0,           # frame.bgr_full present → JPG saved at full res
-            "hires_fail": 0,         # frame.bgr_full missing → fell back to detect frame
+            "hires_ok": 0,           # true high-res frame used
+            "hires_fail": 0,         # fell back to detector-resolution frame
+            "hires_inline_ok": 0,    # frame.bgr_full was genuinely high-res
+            "hires_hls_ok": 0,       # frame extracted from HLS segment by PTS
+            "hires_hls_miss": 0,     # no usable HLS frame for the lock PTS
+            "hires_lowres_fallback": 0,
             "aiy_relabel": 0,
             "aiy_none": 0,
         }
@@ -177,12 +189,11 @@ class SnapshotWriter:
                pts: float = 0.0):
         """Non-blocking submit. Drops oldest on backpressure.
 
-        Single-stream architecture: the caller passes both the detection-
-        sized frame (`frame_bgr`, e.g. 640×360) and the full-resolution
-        frame (`frame_bgr_full`, e.g. 1920×1080) from the SAME decoded
-        camera moment. There is no ring lookup, no cross-stream timing,
-        no nearest-by-wall-clock search. The bird detected at this frame
-        is in this frame, full stop.
+        The caller passes the detection-sized frame (`frame_bgr`, e.g.
+        640×360) and may pass an inline decoded input frame as
+        `frame_bgr_full`. On the Pi's substream detect path that inline frame
+        is also 640×360; the writer then uses `pts` to extract the matching
+        1920×1080 frame from the main-stream HLS segmenter.
 
         `pts` is the canonical clock — recorded so downstream consumers
         (review UI, debugging, test harness) can correlate events across
@@ -289,6 +300,98 @@ class SnapshotWriter:
             log.debug("hires jpeg decode failed for %s: %s", camera, e)
             return None
 
+    def _locate_hls_segment(self, camera: str, pts: float,
+                            tolerance_s: float = 0.25) -> Optional[tuple[Path, float]]:
+        """Return (segment_path, relative_offset_s) covering the target PTS."""
+        if pts is None or pts <= 0:
+            return None
+        sidecar = self.hls_root / camera / "segments.json"
+        try:
+            data = json.loads(sidecar.read_text())
+        except Exception as e:
+            log.debug("HLS sidecar read failed for %s: %s", camera, e)
+            return None
+
+        segments = data.get("segments") or []
+        best = None
+        best_distance = None
+        for seg in segments:
+            try:
+                start = float(seg["pts_start"])
+                end = float(seg["pts_end"])
+                name = str(seg["name"])
+            except Exception:
+                continue
+            if start <= pts <= end:
+                offset = max(0.0, min(pts - start, max(0.0, end - start)))
+                return self.hls_root / camera / name, offset
+            distance = min(abs(pts - start), abs(pts - end))
+            if best_distance is None or distance < best_distance:
+                offset = max(0.0, min(pts - start, max(0.0, end - start)))
+                best = (self.hls_root / camera / name, offset)
+                best_distance = distance
+
+        if best is not None and best_distance is not None and best_distance <= tolerance_s:
+            return best
+        return None
+
+    def _extract_hls_frame(self, segment_path: Path, offset_s: float,
+                           timeout_s: float = 10.0) -> Optional[np.ndarray]:
+        """Decode one frame from a finalized HLS segment.
+
+        `-ss` is intentionally placed after `-i`: the Pi's MPEG-TS segments
+        preserve absolute PTS, and input-side seeking against these short
+        segments can return zero frames. Output-side seeking decodes at most
+        one ~5s segment, which is acceptable at snapshot event rate.
+        """
+        if not segment_path.exists():
+            return None
+        try:
+            proc = subprocess.run(
+                [shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg",
+                 "-hide_banner", "-loglevel", "error",
+                 "-i", str(segment_path),
+                 "-ss", f"{max(0.0, float(offset_s)):.3f}",
+                 "-frames:v", "1",
+                 "-vcodec", "mjpeg",
+                 "-f", "image2", "pipe:1"],
+                capture_output=True,
+                timeout=timeout_s,
+                check=False,
+            )
+        except Exception as e:
+            log.debug("HLS frame extract failed for %s: %s", segment_path, e)
+            return None
+        if proc.returncode != 0 or not proc.stdout:
+            err_preview = (proc.stderr or b"")[:200].decode("utf-8", errors="replace")
+            log.debug("HLS frame extract returned no frame for %s: rc=%d err=%s",
+                      segment_path, proc.returncode, err_preview)
+            return None
+        arr = np.frombuffer(proc.stdout, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None or bgr.size == 0:
+            return None
+        return bgr
+
+    def _fetch_hls_frame_for_pts(self, camera: str, pts: float,
+                                 timeout_s: Optional[float] = None) -> Optional[np.ndarray]:
+        """Wait for the HLS segment covering `pts`, then extract one frame."""
+        if pts is None or pts <= 0:
+            return None
+        if not (self.hls_root / camera / "segments.json").exists():
+            return None
+        if timeout_s is None:
+            timeout_s = self.hls_wait_timeout_s
+        deadline = time.monotonic() + max(0.0, float(timeout_s))
+        while True:
+            hit = self._locate_hls_segment(camera, pts)
+            if hit is not None:
+                segment_path, offset_s = hit
+                return self._extract_hls_frame(segment_path, offset_s)
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.25)
+
     def _authoritative_species(self, frame_bgr: np.ndarray, bbox) -> Optional[dict]:
         """Run AIY on the given frame+bbox crop, return {species, confidence,
         model_source} or None. Used by `_write_one` to record an authoritative
@@ -323,14 +426,33 @@ class SnapshotWriter:
         }
 
     def _write_one(self, p: dict):
-        # Single-stream: the full-resolution frame was captured from the same
-        # decoded camera moment as the detection frame, so there is exactly
-        # one path. Promote bgr_full to authoritative + rescale bbox.
-        # If for some reason bgr_full is missing (e.g. dry-run, file input
-        # in tests), fall back to the detect frame as-is.
+        # Prefer a true high-resolution frame from the same timeline. In the
+        # intended single-stream mode `bgr_full` is already larger than the
+        # detector frame. On the Pi's current substream architecture, bgr_full
+        # is also 640x360; in that case extract one main-stream frame from the
+        # PTS-aware HLS segmenter before falling back to detector resolution.
         low_w = p["frame"].shape[1] or 1
         low_h = p["frame"].shape[0] or 1
-        hires_frame = p.get("hires_frame")
+        inline_hires_frame = p.get("hires_frame")
+        hires_frame = None
+        if (inline_hires_frame is not None
+                and inline_hires_frame.shape[1] > low_w
+                and inline_hires_frame.shape[0] > low_h):
+            hires_frame = inline_hires_frame
+            self.stats["hires_inline_ok"] += 1
+        else:
+            fetched = self._fetch_hls_frame_for_pts(
+                p["camera"], float(p.get("pts", 0.0)),
+                timeout_s=self.hls_wait_timeout_s,
+            )
+            if (fetched is not None
+                    and fetched.shape[1] > low_w
+                    and fetched.shape[0] > low_h):
+                hires_frame = fetched
+                self.stats["hires_hls_ok"] += 1
+            else:
+                self.stats["hires_hls_miss"] += 1
+
         if hires_frame is not None:
             sx = hires_frame.shape[1] / low_w
             sy = hires_frame.shape[0] / low_h
@@ -343,6 +465,8 @@ class SnapshotWriter:
             # capture path that doesn't carry bgr_full. The authoritative
             # classifier pass below still runs on whatever frame we have.
             self.stats["hires_fail"] += 1
+            if inline_hires_frame is not None:
+                self.stats["hires_lowres_fallback"] += 1
 
         # Capture lock-time classification values BEFORE auth call. RC3:
         # the live pipeline's vote-lock decision (yard / AIY / both_agree at
