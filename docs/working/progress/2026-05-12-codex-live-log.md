@@ -204,3 +204,13 @@ High-res acceptance surface:
     - `evt pts: n/a delta: n/a`
   - Browser console warnings/errors: none.
 - No active track events appeared during the smoke sample, so event/video delta remained `n/a`. That is expected until a bird/track event arrives.
+
+## Operational Note: Demo/Live Switching
+
+David clarified that switching between the live pipeline and demo pipeline currently requires a browser refresh before judging the dashboard. The backend can switch the pipeline source, but the already-loaded browser view does not reliably swap all the way over without reloading.
+
+Testing rule going forward:
+
+- After toggling demo mode on or off, refresh the dashboard before evaluating label/video sync.
+- Do not diagnose overlay drift from a stale, non-refreshed page immediately after a live/demo switch.
+- Treat a future no-refresh source swap as a separate dashboard hardening task, not as part of the core label-sync math.
