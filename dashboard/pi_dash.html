@@ -905,6 +905,7 @@
   // latest visibleLimit, so new birds appear at top while loaded history
   // stays put at the bottom.
   let visibleLimit = 8;
+  let reviewMode = 'live';
   if (recentMoreBtn) {
     recentMoreBtn.addEventListener('mouseenter', () => {
       recentMoreBtn.style.background = 'var(--bg-hover)';
@@ -947,10 +948,13 @@
 
   async function loadRecent() {
     try {
-      const r = await fetch('/api/pi-review/recent?limit=' + visibleLimit);
+      const r = await fetch(
+        `/api/pi-review/recent?limit=${visibleLimit}&mode=${encodeURIComponent(reviewMode)}`
+      );
       const d = await r.json();
       if (!d.items || d.items.length === 0) {
-        recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No birds yet. Pipeline warming up?</div>';
+        const label = reviewMode === 'demo' ? 'demo' : 'live';
+        recentGrid.innerHTML = `<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">No ${label} classifications yet.</div>`;
         if (recentCount) recentCount.textContent = 'Showing 0';
         return;
       }
@@ -977,11 +981,14 @@
             const alreadyActive = btn.classList.contains('active');
             try {
               if (alreadyActive) {
-                await fetch('/api/pi-review/' + encodeURIComponent(file), { method: 'DELETE' });
+                await fetch(
+                  `/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`,
+                  { method: 'DELETE' }
+                );
                 card.classList.remove('reviewed', 'verdict-yes', 'verdict-no');
                 card.querySelectorAll('.recent-btn').forEach(b => b.classList.remove('active'));
               } else {
-                const resp = await fetch('/api/pi-review/' + encodeURIComponent(file), {
+                const resp = await fetch(`/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ verdict }),
@@ -1008,10 +1015,11 @@
   async function loadReviewStats() {
     if (!recentStats) return;
     try {
-      const r = await fetch('/api/pi-review/stats');
+      const r = await fetch(`/api/pi-review/stats?mode=${encodeURIComponent(reviewMode)}`);
       const d = await r.json();
       if (d.total_reviewed === 0) {
-        recentStats.textContent = 'No reviews yet — click ✓ or ✗ on any card.';
+        const label = reviewMode === 'demo' ? 'demo' : 'live';
+        recentStats.textContent = `No ${label} reviews yet — click ✓ or ✗ on any card.`;
         return;
       }
       const overall = Math.round((d.overall_accuracy || 0) * 100);
@@ -1335,6 +1343,7 @@
       }
 
       currentSrc = next;
+      resetOverlayState(next);
       video.src = url;
     }
     function applySrc(next) {
@@ -1399,6 +1408,29 @@
       clockDeltaMs: null,
       eventAgeMsRough: null,
     };
+
+    function resetOverlayState(next) {
+      for (const entry of tracks.values()) {
+        entry.bboxEl.remove();
+        entry.labelEl.remove();
+      }
+      tracks.clear();
+      emptyEl.classList.remove('hidden');
+      lastEventTs = 0;
+      sseCount = 0;
+      Object.assign(syncStats, {
+        lastVideoMediaTime: null,
+        lastVideoCallbackAt: 0,
+        lastVideoFrames: 0,
+        videoFrameHz: 0,
+        lastEventPts: null,
+        lastEventWallTimeMs: null,
+        lastEventArrivedAt: 0,
+        clockDeltaMs: null,
+        eventAgeMsRough: null,
+      });
+      statusEl.textContent = next === 'feeder-demo' ? 'demo · connecting…' : 'live';
+    }
 
     let videoFrameClockStarted = false;
     let videoFrameHandle = 0;
@@ -1743,8 +1775,18 @@
     try {
       const r = await fetch('/api/demo-mode');
       const data = await r.json();
+      const nextReviewMode = data.enabled ? 'demo' : 'live';
       demoBtn.classList.toggle('demo-on', !!data.enabled);
       demoLabel.textContent = data.enabled ? 'demo mode' : 'live';
+      if (nextReviewMode !== reviewMode) {
+        reviewMode = nextReviewMode;
+        visibleLimit = 8;
+        if (recentGrid) {
+          recentGrid.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center;font-family:var(--font-mono);font-size:12px;">Loading…</div>';
+        }
+        loadRecent();
+        loadReviewStats();
+      }
     } catch (e) { /* tolerate */ }
   }
 

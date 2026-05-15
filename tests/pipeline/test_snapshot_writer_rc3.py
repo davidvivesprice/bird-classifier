@@ -145,3 +145,25 @@ def test_authoritative_none_when_classifier_returns_none(monkeypatch):
     assert captured_entry["disagreement"] is False
     # Lock-time values still preserved
     assert captured_entry["lock_time"]["species"] == "Northern Cardinal"
+
+
+def test_demo_mode_provenance_is_recorded_for_classification_rows(monkeypatch):
+    monkeypatch.setenv("PIPELINE_TEST_RTSP_URL", "rtsp://localhost:8654/feeder-main")
+    monkeypatch.setattr("cv2.imencode", lambda *a, **kw: (True, np.zeros(10, dtype=np.uint8)))
+    monkeypatch.setattr("pathlib.Path.mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.write_bytes", lambda *a, **kw: None)
+    monkeypatch.setattr("pathlib.Path.unlink", lambda *a, **kw: None)
+
+    captured_entry = {}
+    import classifications_db as cdb
+    monkeypatch.setattr(cdb, "insert_classification",
+                        lambda e: captured_entry.update(e))
+
+    fake_classifier = MagicMock()
+    fake_classifier.authoritative_classify = MagicMock(return_value=None)
+
+    writer = SnapshotWriter(classifier=fake_classifier)
+    writer._write_one(_make_payload(species="Blue Jay"))
+
+    assert captured_entry["source_mode"] == "demo"
+    assert captured_entry["source_stream"] == "rtsp://localhost:8654/feeder-main"

@@ -56,3 +56,24 @@ def test_live_source_switch_disconnects_existing_video_rtc_session():
     assert "video.reconnectTID = 0;" in html
     assert "video.src = url;" in html
     assert "location.reload" not in html
+
+
+def test_recent_classifications_are_requested_for_active_demo_or_live_mode():
+    html = (ROOT / "dashboard" / "pi_dash.html").read_text()
+
+    assert "let reviewMode = 'live';" in html
+    assert "/api/pi-review/recent?limit=${visibleLimit}&mode=${encodeURIComponent(reviewMode)}" in html
+    assert "/api/pi-review/stats?mode=${encodeURIComponent(reviewMode)}" in html
+    assert "const nextReviewMode = data.enabled ? 'demo' : 'live';" in html
+    assert "reviewMode = nextReviewMode;" in html
+    assert "visibleLimit = 8;" in html
+
+
+def test_live_source_switch_clears_stale_overlay_state():
+    html = (ROOT / "dashboard" / "pi_dash.html").read_text()
+
+    assert "function resetOverlayState(next)" in html
+    assert "tracks.clear();" in html
+    assert "lastEventTs = 0;" in html
+    assert "sseCount = 0;" in html
+    assert "resetOverlayState(next);" in html

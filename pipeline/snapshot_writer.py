@@ -558,6 +558,8 @@ class SnapshotWriter:
             "extra_json": None,
             # Provenance tag so this pipeline's rows are identifiable later.
             "pipeline_source": "bird_pipeline_v3",
+            "source_mode": "demo" if os.environ.get("PIPELINE_TEST_RTSP_URL") else "live",
+            "source_stream": os.environ.get("PIPELINE_TEST_RTSP_URL") or "live",
             "track_id": int(track_id),
             "vote_history_len": len(p.get("vote_history") or []),
             "model_source": str(p.get("model_source") or ""),

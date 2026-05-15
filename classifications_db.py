@@ -10,13 +10,37 @@ WAL mode allows concurrent reads + one writer without blocking.
 """
 
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
 
 from bird_inference import SPECIES_ALIASES, normalize_species
 
-DB_PATH = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
+DEFAULT_DB_NAME = "classifications.db"
+DEMO_DB_NAME = "classifications_demo.db"
+
+
+def resolve_db_path(env=None, home=None) -> Path:
+    """Resolve the classifications DB for the current pipeline process.
+
+    Live mode writes the canonical ``classifications.db``. Demo mode gets its
+    own DB so looped demo classifications cannot pollute the live review queue.
+    ``PIPELINE_CLASSIFICATIONS_DB`` is a test/ops escape hatch for explicit
+    one-off routing.
+    """
+    env = os.environ if env is None else env
+    home = Path.home() if home is None else Path(home)
+    explicit = env.get("PIPELINE_CLASSIFICATIONS_DB")
+    if explicit:
+        return Path(explicit).expanduser()
+    db_name = DEMO_DB_NAME if env.get("PIPELINE_TEST_RTSP_URL") else DEFAULT_DB_NAME
+    return home / "bird-snapshots" / "logs" / db_name
+
+
+DB_PATH = resolve_db_path()
+_schema_lock = threading.Lock()
+_schema_ready = False
 
 
 # ── Connection pool (thread-local) ──
@@ -95,11 +119,27 @@ INDEXES = [
 
 def init_db():
     """Ensure the DB and table exist. Safe to call multiple times."""
+    global _schema_ready
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = get_conn(readonly=False)
-    conn.execute(CREATE_TABLE)
-    for idx in INDEXES:
-        conn.execute(idx)
-    conn.commit()
+    with _schema_lock:
+        conn.execute(CREATE_TABLE)
+        for idx in INDEXES:
+            conn.execute(idx)
+        conn.commit()
+        _schema_ready = True
+
+
+def _ensure_schema():
+    """Lazily create schema for writer-only processes.
+
+    The dashboard calls init_db() on startup, but the pipeline can be the first
+    process to touch the demo DB. Keep insert_classification self-sufficient so
+    a fresh classifications_demo.db is created on the first demo snapshot.
+    """
+    if _schema_ready:
+        return
+    init_db()
 
 
 # ── Write (used by classify.py) ──
@@ -129,6 +169,7 @@ def insert_classification(entry: dict):
 
     Accepts the same dict format as the JSONL entries.
     """
+    _ensure_schema()
     e = entry
 
     # Normalize species

@@ -32,6 +32,9 @@ DB_PATH = Path.home() / "bird-snapshots" / "logs" / "pi_reviews.db"
 CLASSIFICATIONS_DB_PATH = (
     Path.home() / "bird-snapshots" / "logs" / "classifications.db"
 )
+DEMO_CLASSIFICATIONS_DB_PATH = (
+    Path.home() / "bird-snapshots" / "logs" / "classifications_demo.db"
+)
 
 _lock = threading.Lock()
 
@@ -46,12 +49,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _lookup_model_source(filename: str) -> str | None:
+def _normalize_mode(mode: str | None) -> str:
+    return "demo" if mode == "demo" else "live"
+
+
+def _classifications_db_path(mode: str | None) -> Path:
+    return DEMO_CLASSIFICATIONS_DB_PATH if _normalize_mode(mode) == "demo" else CLASSIFICATIONS_DB_PATH
+
+
+def _lookup_model_source(filename: str, mode: str | None = "live") -> str | None:
     """Pull the classifier name (extra_json.model_source) from the
     pipeline's classifications.db. Returns None if the file isn't
     found or the lookup fails (e.g. DB locked) — caller stores NULL."""
+    db_path = _classifications_db_path(mode)
     try:
-        with sqlite3.connect(str(CLASSIFICATIONS_DB_PATH), timeout=2.0) as c:
+        with sqlite3.connect(str(db_path), timeout=2.0) as c:
             c.row_factory = sqlite3.Row
             row = c.execute(
                 "SELECT json_extract(extra_json, '$.model_source') AS m "
@@ -76,14 +88,27 @@ def init_db() -> None:
                 file         TEXT PRIMARY KEY,
                 verdict      TEXT NOT NULL CHECK (verdict IN ('yes','no')),
                 reviewed_at  TEXT NOT NULL,
+                source_mode  TEXT NOT NULL DEFAULT 'live',
                 model_source TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_pi_reviews_at
                 ON pi_reviews(reviewed_at);
             CREATE INDEX IF NOT EXISTS idx_pi_reviews_model
                 ON pi_reviews(model_source);
+            CREATE INDEX IF NOT EXISTS idx_pi_reviews_source_mode
+                ON pi_reviews(source_mode);
             """
         )
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(pi_reviews)")}
+        if "source_mode" not in cols:
+            c.execute(
+                "ALTER TABLE pi_reviews "
+                "ADD COLUMN source_mode TEXT NOT NULL DEFAULT 'live'"
+            )
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pi_reviews_source_mode "
+                "ON pi_reviews(source_mode)"
+            )
         c.commit()
 
 
@@ -91,46 +116,53 @@ router = APIRouter(prefix="/api/pi-review", tags=["pi-review"])
 
 
 @router.post("/{filename}")
-def post_verdict(filename: str, body: dict = Body(...)):
+def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
+    source_mode = _normalize_mode(mode)
     verdict = body.get("verdict")
     if verdict not in ("yes", "no"):
         raise HTTPException(
             status_code=400,
             detail="verdict must be 'yes' or 'no'",
         )
-    model_source = _lookup_model_source(filename)
+    model_source = _lookup_model_source(filename, source_mode)
     with _lock, _conn() as c:
         c.execute(
-            "INSERT INTO pi_reviews (file, verdict, reviewed_at, model_source) "
-            "VALUES (?, ?, ?, ?) "
+            "INSERT INTO pi_reviews (file, verdict, reviewed_at, source_mode, model_source) "
+            "VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(file) DO UPDATE SET "
             "    verdict = excluded.verdict, "
             "    reviewed_at = excluded.reviewed_at, "
+            "    source_mode = excluded.source_mode, "
             "    model_source = excluded.model_source",
-            (filename, verdict, _now_iso(), model_source),
+            (filename, verdict, _now_iso(), source_mode, model_source),
         )
         c.commit()
     return {
         "ok": True,
         "file": filename,
         "verdict": verdict,
+        "source_mode": source_mode,
         "model_source": model_source,
     }
 
 
 @router.delete("/{filename}")
-def clear_verdict(filename: str):
+def clear_verdict(filename: str, mode: str = "live"):
     """Undo — drop the verdict row entirely. The next review-state
     fetch will treat the file as unreviewed again."""
+    source_mode = _normalize_mode(mode)
     with _lock, _conn() as c:
-        cur = c.execute("DELETE FROM pi_reviews WHERE file = ?", (filename,))
+        cur = c.execute(
+            "DELETE FROM pi_reviews WHERE file = ? AND source_mode = ?",
+            (filename, source_mode),
+        )
         c.commit()
         deleted = cur.rowcount
-    return {"ok": True, "file": filename, "deleted": deleted}
+    return {"ok": True, "file": filename, "source_mode": source_mode, "deleted": deleted}
 
 
 @router.get("/recent")
-def recent_classifications(limit: int = 8):
+def recent_classifications(limit: int = 8, mode: str = "live"):
     """Last N rows from classifications.db, joined with their
     pi_reviews verdict (None if unreviewed). Drives the Recent
     Classifications strip on the Pi dashboard.
@@ -143,9 +175,13 @@ def recent_classifications(limit: int = 8):
         limit = 1
     if limit > 400:
         limit = 400
+    source_mode = _normalize_mode(mode)
+    classifications_db_path = _classifications_db_path(source_mode)
+    if not classifications_db_path.exists():
+        return {"items": [], "mode": source_mode}
     rows = []
     try:
-        with sqlite3.connect(str(CLASSIFICATIONS_DB_PATH), timeout=2.0) as cls_c:
+        with sqlite3.connect(str(classifications_db_path), timeout=2.0) as cls_c:
             cls_c.row_factory = sqlite3.Row
             for r in cls_c.execute(
                 "SELECT file, source_timestamp, common_name AS species, "
@@ -168,8 +204,8 @@ def recent_classifications(limit: int = 8):
                 row["file"]: dict(row)
                 for row in c.execute(
                     "SELECT file, verdict, reviewed_at "
-                    f"FROM pi_reviews WHERE file IN ({placeholders})",
-                    files,
+                    f"FROM pi_reviews WHERE source_mode = ? AND file IN ({placeholders})",
+                    [source_mode, *files],
                 )
             }
     else:
@@ -180,15 +216,16 @@ def recent_classifications(limit: int = 8):
         r["verdict"] = v["verdict"] if v else None
         r["reviewed_at"] = v["reviewed_at"] if v else None
 
-    return {"items": rows}
+    return {"items": rows, "mode": source_mode}
 
 
 @router.get("/stats")
-def review_stats():
+def review_stats(mode: str = "live"):
     """Accuracy summary by classifier model_source. The Pi dashboard
     surfaces this above the Recent Classifications strip so the user
     can see at-a-glance how AIY (or whichever classifier is active)
     is doing."""
+    source_mode = _normalize_mode(mode)
     with _lock, _conn() as c:
         rows = list(
             c.execute(
@@ -197,8 +234,10 @@ def review_stats():
                 "       SUM(CASE WHEN verdict = 'no'  THEN 1 ELSE 0 END) AS no_n, "
                 "       COUNT(*) AS total "
                 "FROM pi_reviews "
+                "WHERE source_mode = ? "
                 "GROUP BY model_source "
-                "ORDER BY total DESC"
+                "ORDER BY total DESC",
+                (source_mode,),
             )
         )
     by_model = []
@@ -221,6 +260,7 @@ def review_stats():
         )
     overall_acc = (grand_yes / grand_total) if grand_total > 0 else 0.0
     return {
+        "mode": source_mode,
         "total_reviewed": grand_total,
         "overall_accuracy": overall_acc,
         "by_model": by_model,

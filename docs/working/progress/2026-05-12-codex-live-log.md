@@ -267,3 +267,58 @@ User-eye check still needed:
 
 - Reload the dashboard once to pick up the patched HTML.
 - Confirm `/?syncdiag=1` no longer cycles black every few seconds in normal local and remote browsers.
+
+## Fix: Demo/Live Recent Classification Routing
+
+Date: 2026-05-15.
+
+David reported that switching the Live view back from demo to live still left the Recent Classifications strip showing demo-loop rows. He also observed that live labels/bboxes were not visible after the first few seconds.
+
+Findings:
+
+- Live video was healthy during the audit (`video: 4 1920x1080`), but pipeline health reported `active_tracks: 0` and no current label events. So the lack of boxes at that moment was a detector/tracker/no-active-track condition, not evidence that the browser overlay renderer was broken.
+- Recent classifications had a concrete data-routing bug: `dashboard/pi_review.py` always read `~/bird-snapshots/logs/classifications.db`.
+- Demo rows written during the long demo interval were in the same DB as live rows and had no source-mode boundary, so live mode kept showing newer demo rows until live produced enough newer snapshots.
+
+Fix:
+
+- Added `classifications_db.resolve_db_path()`.
+  - Default live writes go to `classifications.db`.
+  - Pipeline processes with `PIPELINE_TEST_RTSP_URL` set now write to `classifications_demo.db`.
+  - `PIPELINE_CLASSIFICATIONS_DB` remains an explicit override for tests/ops.
+- `SnapshotWriter` now records `source_mode` and `source_stream` in `extra_json`.
+- `GET /api/pi-review/recent` and `/stats` now accept `mode=live|demo` and read the matching classifications DB.
+- Review verdict writes carry `source_mode`.
+- The dashboard tracks `reviewMode`, requests recent/stats for the active demo/live mode, and refreshes that strip immediately when demo state changes.
+- Source switches now clear stale overlay DOM nodes and event counters, so demo boxes/counters do not linger after switching video sources.
+
+Data migration:
+
+- Backed up:
+  - `~/bird-snapshots/logs/backups/classifications.db.20260515-live-demo-split.bak`
+  - `~/bird-snapshots/logs/backups/pi_reviews.db.20260515-live-demo-split.bak`
+- Moved known demo-period rows from `classifications.db` to `classifications_demo.db`.
+  - Live DB after migration: 31,861 rows.
+  - Demo DB after migration: 15,817 rows.
+
+Verification:
+
+- Red tests failed before implementation:
+  - missing `classifications_db.resolve_db_path`
+  - missing `dashboard.pi_review.DEMO_CLASSIFICATIONS_DB_PATH`
+  - missing overlay-state reset.
+- Pi test command:
+  - `./venv/bin/python -m pytest tests/test_demo_mode_classifications_routing.py tests/test_dashboard_live_video_proxy.py tests/pipeline/test_snapshot_writer_rc3.py tests/test_classifications_db.py -q`
+  - Result: `32 passed, 4 warnings`.
+- Backend endpoint checks:
+  - `mode=live` returned current live rows such as `feeder_2026-05-15_10-27-25_1.jpg`, `feeder_2026-05-15_10-14-26_2.jpg`, and `feeder_2026-05-15_10-12-17_1.jpg`.
+  - `mode=demo` returned the demo-loop `_644xx` rows.
+- Browser automation:
+  - In live mode, Recent Classifications showed live rows at the top.
+  - Switching to demo without refresh changed the strip to demo rows.
+  - Switching back to live without refresh changed the strip back to live rows.
+  - Final system state was left in live mode with demo loop inactive.
+
+Open follow-up:
+
+- Live labels/bboxes only appear when the pipeline has active tracks. At the time of this audit the live pipeline was healthy but had `active_tracks: 0`. If birds are visibly present while health still reports zero active tracks, the next investigation is detector/tracker/motion-gate sensitivity and snapshot-lock coverage, not the dashboard renderer.
