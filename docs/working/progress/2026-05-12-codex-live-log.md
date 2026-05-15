@@ -2,6 +2,8 @@
 
 Purpose: running, backfilled log for the Pi 5 bird observatory takeover. This is the audit trail for what changed, why it changed, what was verified, and what is next.
 
+May 15 summary log: `docs/working/progress/2026-05-15-codex-work-log.md`.
+
 ## Backfill
 
 ### Takeover Baseline
