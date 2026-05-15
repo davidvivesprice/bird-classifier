@@ -322,3 +322,41 @@ Verification:
 Open follow-up:
 
 - Live labels/bboxes only appear when the pipeline has active tracks. At the time of this audit the live pipeline was healthy but had `active_tracks: 0`. If birds are visibly present while health still reports zero active tracks, the next investigation is detector/tracker/motion-gate sensitivity and snapshot-lock coverage, not the dashboard renderer.
+
+## Fix: Pi AIY raw-score normalization
+
+Date: 2026-05-15.
+
+David reported that live boxes were present at least some of the time, but labels were often improbable species such as Northern Flicker, grackles, and blue jays when the feeder birds were mostly finches with one chickadee.
+
+Findings:
+
+- Recent live `classifications.db` rows showed lock-time labels like `Northern Flicker`, `Chipping Sparrow`, `American Tree Sparrow`, and `Red Crossbill` at confidence `1.0`.
+- The same rows' saved-frame authoritative pass often disagreed and usually preferred `House Finch` or `House Sparrow` at modest confidence.
+- Re-running the classifier on the 1080p saved crops confirmed that those crops did not support the live `1.0` labels.
+- Root cause in `pipeline/pi_classifier.py`: AIY/Hailo registry `raw_score` values are integer 0-255, but the code normalized with `raw / 255 if raw > 1 else raw`. That treats integer `raw_score == 1` as confidence `1.0` instead of `1/255`, allowing the weakest nonzero AIY ties to become perfect live votes and lock bad species.
+
+Fix:
+
+- Added `_normalize_raw_score()` in `pipeline/pi_classifier.py`.
+- Integer raw scores, including `1`, now always divide by `255`.
+- Float scores already in `[0, 1]` are still accepted as normalized values.
+
+Verification:
+
+- Added regression tests in `tests/pipeline/test_pi_classifier.py`.
+- Red test on Pi before implementation:
+  - `raw_score=1` produced `ClassificationResult(species='Northern Flicker', confidence=1.0, ...)`.
+- Green tests after implementation:
+  - `./venv/bin/python -m pytest tests/pipeline/test_pi_classifier.py -q`
+  - Result: `3 passed`.
+  - `./venv/bin/python -m pytest tests/pipeline/test_pi_classifier.py tests/pipeline/test_process_thread.py tests/pipeline/test_snapshot_writer_rc3.py -q`
+  - Result: `20 passed`.
+- Restarted `bird-pipeline.service`.
+- Post-restart backend health was `overall: ok`, frames advanced, and no drops/restarts were reported.
+- Watched the live pipeline for 60 seconds after restart. No detections occurred during that window, so there were no new live classification rows to validate against real birds.
+
+User-eye check still needed:
+
+- When birds are visibly in frame, confirm labels no longer jump to high-confidence unlikely species.
+- If birds are visible but `detections_total` and `active_tracks` stay flat, the next backend investigation is detector/tracker sensitivity rather than classifier voting.

@@ -15,9 +15,26 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from numbers import Integral
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+
+def _normalize_raw_score(raw_score) -> float:
+    """Return confidence in [0, 1] from registry raw_score values.
+
+    The registry contract uses AIY/Hailo-style integer scores on a 0-255
+    scale. A prior `raw > 1 else raw` shortcut treated integer raw_score=1 as
+    perfect confidence, which made weak AIY ties eligible for live vote-locks.
+    """
+    try:
+        value = float(raw_score or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if isinstance(raw_score, Integral) or value > 1.0:
+        value = value / 255.0
+    return max(0.0, min(1.0, value))
 
 
 @dataclass
@@ -51,9 +68,7 @@ class PiClassifier:
             return ClassificationResult(None, 0.0, None, False)
 
         top = preds[0]
-        # Some models give raw_score 0-255 (AIY); normalize to [0,1].
-        raw = top.get("raw_score", 0)
-        confidence = (float(raw) / 255.0) if raw > 1 else float(raw)
+        confidence = _normalize_raw_score(top.get("raw_score", 0))
         if confidence < self.confident_threshold:
             cam_stats["unlabeled_call"] += 1
             return ClassificationResult(None, 0.0, None, False)
@@ -75,8 +90,7 @@ class PiClassifier:
         if not preds:
             return None
         top = preds[0]
-        raw = top.get("raw_score", 0)
-        confidence = (float(raw) / 255.0) if raw > 1 else float(raw)
+        confidence = _normalize_raw_score(top.get("raw_score", 0))
         if not top.get("common_name"):
             return None
         return ClassificationResult(
