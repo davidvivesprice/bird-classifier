@@ -6,6 +6,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%h/bird-classifier
 Environment=PI_MODE=1
+Environment=PYTHONUNBUFFERED=1
 ExecStart=%h/bird-classifier/venv/bin/uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 Restart=always
 RestartSec=5

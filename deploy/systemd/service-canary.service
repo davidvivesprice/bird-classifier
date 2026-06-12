@@ -1,0 +1,5 @@
+[Unit]
+Description=Zombie self-heal canary (dashboard + sshd)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/service-canary.sh
