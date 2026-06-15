@@ -5291,14 +5291,23 @@ def _demo_mode_active() -> bool:
     return False
 
 
+# The demo video loops as an always-on RTSP service on the NAS (VivesNasty,
+# /volume2/docker/bird-demo — mediamtx + bundled ffmpeg). The Pi consumes it
+# exactly like the real UniFi camera. "Demo mode" therefore just repoints the
+# pipeline at the NAS feed; the dashboard shows the feeder-demo stream (which
+# go2rtc permanently relays from the NAS). The old on-Pi bird-demo-loop.service
+# was retired 2026-06-15 — there is nothing to start/stop on the Pi anymore.
+DEMO_RTSP_URL = "rtsp://192.168.4.243:8554/feeder-main"
+
+
 @app.get("/api/demo-mode")
 def get_demo_mode():
-    """Report current demo-mode state."""
-    looper_out, looper_rc = _systemctl("is-active", "bird-demo-loop.service")
+    """Report current demo-mode state. Enabled iff the pipeline is pointed at
+    the NAS demo feed (PIPELINE_TEST_RTSP_URL set on the user environment)."""
     pipeline_test = _demo_mode_active()
     return {
-        "enabled": pipeline_test and looper_out.strip() == "active",
-        "looper_state": looper_out.strip(),
+        "enabled": pipeline_test,
+        "demo_source": DEMO_RTSP_URL,
         "pipeline_test_url_set": pipeline_test,
     }
 
@@ -5307,22 +5316,15 @@ def get_demo_mode():
 def set_demo_mode(payload: dict):
     """Switch demo mode on/off. Body: {"enabled": true|false}.
 
-    ON:  start bird-demo-loop.service, set PIPELINE_TEST_RTSP_URL on user env,
-         restart bird-pipeline.service.
-    OFF: unset PIPELINE_TEST_RTSP_URL, restart bird-pipeline.service, stop
-         bird-demo-loop.service.
+    ON:  set PIPELINE_TEST_RTSP_URL=<NAS demo feed>, restart bird-pipeline.
+    OFF: unset PIPELINE_TEST_RTSP_URL, restart bird-pipeline.
+    The demo loop runs continuously on the NAS; nothing to start/stop on the Pi.
     """
     enabled = bool(payload.get("enabled"))
     actions = []
     if enabled:
-        out, rc = _systemctl("start", "bird-demo-loop.service")
-        actions.append({"step": "start_looper", "rc": rc, "out": out})
-        # Give the looper a moment to bind its RTSP port before the pipeline
-        # tries to open it.
-        import time as _t
-        _t.sleep(2)
         out, rc = _systemctl("set-environment",
-                             "PIPELINE_TEST_RTSP_URL=rtsp://localhost:8654/feeder-main")
+                             f"PIPELINE_TEST_RTSP_URL={DEMO_RTSP_URL}")
         actions.append({"step": "set_env", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
@@ -5331,6 +5333,4 @@ def set_demo_mode(payload: dict):
         actions.append({"step": "unset_env", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
-        out, rc = _systemctl("stop", "bird-demo-loop.service")
-        actions.append({"step": "stop_looper", "rc": rc, "out": out})
     return {"enabled": enabled, "actions": actions}
