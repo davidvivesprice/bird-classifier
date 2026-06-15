@@ -175,6 +175,14 @@ def main():
 
     from pipeline.camera_config import CameraClassifierConfig
 
+    # DISABLE_CORAL=1 forces AIY-only (no yard / no Coral Edge TPU). Set by the
+    # launch wrapper's crash-loop breaker (~/bin/bird-pipeline-run.sh) when
+    # libedgetpu.1.dylib aborts repeatedly — Coral USB instability (e.g. after
+    # a power event) makes the C library call abort() (SIGABRT), uncatchably
+    # killing this process. Degrading to AIY-only keeps the observatory up
+    # CPU-only instead of crash-looping. Root cause evidence: DiagnosticReports/
+    # Python-2026-06-15-035154.ips (faulting thread inside libedgetpu).
+    _disable_coral = os.environ.get("DISABLE_CORAL", "0") == "1"
     camera_configs = {
         # 2026-04-17: Briefly flipped feeder to AIY-only hoping for honest
         # uncertainty over confident-wrong. AIY returns "don't know" on ~82%
@@ -183,9 +191,13 @@ def main():
         # real (see forget-me-nots: DATA INTEGRITY AUDIT) but at least labels
         # show up quickly and the overlay feels alive. Keep yard until the
         # audit + retrain lands. Ground stays AIY-only as before.
-        CAMERA_FEEDER: CameraClassifierConfig(use_yard=True),
+        CAMERA_FEEDER: CameraClassifierConfig(use_yard=not _disable_coral),
         CAMERA_GROUND: CameraClassifierConfig(use_yard=False),
     }
+    if _disable_coral:
+        logging.getLogger("pipeline").warning(
+            "DISABLE_CORAL=1 → yard/Coral disabled, running AIY-only "
+            "(crash-loop breaker or manual override)")
 
     # 2026-04-24: PI_MODE=1 switches to the Hailo-backed classifier registry.
     # On iMac (PI_MODE unset), this whole block falls back to SmartClassifier
