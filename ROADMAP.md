@@ -21,10 +21,16 @@ keystone and needs nothing else to stand up.
 | **2** | **Clean, accurate data** | Pull N recent detections: each is genuinely the claimed bird (or honestly "unknown"), with a high-quality crop, tight bounding box, and correct metadata. | 🔴 not landed |
 | **3** | **Presentation** | The data is delightful to look at. (Raw numbers are fine until 1 & 2 are green.) | ⚪ deferred |
 
-**The next concrete move:** get the fake camera feed **off the Pi** — serve
-the demo loop as an RTSP stream from the NAS or the M4 Mac, so the Pi receives
-it exactly like the real UniFi camera. This is both a correctness fix (honest
-test) and a load fix (the Pi stops fighting itself).
+**✅ Done 2026-06-15 — fake feed is off the Pi.** The demo loops as an always-on
+compose service on the NAS (`/volume2/docker/bird-demo`, mediamtx+ffmpeg),
+served at `rtsp://192.168.4.243:8554/feeder-main`. The Pi consumes it exactly
+like the real camera; the on-Pi loop is retired. Dashboard verified showing
+the NAS demo with live labels.
+
+**The next concrete move:** build the **empirical offset rig** (Chapter 1,
+step 2) and **strip the Pi to live-ID only** (step 3) so we measure the live
+path cleanly. See the refined sequence at the bottom and "What we learned"
+below.
 
 ---
 
@@ -98,12 +104,28 @@ are a Chapter 3 choice. Not now.)
 - *Whether the guess is **correct** is Chapter 2.* Here we only care that the
   **timing/commit behavior** is right.
 
-### Enabler (do this first): move the fake feed off the Pi
-The demo loop must **not** run on the Pi. It should be served as RTSP from the
-**NAS** or the **M4 Mac**, so the Pi consumes it identically to the real
-camera. This was a self-inflicted wound — the Pi was generating *and*
-consuming *and* inferring on the loop, which is both unrepresentative and
-crushing. Off-Pi = honest test + real load.
+### Enabler ✅ DONE (2026-06-15): fake feed is off the Pi
+The demo loops as an always-on compose service on the NAS
+(`/volume2/docker/bird-demo`, mediamtx + bundled ffmpeg, watchtower-excluded),
+served at `rtsp://192.168.4.243:8554/feeder-main`. The Pi consumes it exactly
+like the real camera (FrameCapture + segmenter both on the NAS 640×360 feed,
+verified — zero connections to the real camera in demo mode). On-Pi
+`bird-demo-loop` retired; `/api/demo-mode` now just repoints the pipeline at
+the NAS feed. Self-inflicted produce+consume+infer load is gone.
+
+### What we learned standing it up (2026-06-15)
+- **Demo mode runs hotter than live (139%/82°C vs ~72%/65°C)** — expected: the
+  demo loop is **bird-dense**, so YOLO+AIY classify constantly. It's a good
+  worst-case stress test, not a regression. BUT the **HLS segmenter is also
+  running and is pure overhead for live-ID** — pausing it is the first item in
+  the strip-down (step 3) and the cleanest load win.
+- **The WebRTC live path can't self-report which frame is on screen** — so we
+  can't measure overlay offset from the player's timeline. The fix (David's
+  own idea): **burn a timecode into the demo video**; a probe reads the
+  on-screen timecode + the label position from pixels and compares to the
+  annotations → offset in ms, transport-agnostic. This is how the empirical
+  rig (step 2) gets built, and it also informs the 1a fork (simple WebRTC path
+  vs. spatial-subtitle): we measure first, escalate only if we must.
 
 ### Diagnostic: is it load, or is it code?
 Open question David raised: when timing is off, is the Pi overloaded or is
@@ -249,9 +271,15 @@ Read this before touching anything; it encodes hard-won constraints.
   with the LIVE/DEFERRED/PAUSED/DEAD avenues table (so you don't re-chase
   dead paths, e.g. HW H.264 decode on Pi 5).
 
-**Suggested Chapter 1 sequence (measure-first)**
-1. Stand up the RTSP demo loop on NAS or M4 Mac; point the Pi at it.
-2. Stand up the empirical offset rig (timecode + annotations + harness).
-3. Strip the Pi pipeline to live-ID only (snapshots paused).
-4. Measure. Decide load-vs-code per the diagnostic ladder above.
+**Chapter 1 sequence (measure-first)**
+1. ✅ Stand up the RTSP demo loop on the NAS; point the Pi at it. *(2026-06-15)*
+2. ⏳ **NEXT — empirical offset rig:** re-encode the demo with a **burned-in
+   timecode/frame-number**, redeploy to the NAS loop, then a probe reads the
+   on-screen timecode + label position from pixels and compares to the
+   annotations → offset in ms. Transport-agnostic (works for WebRTC+DOM today).
+3. ⏳ **Strip the Pi to live-ID only:** pause the HLS segmenter + snapshots in
+   demo mode (sheds the unnecessary load identified above). Decode → motion →
+   YOLO → track → classify → label, nothing else.
+4. Measure. Decide load-vs-code per the diagnostic ladder above (M4 as the
+   overpowered control).
 5. Fix to green on 1a, then 1b. Each change re-measured automatically.
