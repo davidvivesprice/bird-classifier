@@ -1,3 +1,5 @@
+> **HISTORICAL** — archived 2026-06-15. Pure status/log; live ideas preserved in `docs/working/2026-06-15-idea-extraction-record.md`.
+
 # Pi docs — state of work 2026-04-30
 
 ## What's done

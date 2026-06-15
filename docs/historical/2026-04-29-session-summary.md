@@ -1,3 +1,5 @@
+> **HISTORICAL** — archived 2026-06-15. Pure status/log; live ideas preserved in `docs/working/2026-06-15-idea-extraction-record.md`.
+
 # Bird Observatory Pi-Side Development — 2026-04-29 Session Summary
 
 **Session Duration:** ~2 hours (Sonnet 4.6)  

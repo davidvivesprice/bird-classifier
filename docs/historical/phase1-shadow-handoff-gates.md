@@ -1,3 +1,5 @@
+> **HISTORICAL** — archived 2026-06-15. Pure status/log; live ideas preserved in `docs/working/2026-06-15-idea-extraction-record.md`.
+
 # Phase 1 Shadow Deployment — Handoff Gates & Coordination (2026-04-29)
 
 **Status:** Ready for Phase 0 → Phase 1 transition

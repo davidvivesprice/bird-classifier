@@ -1,3 +1,5 @@
+> **HISTORICAL** — archived 2026-06-15. Pure status/log; live ideas preserved in `docs/working/2026-06-15-idea-extraction-record.md`.
+
 # Phase 1 Shadow Deployment — Daily Validation Checklist (2026-04-29)
 
 **Context:** Phase 1 runs for ≥7 days parallel. This checklist ensures validation metrics are collected systematically and the success gate (≥0.90 intra-frame agreement) is objectively measurable.

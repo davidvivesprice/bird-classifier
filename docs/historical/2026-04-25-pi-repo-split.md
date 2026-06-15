@@ -1,3 +1,5 @@
+> **HISTORICAL** — archived 2026-06-15. Pure status/log; live ideas preserved in `docs/working/2026-06-15-idea-extraction-record.md`.
+
 # Pi repo split — 2026-04-25
 
 **Trigger:** David, via iMac-Claude (cross-claude-comms.md, 2026-04-25 ~13:45 ET):
