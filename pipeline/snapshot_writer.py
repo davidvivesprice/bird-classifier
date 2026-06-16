@@ -172,7 +172,13 @@ class SnapshotWriter:
             "hires_lowres_fallback": 0,
             "aiy_relabel": 0,
             "aiy_none": 0,
+            "skipped_disabled": 0,
         }
+        # PIPELINE_DISABLE_SNAPSHOTS=1 makes submit() a no-op. Used in demo /
+        # measurement mode (Chapter 1 strip-to-live-ID) so the bird-dense demo
+        # loop doesn't spend CPU+I/O writing throwaway snapshots. Live mode
+        # keeps it enabled — snapshots are the real data-collection path.
+        self.snapshots_enabled = os.environ.get("PIPELINE_DISABLE_SNAPSHOTS") != "1"
 
     def start(self):
         self._thread = threading.Thread(
@@ -199,6 +205,9 @@ class SnapshotWriter:
         (review UI, debugging, test harness) can correlate events across
         the system without going through wall-clock.
         """
+        if not self.snapshots_enabled:
+            self.stats["skipped_disabled"] += 1
+            return
         payload = {
             "camera": camera,
             # No .copy() (Track B audit 2026-05-11): FrameCapture allocates

@@ -5323,14 +5323,22 @@ def set_demo_mode(payload: dict):
     enabled = bool(payload.get("enabled"))
     actions = []
     if enabled:
+        # Demo = measurement mode: point at the NAS feed AND strip the pipeline
+        # to live-ID only (no segmenter, no snapshots) so the bird-dense loop
+        # measures clean and runs cool.
         out, rc = _systemctl("set-environment",
-                             f"PIPELINE_TEST_RTSP_URL={DEMO_RTSP_URL}")
-        actions.append({"step": "set_env", "rc": rc, "out": out})
+                             f"PIPELINE_TEST_RTSP_URL={DEMO_RTSP_URL}",
+                             "PIPELINE_DISABLE_SEGMENTER=1",
+                             "PIPELINE_DISABLE_SNAPSHOTS=1")
+        actions.append({"step": "set_env_strip", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
     else:
-        out, rc = _systemctl("unset-environment", "PIPELINE_TEST_RTSP_URL")
-        actions.append({"step": "unset_env", "rc": rc, "out": out})
+        # Live = full pipeline: real camera, segmenter + snapshots back on
+        # (snapshots are the real data-collection path).
+        out, rc = _systemctl("unset-environment", "PIPELINE_TEST_RTSP_URL",
+                             "PIPELINE_DISABLE_SEGMENTER", "PIPELINE_DISABLE_SNAPSHOTS")
+        actions.append({"step": "unset_env_full", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
     return {"enabled": enabled, "actions": actions}
