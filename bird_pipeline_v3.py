@@ -313,17 +313,26 @@ def main():
             # ~/bird-snapshots/hls/feeder/, served by existing
             # /api/hls-live/{camera}/{path:path} route. Spec:
             # docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
-            from pipeline.hls_segmenter import HlsSegmenter
-            seg_dir = HLS_DIR / name
-            hls_segmenter = HlsSegmenter(
-                camera=name,
-                input_url=main_url,
-                out_dir=seg_dir,
-                window_segments=30,
-                retention_s=60.0,
-            )
-            hls_segmenter.start()
-            log.info("[%s] HlsSegmenter started → %s", name, seg_dir)
+            #
+            # PIPELINE_DISABLE_SEGMENTER=1 skips it. The segmenter is the
+            # replay/high-res-snapshot path — pure overhead for Chapter 1
+            # live-ID work. Strip it to measure the live path cleanly and
+            # shed load. Re-enable for Chapter 2 (high-res snapshots).
+            if os.environ.get("PIPELINE_DISABLE_SEGMENTER") == "1":
+                hls_segmenter = None
+                log.info("[%s] HlsSegmenter DISABLED (PIPELINE_DISABLE_SEGMENTER=1)", name)
+            else:
+                from pipeline.hls_segmenter import HlsSegmenter
+                seg_dir = HLS_DIR / name
+                hls_segmenter = HlsSegmenter(
+                    camera=name,
+                    input_url=main_url,
+                    out_dir=seg_dir,
+                    window_segments=30,
+                    retention_s=60.0,
+                )
+                hls_segmenter.start()
+                log.info("[%s] HlsSegmenter started → %s", name, seg_dir)
 
             capture.start()
             process.start()
