@@ -193,6 +193,9 @@
   body[data-theme="minimalist"] .chip { border-radius: 0; border-width: 2px; }
   .chip.live { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
   .chip.live::before { content: "● "; animation: blink 1.8s ease infinite; }
+  /* demo state of the mode chip: distinct from live — no blink, playback marker */
+  .chip.demo { background: rgba(255,255,255,0.10); border-color: var(--text-dim); color: var(--text-muted); }
+  .chip.demo::before { content: "▷ "; }
   @keyframes blink { 50% { opacity: 0.35; } }
 
   #demo-mode-toggle {
@@ -723,13 +726,13 @@
     <a class="book-nav__link" href="https://birds.vivessato.com/docs.html" target="_blank">iMac Docs</a>
   </div>
   <div class="chips">
-    <span class="chip live">LIVE</span>
+    <span class="chip live" id="mode-chip">LIVE</span>
     <span class="chip" id="chip-model">model: —</span>
     <span class="chip" id="chip-detect">detector: Hailo-8L</span>
     <span class="chip" id="chip-uptime">uptime: —</span>
     <button id="demo-mode-toggle" class="chip" type="button" title="Toggle demo mode (recorded video)">
       <span class="dot" id="demo-mode-dot"></span>
-      <span id="demo-mode-label">live</span>
+      <span id="demo-mode-label">demo</span>
     </button>
     <div class="theme-picker">
       <button class="theme-btn tb-observatory active" data-theme="observatory" title="Observatory"></button>
@@ -1777,7 +1780,15 @@
       const data = await r.json();
       const nextReviewMode = data.enabled ? 'demo' : 'live';
       demoBtn.classList.toggle('demo-on', !!data.enabled);
-      demoLabel.textContent = data.enabled ? 'demo mode' : 'live';
+      // Button is a fixed "demo" control; on/off shown via .demo-on styling.
+      demoLabel.textContent = 'demo';
+      // The topbar chip reflects the CURRENT source state (LIVE vs DEMO).
+      const modeChip = document.getElementById('mode-chip');
+      if (modeChip) {
+        modeChip.textContent = data.enabled ? 'DEMO' : 'LIVE';
+        modeChip.classList.toggle('demo', !!data.enabled);
+        modeChip.classList.toggle('live', !data.enabled);
+      }
       if (nextReviewMode !== reviewMode) {
         reviewMode = nextReviewMode;
         visibleLimit = 8;
@@ -1794,7 +1805,9 @@
     demoBtn.addEventListener('click', async () => {
       const wasEnabled = demoBtn.classList.contains('demo-on');
       demoBtn.disabled = true;
-      demoLabel.textContent = wasEnabled ? 'switching to live…' : 'switching to demo…';
+      // Button label stays "demo"; show the transition on the mode chip.
+      const switchingChip = document.getElementById('mode-chip');
+      if (switchingChip) switchingChip.textContent = '…';
       try {
         await fetch('/api/demo-mode', {
           method: 'POST',
