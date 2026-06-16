@@ -273,13 +273,17 @@ Read this before touching anything; it encodes hard-won constraints.
 
 **Chapter 1 sequence (measure-first)**
 1. ✅ Stand up the RTSP demo loop on the NAS; point the Pi at it. *(2026-06-15)*
-2. ⏳ **NEXT — empirical offset rig:** re-encode the demo with a **burned-in
-   timecode/frame-number**, redeploy to the NAS loop, then a probe reads the
-   on-screen timecode + label position from pixels and compares to the
-   annotations → offset in ms. Transport-agnostic (works for WebRTC+DOM today).
-3. ⏳ **Strip the Pi to live-ID only:** pause the HLS segmenter + snapshots in
-   demo mode (sheds the unnecessary load identified above). Decode → motion →
-   YOLO → track → classify → label, nothing else.
+2. 🔶 **Empirical offset rig — substrate DONE, probe NEXT** *(2026-06-16)*:
+   - ✅ Timecoded demo built (frame# + `%{pts:hms}` burned in, OCR-ready) and
+     served as the `feeder-tc` RTSP stream on the NAS (clean `feeder-main`
+     untouched). Verified: frame 300 ↔ 00:00:10.000.
+   - ⏳ **NEXT:** the probe — screenshot the dashboard on `feeder-tc`, OCR the
+     burned timecode (what frame is on screen) + read the label/bbox position,
+     compare to the annotations → offset in ms. Transport-agnostic.
+3. ✅ **Strip the Pi to live-ID only** *(2026-06-16)*: demo mode now auto-sets
+   PIPELINE_DISABLE_SEGMENTER + PIPELINE_DISABLE_SNAPSHOTS (live = full
+   pipeline, demo = stripped measurement). Segmenter was the main demo-mode
+   load; snapshots skipped so the bird-dense loop measures clean.
 4. Measure. Decide load-vs-code per the diagnostic ladder above (M4 as the
    overpowered control).
 5. Fix to green on 1a, then 1b. Each change re-measured automatically.
