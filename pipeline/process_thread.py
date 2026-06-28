@@ -94,8 +94,13 @@ class CameraProcessThread:
     def _process_frame(self, frame: Frame):
         self._stats["frames_processed"] += 1
 
-        # 1. Motion gate
-        regions = self.motion_gate.regions(frame.bgr)
+        # 1. Motion gate — only if the detector actually consumes regions.
+        #    Hailo runs full-frame and ignores them (uses_motion_regions=False),
+        #    so computing MOG2 every frame across 4 TBB threads was the dominant
+        #    CPU/thermal cost for output we then discarded. Default True keeps
+        #    region-gated detectors (iMac BirdDetector) working unchanged.
+        uses_motion = getattr(self.detector, "uses_motion_regions", True)
+        regions = self.motion_gate.regions(frame.bgr) if uses_motion else None
 
         # 2. Decide whether to force a full-frame YOLO scan
         now = time.time()
@@ -107,12 +112,12 @@ class CameraProcessThread:
         t_det = time.monotonic()
         detections = self.detector.detect(frame, regions, forced_full=forced_full)
         det_ms = (time.monotonic() - t_det) * 1000
-        # Only record the timing when YOLO actually ran. BirdDetector.detect returns
-        # an empty list instantly when motion_regions is empty and forced_full is False —
-        # those near-zero timings pollute yolo_ms_avg (observed: ground cam 7ms because
-        # most frames are skipped). Filter them out so the histogram reflects real
-        # inference cost, and track "frames where YOLO was actually invoked" separately.
-        yolo_actually_ran = bool(regions) or forced_full
+        # Record timing whenever YOLO actually ran. A full-frame detector
+        # (not uses_motion) runs every frame; a region-gated one (BirdDetector)
+        # returns instantly when regions is empty and forced_full is False —
+        # those near-zero timings would pollute yolo_ms_avg, so we exclude them
+        # and count "frames where YOLO was actually invoked" separately.
+        yolo_actually_ran = (not uses_motion) or bool(regions) or forced_full
         if yolo_actually_ran:
             self._stats["yolo_ms_samples"].append(det_ms)
             self._stats["yolo_runs_total"] += 1

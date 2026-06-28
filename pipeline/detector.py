@@ -43,6 +43,10 @@ class BirdDetector:
     Skips motion regions that contain only stationary tracks.
     """
 
+    # Region-gated: only runs YOLO on motion crops, so the process thread
+    # must compute motion regions for it (unlike the Hailo full-frame path).
+    uses_motion_regions = True
+
     def __init__(self, yolo_model_path: str,
                  stationary_track_regions_fn: Callable[[], list],
                  confidence: float = 0.3):

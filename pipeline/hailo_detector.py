@@ -37,6 +37,11 @@ class HailoDetector:
     Replaces BirdDetector on the Pi. YOLOv8n(s) with built-in NMS.
     """
 
+    # Hailo runs full-frame every frame and ignores motion regions. Telling
+    # the process thread this lets it skip the expensive per-frame MOG2 call
+    # (the dominant CPU/thermal cost), whose output we'd otherwise discard.
+    uses_motion_regions = False
+
     def __init__(self, hef_path: str, confidence: float = 0.3,
                  accept_classes: Optional[set] = None):
         self.hef_path = hef_path
