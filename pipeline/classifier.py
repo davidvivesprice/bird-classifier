@@ -1,6 +1,7 @@
 """SmartClassifier — per-camera decision tree with yard + AIY fallback."""
 from __future__ import annotations
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from typing import Optional
@@ -13,7 +14,10 @@ from pipeline.constants import ModelSource
 log = logging.getLogger(__name__)
 
 CORAL_ACQUIRE_TIMEOUT = 5.0  # seconds to wait FOR the lock (not inference itself)
-MAX_CLASSIFICATION_ATTEMPTS = 5
+# How many per-frame attempts a track gets to accumulate >=3 agreeing votes.
+# Raised 5->12 (F2): with the lower vote floor, more crops vote, but a track
+# needs enough attempts in its short lifetime to reach the lock threshold.
+MAX_CLASSIFICATION_ATTEMPTS = int(os.environ.get("PIPELINE_MAX_CLASS_ATTEMPTS", "12"))
 
 
 @dataclass

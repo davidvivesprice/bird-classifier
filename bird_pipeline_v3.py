@@ -215,7 +215,13 @@ def main():
         # Chickadee, Hooded Oriole, etc. — birds that don't occur at this latitude.
         registry = build_default_registry(str(BASE_DIR / "models"),
                                           regional_species=regional_species)
-        classifier = PiClassifier(registry)
+        # F2: the AIY model's confidence median (~0.23) sat right at the old
+        # 0.25 floor, rejecting ~82% of crops before they could vote. Lower the
+        # vote-eligibility floor (env-tunable) so more crops vote; the vote-LOCK
+        # gate (>=3 votes / >=0.35 / >=60% agreement in process_thread) is the
+        # real noise guard and is unchanged.
+        _floor = float(os.environ.get("PIPELINE_CLASSIFIER_FLOOR", "0.16"))
+        classifier = PiClassifier(registry, confident_threshold=_floor)
         snapshot_writer.classifier = classifier
         log.info("[PI_MODE] PiClassifier ready. Active model: %s", registry.current_name)
         log.info("[PI_MODE] Candidates: %s",
