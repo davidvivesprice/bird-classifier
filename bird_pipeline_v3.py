@@ -13,6 +13,11 @@ import threading
 import time
 from pathlib import Path
 
+# Dump every thread's Python traceback on a fatal signal (SIGSEGV/SIGABRT).
+# The pipeline has hit periodic SEGVs in Hailo C code; this captures where.
+import faulthandler
+faulthandler.enable(all_threads=True)
+
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / "models"
 HLS_DIR = Path.home() / "bird-snapshots" / "hls"
