@@ -377,7 +377,9 @@ class CameraProcessThread:
             capture_payload["frames_captured"] = self.capture.stats.get("frames", 0)
             capture_payload["dropped_oldest"] = self.capture.stats.get("dropped_oldest", 0)
             capture_payload["ffmpeg_restarts"] = self.capture.stats.get("ffmpeg_restarts", 0)
-            capture_payload["ffmpeg_restarts_last_hour"] = self.capture.restarts_last_hour()
+            _restarts_hr = self.capture.restarts_last_hour()
+            capture_payload["ffmpeg_restarts_last_hour"] = _restarts_hr  # legacy key (dashboard compat)
+            capture_payload["reader_restarts_last_hour"] = _restarts_hr  # truthful name (PyAV reader)
         self.health.update(self.name, "capture", capture_payload)
 
         # Expensive stats: throttle numpy mean/p99 to every 2 seconds.
