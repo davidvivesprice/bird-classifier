@@ -23,7 +23,13 @@ def _make_classifier(camera="feeder"):
     c.yard = MagicMock()
     c.aiy = MagicMock()
     configs = {
-        camera: CameraClassifierConfig(use_yard=True),
+        # Explicit thresholds so these decision-tree tests exercise the paths
+        # as written, independent of the production config defaults (which were
+        # recalibrated 2026-04-18 to confident=0.25 / uncertain_low=0.10 for the
+        # post-softmax-fix yard model). These tests verify the TREE, not the tuning.
+        camera: CameraClassifierConfig(use_yard=True,
+                                       confident_threshold=0.60,
+                                       uncertain_low=0.30),
     }
     c.camera_configs = configs
     c.stats = {
