@@ -374,6 +374,22 @@
     z-index: 2;
   }
   .overlay-toggle.off { opacity: 0.4; text-decoration: line-through; }
+  /* Live-view controls (sound + fullscreen), bottom-right so they clear the
+     top-right Labels toggle. Visually mirrors .overlay-toggle. */
+  .live-ctrls {
+    position: absolute; bottom: 8px; right: 8px;
+    display: flex; gap: 6px; z-index: 2;
+  }
+  .live-ctrl {
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: var(--font-mono); font-size: 11px;
+    cursor: pointer;
+  }
+  .live-ctrl.active { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
 
   /* Recent classifications strip (replaces live feed on Pi) */
   .recent-grid {
@@ -784,6 +800,10 @@
       <div class="live-empty" id="live-empty">No birds in frame.</div>
       <div class="sync-diag" id="sync-diag"></div>
       <button class="overlay-toggle" id="overlay-toggle" type="button">Labels</button>
+      <div class="live-ctrls" id="live-ctrls">
+        <button class="live-ctrl" id="live-unmute" type="button" title="Toggle sound">🔇 Sound</button>
+        <button class="live-ctrl" id="live-fullscreen" type="button" title="Fullscreen">⛶ Full</button>
+      </div>
     </div>
   </div>
 
@@ -1285,6 +1305,34 @@
     const dotEl = document.getElementById('live-dot');
     const diagEl = document.getElementById('sync-diag');
     const toggleBtn = document.getElementById('overlay-toggle');
+
+    // ── Live-view controls: sound + fullscreen ──
+    // Audio (Opus) is already in the WebRTC stream; browsers mute autoplay until
+    // a user gesture, so a button toggles it. Fullscreen targets .live-stage so
+    // the label overlay comes along with the video.
+    const unmuteBtn = document.getElementById('live-unmute');
+    if (unmuteBtn) {
+      unmuteBtn.addEventListener('click', () => {
+        const inner = video.video;  // internal <video> exposed by VideoRTC
+        const turnOn = inner ? inner.muted : true;
+        if (turnOn) {
+          if (typeof video.unmute === 'function') video.unmute();
+          else if (inner) { inner.muted = false; inner.volume = 1.0; inner.play?.(); }
+        } else if (typeof video.mute === 'function') {
+          video.mute();
+        } else if (inner) { inner.muted = true; }
+        const nowOn = inner ? !inner.muted : turnOn;
+        unmuteBtn.classList.toggle('active', nowOn);
+        unmuteBtn.textContent = (nowOn ? '🔊' : '🔇') + ' Sound';
+      });
+    }
+    const fsBtn = document.getElementById('live-fullscreen');
+    if (fsBtn) {
+      fsBtn.addEventListener('click', () => {
+        if (document.fullscreenElement) { document.exitFullscreen?.(); return; }
+        (stage.requestFullscreen || stage.webkitRequestFullscreen)?.call(stage);
+      });
+    }
 
     // ── go2rtc player/signaling — same-origin through dashboard proxy ──
     const HOST = window.location.hostname;

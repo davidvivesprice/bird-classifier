@@ -12,6 +12,19 @@ class VideoStream extends VideoRTC {
     this.video.style.objectFit = 'contain';
     this.video.style.background = '#000';
   }
+
+  // Browser autoplay policy mutes autoplaying video; a user gesture is required
+  // to unmute. The live-view "Sound" button calls this. Audio (Opus) is already
+  // present in the WebRTC stream from go2rtc; we just unmute the element.
+  unmute() {
+    this.video.muted = false;
+    this.video.volume = 1.0;
+    const p = this.video.play();
+    if (p && p.catch) p.catch(() => {});
+    return !this.video.muted;
+  }
+
+  mute() { this.video.muted = true; return this.video.muted; }
 }
 
 if (!customElements.get('video-stream')) {
