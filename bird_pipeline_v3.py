@@ -275,10 +275,15 @@ def main():
             motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
             if aoi:
                 log.info("[%s] MotionGate AOI enabled: %d-point polygon", name, len(aoi))
+            # S1 (2026-06-29): hit_counter_max 90->150 (~3s->~5s coast @30fps).
+            # The COCO detector misses a perched bird for multi-second stretches;
+            # a longer coast keeps the track + ID alive across those gaps instead
+            # of dying every ~3s and re-acquiring with a new ID. All three params
+            # are env-tunable for A/B without a redeploy.
             tracker = BirdTracker(
-                distance_threshold=2.5,   # was 2.0; more forgiving for feeder birds that turn/shift
-                hit_counter_max=90,       # was 15; ~3s coast @ 30fps — track survives brief gaps
-                initialization_delay=2,   # was 1; require 3 hits before classifying (reduces ghost tracks)
+                distance_threshold=float(os.environ.get("PIPELINE_TRACK_DIST", "2.5")),
+                hit_counter_max=int(os.environ.get("PIPELINE_TRACK_HIT_MAX", "150")),
+                initialization_delay=int(os.environ.get("PIPELINE_TRACK_INIT_DELAY", "2")),
             )
             camera_trackers[name] = tracker
             if PI_MODE:
