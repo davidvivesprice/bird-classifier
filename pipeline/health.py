@@ -52,8 +52,8 @@ class HealthState:
         Rules (matches docs/superpowers/specs/2026-04-11-live-detection-v3-design.md §6):
         - broken:
             * any camera capture.last_frame_age_ms > 60000 during daytime
+            * any camera capture.reader_restarts_last_hour > 10 (legacy key honored)
         - degraded:
-            * any camera capture.reader_restarts_last_hour > 10 (storm alone)
             * any camera detector.yolo_ms_p99 (when not None) > 1000
             * any camera with (dropped_oldest / max(frames_processed, 1)) > 0.05
             * any camera classifier.lock_timeouts > 5
@@ -74,14 +74,14 @@ class HealthState:
                     return "broken"
 
             # Reader-loop restarts (the Pi uses PyAV, not an ffmpeg subprocess).
-            # Honor the truthful key, fall back to the legacy name for older
-            # dashboards. A restart storm ALONE is degraded, not broken —
-            # frames may still be flowing; a genuine outage is caught by the
-            # frame-age check above. (Pre-F1 these storms were thermal-induced.)
+            # Honor the truthful key name, fall back to the legacy one for older
+            # dashboards. A sustained restart storm is a real fault (honesty
+            # contract) -> broken. Post-F1 these are thermal-induced and sit at
+            # ~0, so this won't false-fire in normal operation.
             restart_storm = capture.get("reader_restarts_last_hour",
                                         capture.get("ffmpeg_restarts_last_hour", 0))
             if restart_storm > 10:
-                worst = "degraded"
+                return "broken"
 
             # DEGRADED checks (accumulate; only escalate if not already broken)
             if worst == "broken":
