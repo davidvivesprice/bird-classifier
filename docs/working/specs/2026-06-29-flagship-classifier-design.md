@@ -61,9 +61,10 @@ One small INT8-friendly CNN emitting **raw logits + a penultimate feature vector
 
 **Drop-in:** replace `pi_classifier.py`'s `raw_score/255` single-threshold path with `(calibrated_prob, mahalanobis_distance)` from the registry; keep the vote-lock as an orthogonal temporal smoother but gate it on calibrated_prob and short-circuit to "unknown" on the distance gate. Re-derive the lock threshold; do NOT carry the AIY-era 0.35 forward.
 
-## Implementation phases (after David approves the decisions below)
-1. **Data prep:** consolidate the dual directories (space/underscore), build the cleaned Stage-1 weak set + the quarantined clean hold-out, build the OOD test split (trash + held-out species), extend `tier2_eval` with OOD AUROC.
-2. **Train Stage 1 → Stage 2** (cloud GPU VM) → FP32 eval on the harness (beat 68%/ECE 0.16).
+## Implementation phases
+
+1. **Data prep — ✅ DONE (2026-06-29).** `tools/build_flagship_manifest.py` (non-mutating) builds a verified training manifest → `~/bird-snapshots/flagship/manifest.csv`: 16 classes (15 species + not_a_bird), **train 114,717 / val 3,864 (300-capped, all classes) / test 1,279 (clean reviews) / ood_test 39 (held-out species)**. Human reviews **quarantined** to test (leakage check: **0**). **100% bbox coverage** on bird rows (best_detection_json) so training crops the right bird in multi-bird frames. Data spot-checked (Cardinal correct; weak labels noisy-but-usable per design). **Findings/gaps for David:** (a) **not_a_bird is thin** — only ~34 repo negatives, and trash-review images are **deleted** on the iMac, so there's no clean not_a_bird test → OOD must lean on the Mahalanobis gate (already the design's primary), not a not_a_bird class; (b) the dual space/underscore folders are handled by label-normalization in the builder (no directory surgery needed); (c) **tail-fragile classes**: Red-bellied 47 / Blue Jay 197 weak-train, ≤62 clean reviews — watch per-class recall; (d) val is a capped monitor (the data is too bursty for clean day-grouping at val size) — the leakage-free eval is the quarantined review TEST set. Still TODO before train: extend `tier2_eval` with an OOD-AUROC metric over `ood_test`.
+2. **Train Stage 1 → Stage 2 — BLOCKED on compute.** Needs an x86 + NVIDIA-GPU VM (the iMac is ARM/no-CUDA; can't train Lite0 or run the Hailo DFC). **This is the gate to continue the flagship build — David must provision/grant a cloud GPU.** Then: FP32 eval on the harness (beat 68%/ECE 0.16).
 3. **Post-hoc calibration + OOD** fit on clean reviews.
 4. **Hailo compile** (GPU VM) → re-measure on the quantized HEF → fit calibration/thresholds on quantized outputs.
 5. **Shadow-deploy** alongside AIY (3–7 days), compare on live reviews, then cutover via the registry.
