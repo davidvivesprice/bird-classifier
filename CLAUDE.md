@@ -67,7 +67,9 @@ For the full reference, see the chapter book at `~/docs/bird-observatory-pi/` (0
 
 ### Detection Pipeline (v3 on Pi)
 
-go2rtc (RTSP) → FrameCapture (`feeder-sub` 640×360, native ~30 fps, no fps filter) → MotionGate (MOG2 + AOI polygon) → HailoDetector (YOLOv8s on Hailo-8L) → BirdTracker (Norfair + Frigate-distance, threshold 2.0) → PiClassifier (vote-locked AIY ONNX on CPU, ~7.4 ms / crop) → vote lock (≥3 votes, ≥0.35 conf, ≥60% agreement) → SnapshotWriter (hi-res ring buffer authoritative; AIY rerun on 1920×1080 crop) → SSE broadcast → dashboard.
+go2rtc (RTSP) → FrameCapture (`feeder-sub` 640×360, native ~30 fps, no fps filter) → HailoDetector (YOLOv8s on Hailo-8L, **full-frame every frame**) → BirdTracker (Norfair + Frigate-distance) → PiClassifier (AIY ONNX on CPU, ~7.4 ms / crop) → vote lock → SnapshotWriter (1080p frame extracted from the HLS passthrough-mux segments by PTS at lock; AIY rerun) → SSE broadcast → dashboard.
+
+> **2026-06-29 foundations changes:** MotionGate/MOG2 is **bypassed on the Hailo path** — HailoDetector runs full-frame and ignores motion regions, so computing MOG2 every frame was wasted CPU and the thermal hog (F1). Tracker `hit_counter_max` 90→**150** (~5s coast through detection gaps; S1); `distance_threshold` 2.5; all tracker params env-tunable (`PIPELINE_TRACK_*`). Classifier vote-eligibility floor 0.25→**0.16** (`PIPELINE_CLASSIFIER_FLOOR`), `MAX_CLASSIFICATION_ATTEMPTS` 5→12 (F2); lock gate unchanged (≥3 votes, ≥0.35 conf, ≥60% agreement). The hi-res ring buffer is legacy (None); snapshots come from the HLS-by-PTS path. See `docs/working/specs/2026-06-27-pi-live-id-foundations-design.md`.
 
 Per-camera classifier config: only feeder camera enabled (ground commented out in `bird_pipeline_v3.py:CAMERAS_DETECT`). Pi has no Coral; AIY runs on CPU. Hailo classifiers (ResNet50, YOLOv8s, YOLOv6n) cohabit with the YOLOv8 detector on a single shared `VDevice` via the HailoRT scheduler — see `docs/04-hailo-engine.md` and `docs/working/specs/2026-04-25-hailo-playbook.md`.
 
