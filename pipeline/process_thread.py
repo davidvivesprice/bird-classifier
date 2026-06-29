@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 FORCED_FULL_YOLO_INTERVAL_S = 10.0
+# Vote-lock confidence gate. Lowered 0.35->0.30 (2026-06-29) because the AIY
+# model is correct-but-under-confident on feeder birds (a live Cardinal scored
+# 0.27); the >=3-vote / >=60%-agreement gate is the real noise guard. Env-tunable
+# for A/B and easy revert. The flagship model will re-derive this from its
+# calibration curve.
+LOCK_CONF_THRESHOLD = float(os.environ.get("PIPELINE_LOCK_CONF", "0.30"))
 
 
 class CameraProcessThread:
@@ -323,7 +329,7 @@ class CameraProcessThread:
                 # check — flip-flopping yard predictions across frames fail it
                 # even if each individual prediction is "peaked" at 0.45.
                 if (len(track.vote_history) >= 3 and
-                        track.species_confidence >= 0.35 and
+                        track.species_confidence >= LOCK_CONF_THRESHOLD and
                         species_counts[top_species] / len(track.vote_history) >= 0.6):
                     track.is_locked = True
                     track.needs_classification = False
