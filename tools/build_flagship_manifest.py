@@ -91,6 +91,33 @@ def load_reviews() -> dict:
     return out
 
 
+def load_bboxes() -> dict:
+    """filename -> 'x1 y1 x2 y2' (full-frame coords) from best_detection_json.
+
+    Birds are full frames, often multi-bird, so training MUST crop to the
+    classified bird's bbox. best_detection_json is the highest-confidence
+    detection AIY classified. Files without a bbox (e.g. negatives) -> absent.
+    """
+    import json
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    rows = con.execute(
+        "SELECT file, best_detection_json FROM classifications "
+        "WHERE best_detection_json IS NOT NULL AND best_detection_json<>''"
+    ).fetchall()
+    con.close()
+    out = {}
+    for f, bj in rows:
+        if not f or f in out:
+            continue
+        try:
+            box = json.loads(bj).get("box")
+            if box and len(box) == 4:
+                out[f] = " ".join(str(int(v)) for v in box)
+        except Exception:
+            pass
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(HOME / "bird-snapshots" / "flagship" / "manifest.csv"))
@@ -99,9 +126,10 @@ def main():
 
     idx = index_classified()
     reviews = load_reviews()
-    print(f"indexed {len(idx)} classified images; {len(reviews)} reviews")
+    bboxes = load_bboxes()
+    print(f"indexed {len(idx)} classified images; {len(reviews)} reviews; {len(bboxes)} bboxes")
 
-    rows = []  # (path, label, split, source)
+    rows = []  # (path, label, split, source, bbox)
     counts = defaultdict(Counter)  # split -> label -> n
     pool = defaultdict(lambda: defaultdict(list))  # label -> day -> [path] (train candidates)
 
@@ -124,7 +152,7 @@ def main():
                     label = UNKNOWN
             else:
                 continue  # wrong / skip / requeued -> omit (ambiguous)
-            rows.append((path, label, split, f"review:{verdict}"))
+            rows.append((path, label, split, f"review:{verdict}", bboxes.get(fname, "")))
             counts[split][label] += 1
         elif weak_label in CLASS_SET:
             pool[weak_label][date_of(fname)].append(path)
@@ -150,22 +178,26 @@ def main():
         src = "negatives" if label == NOT_A_BIRD else "weak_aiy"
         for i, p in enumerate(files):
             split = "val" if i < n_val else "train"
-            rows.append((p, label, split, src))
+            rows.append((p, label, split, src, bboxes.get(Path(p).name, "")))
             counts[split][label] += 1
 
     # Leakage assertion: no reviewed filename may appear in train/val.
-    train_files = {Path(p).name for p, l, s, src in rows if s in ("train", "val")}
+    train_files = {Path(p).name for p, l, s, src, bb in rows if s in ("train", "val")}
     leak = len(train_files & set(reviews.keys()))
+    bird_rows = [r for r in rows if r[1] not in (NOT_A_BIRD,)]
+    with_bbox = sum(1 for r in bird_rows if r[4])
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["path", "label", "split", "source"])
+        w.writerow(["path", "label", "split", "source", "bbox"])
         w.writerows(rows)
 
     print(f"\nwrote {len(rows)} rows -> {out}")
     print(f"LEAKAGE CHECK (reviewed files in train/val): {leak}  {'OK' if leak == 0 else '!!! FAIL'}")
+    print(f"BBOX coverage (bird rows with a crop box): {with_bbox}/{len(bird_rows)} "
+          f"({100*with_bbox/max(len(bird_rows),1):.0f}%) — rest fall back to full frame")
     for split in ("train", "val", "test", "ood_test"):
         c = counts[split]
         print(f"\n[{split}] total={sum(c.values())}")
