@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from numbers import Integral
 from typing import Optional
 
+from pipeline.calibration import calibrate
+
 log = logging.getLogger(__name__)
 
 
@@ -68,15 +70,18 @@ class PiClassifier:
             return ClassificationResult(None, 0.0, None, False)
 
         top = preds[0]
-        confidence = _normalize_raw_score(top.get("raw_score", 0))
-        if confidence < self.confident_threshold:
+        raw = top.get("raw_score", 0)
+        # Eligibility floor stays on the raw normalized score (F2). The RETURNED
+        # confidence is the post-hoc CALIBRATED P(correct) so display + vote-lock
+        # see an honest probability instead of the wildly-underconfident raw/255.
+        if _normalize_raw_score(raw) < self.confident_threshold:
             cam_stats["unlabeled_call"] += 1
             return ClassificationResult(None, 0.0, None, False)
 
         cam_stats["model_current"] += 1
         return ClassificationResult(
             species=top.get("common_name"),
-            confidence=confidence,
+            confidence=calibrate(raw),
             model_source=self.registry.current_name,
             should_retry=False,
         )
@@ -90,12 +95,11 @@ class PiClassifier:
         if not preds:
             return None
         top = preds[0]
-        confidence = _normalize_raw_score(top.get("raw_score", 0))
         if not top.get("common_name"):
             return None
         return ClassificationResult(
             species=top.get("common_name"),
-            confidence=confidence,
+            confidence=calibrate(top.get("raw_score", 0)),
             model_source=self.registry.current_name,
             should_retry=False,
         )
