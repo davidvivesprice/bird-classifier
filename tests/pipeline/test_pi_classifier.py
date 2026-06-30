@@ -33,8 +33,9 @@ def test_aiy_raw_score_one_is_not_perfect_confidence():
     assert classifier.stats["feeder"]["unlabeled_call"] == 1
 
 
-def test_authoritative_aiy_raw_score_one_is_normalized_to_one_over_255():
+def test_authoritative_returns_calibrated_confidence_not_overconfident():
     from pipeline.pi_classifier import PiClassifier
+    from pipeline.calibration import calibrate
 
     classifier = PiClassifier(
         FakeRegistry([
@@ -46,11 +47,15 @@ def test_authoritative_aiy_raw_score_one_is_normalized_to_one_over_255():
 
     assert result is not None
     assert result.species == "Northern Flicker"
-    assert result.confidence == pytest.approx(1 / 255)
+    # Confidence is now the calibrated P(correct), not raw/255. raw=1 must NOT
+    # become perfect confidence (the old normalization-bug guard still holds).
+    assert result.confidence == pytest.approx(calibrate(1))
+    assert result.confidence < 0.5
 
 
-def test_aiy_raw_score_above_threshold_returns_normalized_confidence():
+def test_aiy_above_threshold_returns_calibrated_confidence():
     from pipeline.pi_classifier import PiClassifier
+    from pipeline.calibration import calibrate
 
     classifier = PiClassifier(
         FakeRegistry([
@@ -62,5 +67,7 @@ def test_aiy_raw_score_above_threshold_returns_normalized_confidence():
     result = classifier.classify(_crop(), frame_time_ms=0, camera="feeder")
 
     assert result.species == "House Finch"
-    assert result.confidence == pytest.approx(128 / 255)
+    # Eligibility floor stays on raw (128/255=0.50 >= 0.25); returned confidence
+    # is the calibrated P(correct), not raw/255.
+    assert result.confidence == pytest.approx(calibrate(128))
     assert result.model_source == "aiy_onnx"
