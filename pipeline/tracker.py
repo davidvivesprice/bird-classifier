@@ -1,6 +1,7 @@
 """Norfair-based bird tracker with Frigate-inspired distance function."""
 from __future__ import annotations
 
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
@@ -9,6 +10,39 @@ import norfair
 import numpy as np
 
 from pipeline.detector import Detection
+
+# Tracker hardening (2026-07-01, from the tracker deep-dive vs the demo replay):
+# - MAX_JUMP_MULT: an absolute pixel-motion ceiling inside _frigate_distance.
+#   The size-normalized distance has NO absolute cap, so a shrinking box can
+#   match a detection on the far side of the frame — the "phantom/hog" track
+#   that teleported cx 33->472 and drove most of the label reversions. Reject a
+#   match when the detection jumped more than this many box-widths/heights in
+#   RAW PIXELS. 0 disables.
+# - DEDUP_IOU: greedy IoU suppression of the detection list BEFORE tracking, so
+#   a double-box (two detections on one bird) can't spawn a second track_id
+#   (Norfair matches exactly one detection per object). 0 disables.
+_MAX_JUMP_MULT = float(os.environ.get("PIPELINE_TRACK_MAX_JUMP_MULT", "1.5"))
+_DEDUP_IOU = float(os.environ.get("PIPELINE_TRACK_DEDUP_IOU", "0.55"))
+# Stationary-box re-injection (Frigate's trick): when the detector misses a
+# STILL bird, seed its last box as a synthetic detection so its track_id — and
+# thus its accumulated votes/lock/label — survives the gap instead of dying and
+# re-acquiring a fresh ID. Strictly stronger than Kalman coast (no counter decay,
+# no drift). Capped at _MAX_SEED_FRAMES consecutive frames so a bird that truly
+# flew off still expires. 0 disables.
+# DEFAULT OFF (2026-07-01): on the demo replay seeding halves fragmentation
+# (25->12 IDs) and lifts lock-hold, but it REGRESSES dup-box 0%->22.9% (the
+# seeded ghost lingers and overlaps a real re-detection). It needs its companion
+# fix first — overlay-suppression of the seed-coasting box + seed/real
+# reconciliation — before it's safe to enable. Env-enable to keep iterating.
+_MAX_SEED_FRAMES = int(os.environ.get("PIPELINE_TRACK_SEED_FRAMES", "0"))  # ~1.5s @30fps when on
+
+
+def _iou(a, b) -> float:
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / ua if ua > 0 else 0.0
 
 
 @dataclass
@@ -29,6 +63,12 @@ class Track:
     vote_history: list = field(default_factory=list)
     is_locked: bool = False
     snapshot_saved: bool = False  # set True once we've written JPG + DB row for this track
+    seed_count: int = 0  # consecutive frames this track has been kept alive by seeding
+    # True on frames where the track survives only via Kalman coast (no detection
+    # matched this frame). The reported bbox is then FROZEN at the last detection
+    # (see update(): bbox comes from last_detection), so consumers should render
+    # coasting tracks as stale/held rather than as a live fix on the bird.
+    coasting: bool = False
 
     @property
     def is_stationary(self) -> bool:
@@ -75,6 +115,15 @@ def _frigate_distance(detection: norfair.Detection,
     trk_by = trk_cy + trk_h / 2
     d_y = abs(det_by - trk_by) / max((det_h + trk_h) / 2, 1)
 
+    # Absolute-motion ceiling (raw pixels). Without this, a shrinking box lets a
+    # track claim a detection on the far side of the frame — the phantom/hog.
+    if _MAX_JUMP_MULT > 0:
+        max_w = max(det_w, trk_w, 1)
+        max_h = max(det_h, trk_h, 1)
+        if (abs(det_cx - trk_cx) > _MAX_JUMP_MULT * max_w or
+                abs(det_by - trk_by) > _MAX_JUMP_MULT * max_h):
+            return 1e6  # reject this match
+
     return d_x + d_y
 
 
@@ -101,6 +150,17 @@ class BirdTracker:
         self.id_switches: int = 0
 
     def update(self, detections: list, frame_time_ms: float) -> TrackerOutput:
+        # Dedup the detection list before tracking. A double-box (two detections
+        # on one bird) would otherwise spawn a second track_id, since Norfair
+        # matches exactly one detection per object. Greedy: keep the highest-
+        # confidence box, drop any box overlapping a kept one above _DEDUP_IOU.
+        if _DEDUP_IOU > 0 and len(detections) > 1:
+            kept: list = []
+            for d in sorted(detections, key=lambda x: -x.confidence):
+                if all(_iou(d.box, k.box) <= _DEDUP_IOU for k in kept):
+                    kept.append(d)
+            detections = kept
+
         # Convert Detection → norfair.Detection
         norfair_dets = []
         for d in detections:
@@ -112,6 +172,29 @@ class BirdTracker:
                 scores=np.array([d.confidence]),
                 data={"box": list(d.box), "w": x2 - x1, "h": y2 - y1},
             ))
+
+        # Stationary-box re-injection: seed a synthetic detection at the last box
+        # of any STILL track the detector missed this frame, so its ID/votes
+        # survive the gap. Tracks that got a real box reset their seed counter.
+        if _MAX_SEED_FRAMES > 0 and self.tracks:
+            real_boxes = [nd.data["box"] for nd in norfair_dets]
+            for trk in self.tracks.values():
+                covered = any(_iou(trk.bbox, rb) > 0.3 for rb in real_boxes)
+                if covered:
+                    trk.seed_count = 0
+                    continue
+                if not trk.is_stationary or trk.seed_count >= _MAX_SEED_FRAMES:
+                    continue
+                x1, y1, x2, y2 = trk.bbox
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                norfair_dets.append(norfair.Detection(
+                    points=np.array([[cx, cy]]),
+                    scores=np.array([0.6]),
+                    data={"box": list(trk.bbox), "w": x2 - x1, "h": y2 - y1},
+                ))
+                trk.seed_count += 1
 
         # Snapshot hit_counters before update to detect which tracks got a hit.
         # A track "got a hit" this frame when its hit_counter increases (matched
@@ -140,10 +223,12 @@ class BirdTracker:
                 track = self.tracks[tid]
                 track.last_updated_ms = frame_time_ms
 
-            # Increment frame_count only when this track received a detection hit
-            # this frame (hit_counter increased), not when it's coasting via Kalman.
-            if tobj.hit_counter > prev_hit_counters.get(tid, -1):
+            # A track "got a hit" this frame when its hit_counter increased
+            # (matched a detection) vs. decreased (coasting on Kalman prediction).
+            got_hit = tobj.hit_counter > prev_hit_counters.get(tid, -1)
+            if got_hit:
                 track.frame_count += 1
+            track.coasting = not got_hit
 
             # Update bbox from last detection
             if tobj.last_detection is not None:

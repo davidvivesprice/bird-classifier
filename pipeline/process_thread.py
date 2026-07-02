@@ -190,6 +190,9 @@ class CameraProcessThread:
                     "model_source": track.model_source,
                     "is_locked": track.is_locked,
                     "frame_count": getattr(track, "frame_count", 0),
+                    # Coasting tracks have a bbox frozen at the last detection —
+                    # the overlay renders them held/dimmed instead of live.
+                    "coasting": bool(getattr(track, "coasting", False)),
                 })
             self.sse_server.emit(
                 camera=self.name,

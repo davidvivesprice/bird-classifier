@@ -5291,19 +5291,20 @@ def _demo_mode_active() -> bool:
     return False
 
 
-# The demo video loops as an always-on RTSP service on the NAS (VivesNasty,
-# /volume2/docker/bird-demo — mediamtx + bundled ffmpeg). The Pi consumes it
-# exactly like the real UniFi camera. "Demo mode" therefore just repoints the
-# pipeline at the NAS feed; the dashboard shows the feeder-demo stream (which
-# go2rtc permanently relays from the NAS). The old on-Pi bird-demo-loop.service
-# was retired 2026-06-15 — there is nothing to start/stop on the Pi anymore.
-DEMO_RTSP_URL = "rtsp://192.168.4.243:8554/feeder-main"
+# Demo mode plays go2rtc's `feeder-demo` stream — a local ffmpeg exec loop of
+# ~/sim/current.mp4 defined in go2rtc.yaml. CRITICAL (2026-07-02 sync audit):
+# the pipeline MUST consume the SAME go2rtc stream the browser plays. The old
+# setup pointed the pipeline at the NAS loop (rtsp://192.168.4.243:8554) while
+# the browser played the local exec loop — two unrelated clocks/loop phases, so
+# label-vs-video offset drifted unboundedly and every demo-based sync
+# observation was invalid ("demo-rig split-brain"). One producer, one clock.
+DEMO_RTSP_URL = "rtsp://127.0.0.1:8554/feeder-demo"
 
 
 @app.get("/api/demo-mode")
 def get_demo_mode():
     """Report current demo-mode state. Enabled iff the pipeline is pointed at
-    the NAS demo feed (PIPELINE_TEST_RTSP_URL set on the user environment)."""
+    the local feeder-demo loop (PIPELINE_TEST_RTSP_URL set on the user env)."""
     pipeline_test = _demo_mode_active()
     return {
         "enabled": pipeline_test,
@@ -5316,20 +5317,23 @@ def get_demo_mode():
 def set_demo_mode(payload: dict):
     """Switch demo mode on/off. Body: {"enabled": true|false}.
 
-    ON:  set PIPELINE_TEST_RTSP_URL=<NAS demo feed>, restart bird-pipeline.
-    OFF: unset PIPELINE_TEST_RTSP_URL, restart bird-pipeline.
-    The demo loop runs continuously on the NAS; nothing to start/stop on the Pi.
+    ON:  point the pipeline at go2rtc's local feeder-demo loop (the SAME
+         stream the browser plays — shared clock), restart bird-pipeline.
+    OFF: unset the overrides, restart bird-pipeline (back to the live camera).
     """
     enabled = bool(payload.get("enabled"))
     actions = []
     if enabled:
-        # Demo = measurement mode: point at the NAS feed AND strip the pipeline
-        # to live-ID only (no segmenter, no snapshots) so the bird-dense loop
-        # measures clean and runs cool.
+        # Demo = measurement mode: same-stream source (shared clock with the
+        # browser), pipeline stripped to live-ID only (no segmenter, no
+        # snapshots) so the bird-dense loop measures clean and runs cool, and
+        # NIGHT_BYPASS so an evening demo doesn't die when the nighttime pause
+        # kicks in (proven 2026-07-01: demo froze <=10s after dusk).
         out, rc = _systemctl("set-environment",
                              f"PIPELINE_TEST_RTSP_URL={DEMO_RTSP_URL}",
                              "PIPELINE_DISABLE_SEGMENTER=1",
-                             "PIPELINE_DISABLE_SNAPSHOTS=1")
+                             "PIPELINE_DISABLE_SNAPSHOTS=1",
+                             "PIPELINE_NIGHT_BYPASS=1")
         actions.append({"step": "set_env_strip", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})
@@ -5337,7 +5341,8 @@ def set_demo_mode(payload: dict):
         # Live = full pipeline: real camera, segmenter + snapshots back on
         # (snapshots are the real data-collection path).
         out, rc = _systemctl("unset-environment", "PIPELINE_TEST_RTSP_URL",
-                             "PIPELINE_DISABLE_SEGMENTER", "PIPELINE_DISABLE_SNAPSHOTS")
+                             "PIPELINE_DISABLE_SEGMENTER", "PIPELINE_DISABLE_SNAPSHOTS",
+                             "PIPELINE_NIGHT_BYPASS")
         actions.append({"step": "unset_env_full", "rc": rc, "out": out})
         out, rc = _systemctl("restart", "bird-pipeline.service")
         actions.append({"step": "restart_pipeline", "rc": rc, "out": out})

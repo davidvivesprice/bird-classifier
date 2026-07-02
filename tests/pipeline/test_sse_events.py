@@ -74,6 +74,52 @@ def test_sse_server_emits_events_to_subscribers():
         server.stop()
 
 
+def test_events_carry_seq_and_emit_ms():
+    """Transport diagnosability: every event carries a monotonic seq (client can
+    detect drops from the bounded per-client queue) and emit_ms (server emit
+    wall time, so the client can measure transport delay separately from
+    pipeline delay)."""
+    from pipeline.sse_events import SSEEventServer
+    port = _pick_port()
+    server = SSEEventServer(port=port, keepalive_interval_s=0.5)
+    server.start()
+    try:
+        received = []
+
+        def subscribe():
+            try:
+                resp = urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/events/sse?camera=feeder", timeout=5
+                )
+                buf = b""
+                start = time.time()
+                while time.time() - start < 3 and buf.count(b"data: ") < 2:
+                    chunk = resp.read1(1024)
+                    if not chunk:
+                        break
+                    buf += chunk
+                for line in buf.decode("utf-8").split("\n"):
+                    if line.startswith("data: "):
+                        received.append(json.loads(line[6:]))
+            except Exception:
+                pass
+
+        t = threading.Thread(target=subscribe, daemon=True)
+        t.start()
+        time.sleep(0.5)
+        before_ms = time.time() * 1000
+        server.emit("feeder", 1_700_000_000_000, [], pts=1.0)
+        server.emit("feeder", 1_700_000_000_033, [], pts=1.033)
+        after_ms = time.time() * 1000
+        t.join(timeout=5)
+        assert len(received) >= 2, "expected two events"
+        assert received[1]["seq"] == received[0]["seq"] + 1, "seq must be monotonic"
+        for ev in received[:2]:
+            assert before_ms - 1000 <= ev["emit_ms"] <= after_ms + 1000
+    finally:
+        server.stop()
+
+
 def test_sse_server_filters_by_camera():
     from pipeline.sse_events import SSEEventServer
     port = _pick_port()

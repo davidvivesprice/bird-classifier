@@ -8,8 +8,10 @@ Also exposes GET /health returning {"ok": true} for liveness checks.
 from __future__ import annotations
 import json
 import logging
+import os
 import queue
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
@@ -98,9 +100,27 @@ class SSEEventServer:
         self.keepalive_interval_s = keepalive_interval_s
         self._clients: dict[str, list[queue.Queue]] = {}
         self._clients_lock = threading.Lock()
+        # Monotonic event counter. Clients detect transport drops (bounded
+        # per-client queue, proxy stalls) from gaps in seq — without it those
+        # losses are silent and transport lag is indistinguishable from
+        # pipeline lag.
+        self._seq = 0
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.stats = {"events_emitted": 0, "clients_lifetime_total": 0, "clients_currently": 0}
+        # Server-side event recorder. Set PIPELINE_RECORD_EVENTS=/path/to/file.jsonl
+        # to append every emitted event to disk — a complete, hang-proof trace of
+        # exactly what the pipeline output, frame by frame. This is the reliable
+        # alternative to an SSE HTTP client (which stalls mid-stream on this Pi).
+        # Consume with `tail -f`; analyze with tools/annotation_parser + the grade.
+        self._record_path = os.environ.get("PIPELINE_RECORD_EVENTS")
+        self._record_fh = None
+        if self._record_path:
+            try:
+                self._record_fh = open(self._record_path, "a", buffering=1)  # line-buffered
+                log.info("[sse] recording emitted events to %s", self._record_path)
+            except Exception as e:
+                log.warning("[sse] could not open event recorder %s: %s", self._record_path, e)
 
     def start(self) -> None:
         handler_cls = _SSEHandler
@@ -134,8 +154,20 @@ class SSEEventServer:
             "camera": camera,
             "wall_time_ms": wall_time_ms,
             "pts": float(pts),
+            # seq: monotonic — gaps mean the transport dropped events.
+            # emit_ms: server wall time at emit — lets the client split
+            # transport delay from pipeline delay. Neither is a sync clock;
+            # pts remains canonical.
+            "seq": self._seq,
+            "emit_ms": time.time() * 1000.0,
             "tracks": tracks,
         })
+        self._seq += 1
+        if self._record_fh is not None:
+            try:
+                self._record_fh.write(payload + "\n")
+            except Exception:
+                pass  # never let recording break the live broadcast
         with self._clients_lock:
             cams = list(self._clients.get(camera, []))
         for q in cams:
