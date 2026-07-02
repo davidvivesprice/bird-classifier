@@ -307,11 +307,18 @@
     border-radius: 3px;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45),
                 0 0 28px 6px var(--accent-glow);
-    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 200ms ease-out;
+    /* NO transform/size transitions: the overlay engine positions boxes per
+       displayed video frame (rAF, video-clock interpolated). A CSS chase here
+       would re-add 30-240ms of lag on top of exact placement. Opacity only. */
+    transition: opacity 200ms ease-out;
     will-change: transform;
+  }
+  /* Coasting: the tracker kept the ID alive but the bbox is frozen at the
+     last real detection — render as a held, de-emphasized box, not a live fix. */
+  .live-bbox.coasting {
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   }
   .live-bbox.locked {
     border-color: var(--accent);
@@ -330,11 +337,11 @@
     font-family: var(--font-mono);
     white-space: nowrap;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 200ms ease-out;
+    transition: opacity 200ms ease-out; /* position driven per-frame; opacity only */
     will-change: transform;
     transform-origin: 50% 100%;
   }
+  .live-label.coasting { opacity: 0.6; }
   .live-label.pending {
     background: rgba(255, 255, 255, 0.18);
     color: var(--text);
@@ -374,6 +381,9 @@
     z-index: 2;
   }
   .overlay-toggle.off { opacity: 0.4; text-decoration: line-through; }
+  /* Second toggle in the same corner cluster — sits left of Labels. */
+  #latency-toggle { right: 76px; }
+  #latency-toggle.off { opacity: 0.75; text-decoration: none; } /* "Realtime" is a state, not "off" */
   /* Live-view controls (sound + fullscreen), bottom-right so they clear the
      top-right Labels toggle. Visually mirrors .overlay-toggle. */
   .live-ctrls {
@@ -800,6 +810,8 @@
       <div class="live-empty" id="live-empty">No birds in frame.</div>
       <div class="sync-diag" id="sync-diag"></div>
       <button class="overlay-toggle" id="overlay-toggle" type="button">Labels</button>
+      <button class="overlay-toggle" id="latency-toggle" type="button"
+              title="Smooth: video delayed ~0.8s so labels ride each frame exactly. Realtime: minimum delay, labels may trail fast birds.">Smooth</button>
       <div class="live-ctrls" id="live-ctrls">
         <button class="live-ctrl" id="live-unmute" type="button" title="Toggle sound">🔇 Sound</button>
         <button class="live-ctrl" id="live-fullscreen" type="button" title="Fullscreen">⛶ Full</button>
@@ -1444,10 +1456,48 @@
     //      track_id, bbox:[x1,y1,x2,y2], frame_width, frame_height,
     //      species, species_confidence, is_locked
     //   }]}
-    const tracks = new Map();
+    // ══ Video-clock overlay engine (2026-07-02 sync design) ══════════
+    // Invariant: labels are a pure function of T = the camera-clock time of
+    // the video frame currently on glass. Both the video (WebRTC rtpTimestamp
+    // / MSE mediaTime — go2rtc passes camera RTP timestamps through untouched)
+    // and the SSE events (pts) ride the camera's 90 kHz crystal, so they
+    // cannot drift; only the epoch constant C = videoAnchor − pts is unknown,
+    // estimated per session/transport. Events are BUFFERED and played out at
+    // the video's pace — never applied at network-arrival time.
+    // Spec: docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md
+    const tracks = new Map();  // tid -> {bboxEl,labelEl,samples[],cursor,firstPts,lastInsertAt,shown,dyingAt}
     let showLabels = localStorage.getItem('showLabels') !== '0';
     let lastEventTs = 0;
     let sseCount = 0;
+    let seqLast = null, seqGaps = 0;
+    let ptsNewest = null;          // newest event pts seen this epoch
+    // Latency preference: Smooth = deepen the WebRTC jitter buffer (~0.8s) so
+    // every label plays out against its exact frame; Realtime = minimum-delay
+    // video, labels can only trail. (iPad/MSE has ~1s buffer regardless.)
+    let smoothPref = localStorage.getItem('syncSmooth') !== '0';
+
+    // Displayed-frame camera clock (fed by requestVideoFrameCallback)
+    const clock = {
+      transport: null,           // 'webrtc' | 'mse'
+      anchor: null,              // camera-time (s) of the last displayed frame
+      anchorAtMs: 0,             // performance.now() at that callback
+      rtpBase: null, rtpLast: null, rtpWraps: 0,   // 90kHz unwrap state
+      presentedFrames: 0, videoFrameHz: 0, lastCbAt: 0,
+    };
+    // Epoch-offset estimator: C = videoAnchor − pts (+ buffering corrections)
+    const est = {
+      samples: [],               // [perfNowMs, cRawSeconds]
+      cEst: null, iqrMs: null,
+      state: 'UNCALIBRATED',     // UNCALIBRATED -> LOCKED (via >=20 samples, IQR<80ms)
+      bVideoMs: 0,               // measured video-side buffering (getStats / SourceBuffer gap)
+      dLabelMs: Number(localStorage.getItem('syncDeltaLabelMs') || '100'),
+      lastSampleAt: 0, reanchors: 0, lastReason: '',
+      statsPrev: null,
+    };
+    const lookSamples = [];      // [perfNowMs, lookaheadSeconds] for mode selection
+    let renderMode = 'REALTIME'; // REALTIME | BRACKET (auto from measured lookahead)
+
+    // Legacy diagnostics object (older tooling reads these exact fields)
     const syncStats = {
       lastVideoMediaTime: null,
       lastVideoCallbackAt: 0,
@@ -1469,6 +1519,20 @@
       emptyEl.classList.remove('hidden');
       lastEventTs = 0;
       sseCount = 0;
+      seqLast = null; seqGaps = 0;
+      ptsNewest = null;
+      // Source switch = new stream epoch on both sides: clear the clock and
+      // the offset estimator; the rVFC probe re-arms against the new stream.
+      Object.assign(clock, {
+        transport: null, anchor: null, anchorAtMs: 0,
+        rtpBase: null, rtpLast: null, rtpWraps: 0,
+        presentedFrames: 0, videoFrameHz: 0, lastCbAt: 0,
+      });
+      est.samples.length = 0;
+      est.cEst = null; est.iqrMs = null; est.state = 'UNCALIBRATED';
+      est.statsPrev = null; est.lastReason = 'src switch';
+      lookSamples.length = 0;
+      renderMode = 'REALTIME';
       Object.assign(syncStats, {
         lastVideoMediaTime: null,
         lastVideoCallbackAt: 0,
@@ -1483,34 +1547,191 @@
       statusEl.textContent = next === 'feeder-demo' ? 'demo · connecting…' : 'live';
     }
 
-    let videoFrameClockStarted = false;
     let videoFrameHandle = 0;
     let videoClockProbe = 0;
+    let clockedInnerEl = null;   // which <video> the rVFC clock is attached to
     function innerVideoEl() {
       return video.querySelector('video');
     }
+
+    // Re-anchor: something broke the epoch relation (transport flip, RTP
+    // discontinuity from a camera reboot/token resync, pipeline restart).
+    // Drop the estimator and recalibrate; the renderer freezes+dims boxes
+    // until LOCKED again rather than render with a known-broken C.
+    function reanchor(reason, clearBuffers) {
+      est.samples.length = 0;
+      est.cEst = null; est.iqrMs = null;
+      est.state = 'UNCALIBRATED';
+      est.reanchors += 1;
+      est.lastReason = reason;
+      lookSamples.length = 0;
+      if (clearBuffers) {   // event-pts epoch changed: old samples incomparable
+        ptsNewest = null;
+        for (const entry of tracks.values()) { entry.samples.length = 0; entry.cursor = 0; }
+      }
+    }
+
     function onVideoFrame(now, metadata) {
       const frames = metadata?.presentedFrames || 0;
-      if (syncStats.lastVideoCallbackAt > 0) {
-        const dt = (now - syncStats.lastVideoCallbackAt) / 1000;
-        const df = frames - syncStats.lastVideoFrames;
-        if (dt > 0 && df >= 0) syncStats.videoFrameHz = df / dt;
+      if (clock.lastCbAt > 0) {
+        const dt = (now - clock.lastCbAt) / 1000;
+        const df = frames - clock.presentedFrames;
+        if (dt > 0 && df >= 0) clock.videoFrameHz = df / dt;
       }
+      // Transport + anchor. rtpTimestamp present => WebRTC receiver (camera's
+      // raw 90 kHz RTP timestamp); absent => MSE (mediaTime = camera PTS
+      // rebased to 0 by go2rtc's muxer). Same crystal either way.
+      const isRtc = typeof metadata?.rtpTimestamp === 'number';
+      const newTransport = isRtc ? 'webrtc' : 'mse';
+      if (clock.transport !== null && newTransport !== clock.transport) {
+        reanchor('transport flip ' + clock.transport + '->' + newTransport, false);
+        clock.rtpBase = null; clock.rtpLast = null; clock.rtpWraps = 0;
+      }
+      clock.transport = newTransport;
+      if (isRtc) {
+        const rtp = metadata.rtpTimestamp;
+        if (clock.rtpLast !== null) {
+          const d = rtp - clock.rtpLast;
+          if (d < -2147483648) {
+            clock.rtpWraps += 1;             // 32-bit wrap (~every 13.25h)
+          } else if (Math.abs(d) > 90000 * 4) {
+            // >4s jump that isn't a wrap: camera reboot / UniFi token resync.
+            reanchor('rtp discontinuity', false);
+            clock.rtpBase = null; clock.rtpWraps = 0;
+          }
+        }
+        clock.rtpLast = rtp;
+        const unwrapped = rtp + clock.rtpWraps * 4294967296;
+        if (clock.rtpBase === null) clock.rtpBase = unwrapped;
+        clock.anchor = (unwrapped - clock.rtpBase) / 90000;
+      } else if (typeof metadata?.mediaTime === 'number') {
+        if (clock.anchor !== null && Math.abs(metadata.mediaTime - clock.anchor) > 4) {
+          reanchor('mediaTime discontinuity', false);
+        }
+        clock.anchor = metadata.mediaTime;
+      }
+      clock.anchorAtMs = now;
+      clock.lastCbAt = now;
+      clock.presentedFrames = frames;
+      // legacy mirror
       syncStats.lastVideoMediaTime =
         typeof metadata?.mediaTime === 'number' ? metadata.mediaTime : null;
       syncStats.lastVideoCallbackAt = now;
       syncStats.lastVideoFrames = frames;
+      syncStats.videoFrameHz = clock.videoFrameHz;
       const inner = innerVideoEl();
       if (inner?.requestVideoFrameCallback) {
         videoFrameHandle = inner.requestVideoFrameCallback(onVideoFrame);
       }
     }
+
+    // Camera-time of the frame on glass right now (extrapolated between rVFC
+    // ticks, clamped; null when the video is stalled >2s — renderer holds).
+    function videoTimeNow() {
+      if (clock.anchor === null) return null;
+      const age = (performance.now() - clock.anchorAtMs) / 1000;
+      if (age > 2) return null;
+      return clock.anchor + Math.min(Math.max(age, 0), 0.1);
+    }
+
     function ensureVideoFrameClock() {
       const inner = innerVideoEl();
-      if (!inner?.requestVideoFrameCallback || videoFrameClockStarted) return;
-      videoFrameClockStarted = true;
+      if (!inner?.requestVideoFrameCallback) return;
+      // Re-attach when video-rtc swaps/recreates the inner element, or after
+      // callbacks silently stop (element replaced, stream re-negotiated).
+      const stale = clock.lastCbAt > 0 && performance.now() - clock.lastCbAt > 3000;
+      if (inner === clockedInnerEl && !stale) return;
+      clockedInnerEl = inner;
       videoFrameHandle = inner.requestVideoFrameCallback(onVideoFrame);
     }
+
+    // ── Video-side buffering measurement + latency preference ────────
+    // B_video: how long a frame sits between arrival and glass. WebRTC:
+    // getStats jitterBufferDelay/emittedCount + decode time. MSE: SourceBuffer
+    // gap. Feeds the C estimator so C tracks buffer changes automatically.
+    function applyLatencyPref() {
+      const pc = video.pc;
+      if (!pc || clock.transport !== 'webrtc') return;
+      try {
+        const rx = pc.getReceivers().find(r => r.track && r.track.kind === 'video');
+        if (!rx) return;
+        if ('jitterBufferTarget' in rx) rx.jitterBufferTarget = smoothPref ? 800 : 0;
+        if ('playoutDelayHint' in rx) rx.playoutDelayHint = smoothPref ? 0.8 : 0;
+      } catch (e) { /* hint-only knob; tolerate */ }
+    }
+    async function sampleVideoBuffering() {
+      try {
+        if (clock.transport === 'webrtc' && video.pc) {
+          let cur = null;
+          const rep = await video.pc.getStats();
+          rep.forEach(r => {
+            if (r.type === 'inbound-rtp' && r.kind === 'video') cur = r;
+          });
+          if (cur && est.statsPrev) {
+            const dE = cur.jitterBufferEmittedCount - est.statsPrev.jitterBufferEmittedCount;
+            const dD = cur.jitterBufferDelay - est.statsPrev.jitterBufferDelay;
+            const dF = cur.framesDecoded - est.statsPrev.framesDecoded;
+            const dT = cur.totalDecodeTime - est.statsPrev.totalDecodeTime;
+            if (dE > 0) {
+              const jbMs = 1000 * dD / dE;
+              const decMs = dF > 0 ? 1000 * dT / dF : 2;
+              est.bVideoMs = jbMs + decMs + 12;   // +12ms ≈ half a vsync
+            }
+          }
+          est.statsPrev = cur;
+        } else if (clock.transport === 'mse') {
+          const inner = innerVideoEl();
+          if (inner && inner.buffered && inner.buffered.length) {
+            const gap = inner.buffered.end(inner.buffered.length - 1) - inner.currentTime;
+            if (gap >= 0 && gap < 10) est.bVideoMs = gap * 1000 + 12;
+          }
+        }
+      } catch (e) { /* stats sampling must never break rendering */ }
+      applyLatencyPref();
+      recomputeOffset();
+    }
+
+    // ── Epoch-offset estimator ────────────────────────────────────────
+    // C_raw = V_disp − pts_newest mixes in video buffering (B_video) and label
+    // availability latency (Δ_label): C_true = C_raw + B_video − Δ_label.
+    // Rolling 30s median kills arrival jitter; both clocks ride the camera
+    // crystal so C is structurally constant between epoch breaks (measured
+    // <1ms wobble over 20s on this system).
+    function sampleOffset() {
+      const vnow = videoTimeNow();
+      if (vnow === null || ptsNewest === null) return;
+      const nowMs = performance.now();
+      if (nowMs - est.lastSampleAt < 250) return;   // cap 4 Hz
+      est.lastSampleAt = nowMs;
+      est.samples.push([nowMs, vnow - ptsNewest]);
+      const cutoff = nowMs - 30000;
+      while (est.samples.length && est.samples[0][0] < cutoff) est.samples.shift();
+      recomputeOffset();
+    }
+    function recomputeOffset() {
+      const n = est.samples.length;
+      if (!n) return;
+      const vals = est.samples.map(s => s[1]).sort((a, b) => a - b);
+      const med = vals[n >> 1];
+      const iqr = n >= 4 ? (vals[Math.floor(0.75 * n)] - vals[Math.floor(0.25 * n)]) : Infinity;
+      est.iqrMs = Math.round(iqr * 1000);
+      est.cEst = med + est.bVideoMs / 1000 - est.dLabelMs / 1000;
+      if (est.state !== 'LOCKED' && n >= 20 && est.iqrMs < 80) est.state = 'LOCKED';
+    }
+
+    // Camera-time on glass expressed in the EVENT pts timeline.
+    function displayedEventTime() {
+      const vnow = videoTimeNow();
+      if (vnow === null || est.cEst === null) return null;
+      return vnow - est.cEst;
+    }
+
+    // ── Stage geometry cache (zero layout reads in the render loop) ───
+    let stageRect = stage.getBoundingClientRect();
+    const stageRO = new ResizeObserver(() => {
+      stageRect = stage.getBoundingClientRect();
+    });
+    stageRO.observe(stage);
 
     function ensureTrackEls(tid) {
       let entry = tracks.get(tid);
@@ -1528,25 +1749,52 @@
         bboxEl.classList.add('hidden');
         labelEl.classList.add('hidden');
       }
-      entry = { bboxEl, labelEl, last_seen: 0 };
+      entry = {
+        bboxEl, labelEl,
+        samples: [],      // chronological {pts, bbox, species, conf, locked, coasting, fw, fh}
+        cursor: 0,        // index of newest sample with pts <= T (advances with T)
+        last_seen: 0,     // wall clock of last insert (backstop GC)
+        shown: false,     // birth fade fired
+        dyingAt: 0,       // wall clock when death fade started
+        last_data: null,  // legacy field for older tooling
+      };
       tracks.set(tid, entry);
-      // Fade in on next frame so the CSS opacity transition fires
-      requestAnimationFrame(() => {
-        bboxEl.style.opacity = '1';
-        labelEl.style.opacity = '1';
-      });
       return entry;
     }
 
-    function updateTrack(t) {
-      const entry = ensureTrackEls(t.track_id);
-      entry.last_seen = performance.now();
-      entry.last_data = t;
-      const fw = t.frame_width || 640;
-      const fh = t.frame_height || 360;
-      const stageRect = stage.getBoundingClientRect();
-      // object-fit: contain — find the rendered video rect inside the stage
-      const stageAR = stageRect.width / stageRect.height;
+    // Track state at displayed-time T: linear interpolation between the two
+    // straddling samples (BRACKET), or hold the newest sample <= T (REALTIME /
+    // gap). NEVER extrapolate past the last sample — with lookahead the newest
+    // sample is the bird's future; without it, extrapolation invents motion.
+    function sampleTrackAt(entry, T) {
+      const s = entry.samples;
+      if (!s.length) return null;
+      // advance the cursor (T is monotonic within an epoch)
+      while (entry.cursor + 1 < s.length && s[entry.cursor + 1].pts <= T) entry.cursor += 1;
+      if (entry.cursor >= s.length) entry.cursor = s.length - 1;
+      const a = s[entry.cursor];
+      if (a.pts > T) {
+        // Track's first sample is still in the video's future: born later in
+        // stream-time than the frame on glass. Don't show yet — birth lands
+        // exactly when the video reaches it.
+        return { future: true, ahead: a.pts - T };
+      }
+      const b = entry.cursor + 1 < s.length ? s[entry.cursor + 1] : null;
+      let box;
+      if (renderMode === 'BRACKET' && b && b.pts > a.pts && T <= b.pts) {
+        const f = (T - a.pts) / (b.pts - a.pts);
+        box = [0, 1, 2, 3].map(i => a.bbox[i] + (b.bbox[i] - a.bbox[i]) * f);
+      } else {
+        box = a.bbox;
+      }
+      return { state: a, box, staleness: T - a.pts };
+    }
+
+    function renderTrackDom(entry, st) {
+      const { state, box } = st;
+      const fw = state.fw || 640, fh = state.fh || 360;
+      // object-fit: contain mapping using the cached stage rect
+      const stageAR = stageRect.width / Math.max(stageRect.height, 1);
       const videoAR = fw / fh;
       let renderW, renderH, offX = 0, offY = 0;
       if (videoAR > stageAR) {
@@ -1558,55 +1806,169 @@
         renderW = stageRect.height * videoAR;
         offX = (stageRect.width - renderW) / 2;
       }
-      const sx = renderW / fw;
-      const sy = renderH / fh;
-
-      const [x1, y1, x2, y2] = t.bbox;
-      const dx = offX + x1 * sx;
-      const dy = offY + y1 * sy;
-      const w = Math.max(2, (x2 - x1) * sx);
-      const h = Math.max(2, (y2 - y1) * sy);
-
+      const sx = renderW / fw, sy = renderH / fh;
+      const dx = offX + box[0] * sx;
+      const dy = offY + box[1] * sy;
+      const w = Math.max(2, (box[2] - box[0]) * sx);
+      const h = Math.max(2, (box[3] - box[1]) * sy);
       entry.bboxEl.style.transform = `translate(${dx}px, ${dy}px)`;
       entry.bboxEl.style.width = `${w}px`;
       entry.bboxEl.style.height = `${h}px`;
-      entry.bboxEl.classList.toggle('locked', !!t.is_locked);
-
+      entry.bboxEl.classList.toggle('locked', !!state.locked);
+      entry.bboxEl.classList.toggle('coasting', !!state.coasting);
+      entry.labelEl.classList.toggle('coasting', !!state.coasting);
       const cx = dx + w / 2;
       const labelTop = Math.max(4, dy - 28);
-      entry.labelEl.style.transform =
-        `translate(calc(${cx}px - 50%), ${labelTop}px)`;
-
-      if (t.species) {
-        const conf = Math.round((t.species_confidence || 0) * 100);
-        entry.labelEl.textContent = `${t.species} · ${conf}%`;
-        entry.labelEl.classList.toggle('pending', !t.is_locked);
+      entry.labelEl.style.transform = `translate(calc(${cx}px - 50%), ${labelTop}px)`;
+      // Species NAME only after lock (>=3 agreeing votes at >=0.70 calibrated
+      // confidence) — the lock flips exactly when the VIDEO reaches the pts
+      // where the pipeline locked, not when the news arrived over the wire.
+      if (state.species && state.locked) {
+        const conf = Math.round((state.conf || 0) * 100);
+        entry.labelEl.textContent = `${state.species} · ${conf}%`;
+        entry.labelEl.classList.remove('pending');
       } else {
         entry.labelEl.textContent = 'identifying…';
         entry.labelEl.classList.add('pending');
       }
+      if (!entry.shown) {
+        entry.shown = true;
+        requestAnimationFrame(() => {
+          entry.bboxEl.style.opacity = '1';
+          entry.labelEl.style.opacity = '1';
+        });
+      }
     }
 
-    function gcTracks() {
-      const now = performance.now();
+    function removeTrack(tid, entry) {
+      entry.bboxEl.style.opacity = '0';
+      entry.labelEl.style.opacity = '0';
+      setTimeout(() => { entry.bboxEl.remove(); entry.labelEl.remove(); }, 220);
+      tracks.delete(tid);
+    }
+
+    // ── Render loop: one pass per animation frame, everything keyed to T ──
+    const STALE_TRACK_S = 0.6;      // no sample within 0.6s behind T -> death fade
+    const BACKSTOP_GC_MS = 15000;   // wall-clock safety net
+    let rafHandle = 0;
+    let uncalWarned = false;
+    function renderFrame() {
+      rafHandle = requestAnimationFrame(renderFrame);
+      const nowMs = performance.now();
+      const T = est.state === 'LOCKED' ? displayedEventTime() : null;
       let alive = 0;
-      for (const [id, entry] of tracks.entries()) {
-        if (now - entry.last_seen > 1500) {
-          entry.bboxEl.style.opacity = '0';
-          entry.labelEl.style.opacity = '0';
-          setTimeout(() => {
-            entry.bboxEl.remove();
-            entry.labelEl.remove();
-          }, 220);
-          tracks.delete(id);
-        } else {
-          alive++;
+
+      // lookahead measurement + mode selection (100ms hysteresis via p10)
+      if (T !== null && ptsNewest !== null) {
+        lookSamples.push([nowMs, ptsNewest - T]);
+        const cutoff = nowMs - 10000;
+        while (lookSamples.length && lookSamples[0][0] < cutoff) lookSamples.shift();
+        if (lookSamples.length >= 30) {
+          const ls = lookSamples.map(s => s[1]).sort((a, b) => a - b);
+          const p10 = ls[Math.floor(ls.length * 0.1)];
+          if (renderMode === 'REALTIME' && p10 >= 0.12) renderMode = 'BRACKET';
+          else if (renderMode === 'BRACKET' && p10 < 0.02) renderMode = 'REALTIME';
         }
       }
+
+      for (const [tid, entry] of tracks.entries()) {
+        // wall-clock backstop: transport died mid-track
+        if (nowMs - entry.last_seen > BACKSTOP_GC_MS) { removeTrack(tid, entry); continue; }
+
+        if (T === null) {
+          // UNCALIBRATED / video stalled: render newest sample immediately
+          // (arrival-time behavior) so the overlay still works during the
+          // first seconds; HUD shows "calibrating".
+          const s = entry.samples[entry.samples.length - 1];
+          if (s && nowMs - entry.last_seen < 1500) {
+            renderTrackDom(entry, { state: s, box: s.bbox });
+            alive += 1;
+          } else if (s && nowMs - entry.last_seen >= 1500) {
+            removeTrack(tid, entry);
+          }
+          continue;
+        }
+
+        // prune samples far behind the displayed time
+        const s = entry.samples;
+        let pruned = 0;
+        while (s.length > 2 && s[0].pts < T - 10) { s.shift(); pruned += 1; }
+        if (pruned) entry.cursor = Math.max(0, entry.cursor - pruned);
+
+        const st = s.length ? sampleTrackAt(entry, T) : null;
+        if (!st) { removeTrack(tid, entry); continue; }
+        if (st.future) continue;               // birth not reached on glass yet
+
+        if (st.staleness > STALE_TRACK_S) {
+          // no fresh samples at the displayed time: the track ended (in video
+          // time). Fade and remove.
+          if (!entry.dyingAt) {
+            entry.dyingAt = nowMs;
+            entry.bboxEl.style.opacity = '0';
+            entry.labelEl.style.opacity = '0';
+          } else if (nowMs - entry.dyingAt > 300) {
+            removeTrack(tid, entry);
+          }
+          continue;
+        }
+        if (entry.dyingAt) {                   // revived (new samples arrived)
+          entry.dyingAt = 0;
+          entry.bboxEl.style.opacity = '1';
+          entry.labelEl.style.opacity = '1';
+        }
+        renderTrackDom(entry, st);
+        alive += 1;
+      }
+
       emptyEl.classList.toggle('hidden', alive > 0);
-      if (now - lastEventTs > 4000 && lastEventTs > 0) {
+      if (nowMs - lastEventTs > 4000 && lastEventTs > 0) {
         statusEl.textContent = 'paused (no recent events)';
       }
+      if (est.state !== 'LOCKED' && lastEventTs > 0 && !uncalWarned) {
+        statusEl.textContent = 'sync: calibrating…';
+        uncalWarned = true;
+      } else if (est.state === 'LOCKED' && uncalWarned) {
+        uncalWarned = false;
+      }
+    }
+
+    // ── Event-side inserter: buffer only, ZERO style work at arrival ──
+    // (Also neutralizes Cloudflare WS burst delivery and proxy stalls: bursts
+    // land in the buffer; the render loop plays them out on the video clock.)
+    function insertTrackSamples(evt) {
+      const pts = evt.pts;
+      if (typeof pts !== 'number') return;
+      if (ptsNewest !== null && pts < ptsNewest - 1.0) {
+        // pts epoch reset (pipeline capture restart): old samples incomparable.
+        reanchor('pts jump backward', true);
+      }
+      if (ptsNewest === null || pts > ptsNewest) ptsNewest = pts;
+      const nowMs = performance.now();
+      for (const t of (evt.tracks || [])) {
+        const entry = ensureTrackEls(t.track_id);
+        entry.last_seen = nowMs;
+        entry.last_data = t;   // legacy tooling field
+        const s = entry.samples;
+        const sample = {
+          pts,
+          bbox: t.bbox,
+          species: t.species,
+          conf: t.species_confidence,
+          locked: !!t.is_locked,
+          coasting: !!t.coasting,
+          fw: t.frame_width || 640,
+          fh: t.frame_height || 360,
+        };
+        if (!s.length || pts >= s[s.length - 1].pts) s.push(sample);
+        else {
+          // rare out-of-order delivery: insert in pts order
+          let i = s.length - 1;
+          while (i > 0 && s[i - 1].pts > pts) i -= 1;
+          s.splice(i, 0, sample);
+        }
+        if (s.length > 400) { s.splice(0, s.length - 400); entry.cursor = 0; }
+      }
+      sampleOffset();
     }
 
     function handleTrackEvent(raw) {
@@ -1614,6 +1976,12 @@
         const evt = JSON.parse(raw);
         lastEventTs = performance.now();
         sseCount++;
+        // transport-drop detection via the server's monotonic seq
+        if (typeof evt.seq === 'number') {
+          if (seqLast !== null && evt.seq > seqLast + 1) seqGaps += evt.seq - seqLast - 1;
+          seqLast = evt.seq;
+        }
+        // legacy diagnostics mirror
         syncStats.lastEventPts = typeof evt.pts === 'number' ? evt.pts : null;
         syncStats.lastEventWallTimeMs =
           typeof evt.wall_time_ms === 'number' ? evt.wall_time_ms : null;
@@ -1624,9 +1992,8 @@
           syncStats.lastEventPts !== null && syncStats.lastVideoMediaTime !== null
             ? (syncStats.lastEventPts - syncStats.lastVideoMediaTime) * 1000
             : null;
-        if (Array.isArray(evt.tracks)) {
-          for (const t of evt.tracks) updateTrack(t);
-        }
+        // Buffer only — the render loop draws on the video clock.
+        insertTrackSamples(evt);
         const n = (evt.tracks || []).length;
         const prefix = currentSrc === 'feeder-demo' ? 'demo · ' : '';
         statusEl.textContent = `${prefix}${n === 1 ? '1 track' : n + ' tracks'}`;
@@ -1696,6 +2063,8 @@
       labelEventsShuttingDown = true;
       if (labelWsReconnect) window.clearTimeout(labelWsReconnect);
       if (videoClockProbe) window.clearInterval(videoClockProbe);
+      if (bufferingProbe) window.clearInterval(bufferingProbe);
+      if (rafHandle) cancelAnimationFrame(rafHandle);
       const inner = innerVideoEl();
       if (inner?.cancelVideoFrameCallback && videoFrameHandle) {
         inner.cancelVideoFrameCallback(videoFrameHandle);
@@ -1720,6 +2089,26 @@
       refreshToggleUi();
     });
 
+    // ── Smooth / Realtime latency toggle ──────────────────────────────
+    // Smooth (default): jitterBufferTarget=800ms — the video runs ~0.8s behind
+    // reality so every label has arrived before its frame displays: exact
+    // buffered playout. Realtime: minimum-delay video; labels can only trail
+    // fast movement. iPad/MSE carries ~1s of buffer regardless (free Smooth).
+    const latencyBtn = document.getElementById('latency-toggle');
+    function refreshLatencyUi() {
+      latencyBtn.classList.toggle('off', !smoothPref);
+      latencyBtn.textContent = smoothPref ? 'Smooth' : 'Realtime';
+    }
+    refreshLatencyUi();
+    latencyBtn.addEventListener('click', () => {
+      smoothPref = !smoothPref;
+      localStorage.setItem('syncSmooth', smoothPref ? '1' : '0');
+      refreshLatencyUi();
+      applyLatencyPref();
+      // buffer depth changes -> C changes; recalibrate rather than glide
+      reanchor(smoothPref ? 'smooth on' : 'realtime on', false);
+    });
+
     // ── Diagnostic chip (?syncdiag=1) ─────────────────────────────────
     const showDiag = new URLSearchParams(window.location.search).get('syncdiag') === '1';
     if (showDiag) {
@@ -1731,18 +2120,19 @@
         return `${inner.readyState} ${inner.videoWidth || 0}x${inner.videoHeight || 0}`;
       };
       const syncDiag = () => {
-        const mt = syncStats.lastVideoMediaTime !== null
-          ? syncStats.lastVideoMediaTime.toFixed(3) : 'n/a';
-        const fps = syncStats.videoFrameHz ? syncStats.videoFrameHz.toFixed(1) : 'n/a';
-        const pts = syncStats.lastEventPts !== null
-          ? syncStats.lastEventPts.toFixed(3) : 'n/a';
-        const delta = syncStats.clockDeltaMs !== null
-          ? `${Math.round(syncStats.clockDeltaMs)}ms` : 'n/a';
-        const age = syncStats.eventAgeMsRough !== null
-          ? `${Math.round(syncStats.eventAgeMsRough)}ms` : 'n/a';
-        return `vclock: ${mt}s @ ${fps}fps\n` +
-          `evt pts: ${pts} delta: ${delta}\n` +
-          `evt age: ${age}`;
+        const anch = clock.anchor !== null ? clock.anchor.toFixed(3) : 'n/a';
+        const fps = clock.videoFrameHz ? clock.videoFrameHz.toFixed(1) : 'n/a';
+        const pts = ptsNewest !== null ? ptsNewest.toFixed(3) : 'n/a';
+        const T = displayedEventTime();
+        const look = (T !== null && ptsNewest !== null)
+          ? `${Math.round((ptsNewest - T) * 1000)}ms` : 'n/a';
+        const c = est.cEst !== null
+          ? `${est.cEst.toFixed(3)}s ±${est.iqrMs ?? '?'}ms` : 'n/a';
+        return `clock: ${clock.transport || '?'} ${anch}s @ ${fps}fps\n` +
+          `evt pts: ${pts}  lookahead: ${look}\n` +
+          `C: ${c}  [${est.state}${est.reanchors ? ` r${est.reanchors}` : ''}]\n` +
+          `mode: ${renderMode}${smoothPref ? '/smooth' : '/rt'}  ` +
+          `bVideo: ${Math.round(est.bVideoMs)}ms  seqGaps: ${seqGaps}`;
       };
       setInterval(() => {
         const nowT = performance.now();
@@ -1763,7 +2153,45 @@
 
     // Expose state for Playwright / dash_probe.py automation
     window.__overlayDebug = {
-      arch: 'webrtc+dom',
+      arch: 'videoclock+dom',
+      get clock() {
+        return {
+          transport: clock.transport, anchor: clock.anchor,
+          videoFrameHz: clock.videoFrameHz,
+          videoTimeNow: videoTimeNow(), displayedEventTime: displayedEventTime(),
+        };
+      },
+      get est() {
+        return {
+          state: est.state, cEst: est.cEst, iqrMs: est.iqrMs,
+          bVideoMs: est.bVideoMs, dLabelMs: est.dLabelMs,
+          samples: est.samples.length, reanchors: est.reanchors,
+          lastReason: est.lastReason,
+        };
+      },
+      get mode() { return renderMode; },
+      get smoothPref() { return smoothPref; },
+      get seqGaps() { return seqGaps; },
+      get ptsNewest() { return ptsNewest; },
+      get renderedBoxes() {
+        // exact on-screen state for the measurement rig
+        const out = [];
+        for (const [id, entry] of tracks.entries()) {
+          const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(entry.bboxEl.style.transform || '');
+          out.push({
+            track_id: id,
+            x: m ? parseFloat(m[1]) : null,
+            y: m ? parseFloat(m[2]) : null,
+            w: parseFloat(entry.bboxEl.style.width) || null,
+            h: parseFloat(entry.bboxEl.style.height) || null,
+            label: entry.labelEl.textContent,
+            locked: entry.bboxEl.classList.contains('locked'),
+            coasting: entry.bboxEl.classList.contains('coasting'),
+            samples: entry.samples.length,
+          });
+        }
+        return out;
+      },
       get n_tracks() { return tracks.size; },
       get lastEventAgeMs() {
         return lastEventTs > 0 ? (performance.now() - lastEventTs) : null;
@@ -1795,27 +2223,19 @@
       },
     };
 
-    // ── Window resize: reflow all current bboxes ────────────────────
-    // updateTrack reads stage.getBoundingClientRect() — if a track stops
-    // emitting events while the user resizes / rotates, the bbox would
-    // float off the bird. On resize, re-apply geometry for every active
-    // track using its last-known data (rAF-coalesced).
-    let resizeRaf = 0;
-    window.addEventListener('resize', () => {
-      if (resizeRaf) return;
-      resizeRaf = requestAnimationFrame(() => {
-        resizeRaf = 0;
-        for (const entry of tracks.values()) {
-          if (entry.last_data) updateTrack(entry.last_data);
-        }
-      });
-    });
+    // Window resize/rotation: the ResizeObserver on #live-stage refreshes the
+    // cached rect; the render loop re-applies geometry on the next frame.
+    // (No per-track work needed here anymore.)
 
     // ── Boot ─────────────────────────────────────────────────────────
     connectLabelEvents();
     videoClockProbe = window.setInterval(ensureVideoFrameClock, 250);
     ensureVideoFrameClock();
-    setInterval(gcTracks, 400);
+    // Video-buffering probe + latency-preference enforcement (2s cadence —
+    // also re-applies jitterBufferTarget after WebRTC (re)connects).
+    const bufferingProbe = window.setInterval(sampleVideoBuffering, 2000);
+    // The render loop: one pass per animation frame, keyed to the video clock.
+    rafHandle = requestAnimationFrame(renderFrame);
   }
 
   // ── Demo mode toggle ─────────────────────────────────────────────────

@@ -77,7 +77,7 @@ Per-camera classifier config: only feeder camera enabled (ground commented out i
 
 - **Local**: Browser → `<video-stream>` element → WebRTC direct to go2rtc:1984 (UDP, real-time, sub-second)
 - **Remote**: Browser → MSE via wss://go2rtc.vivessato.com (TCP, buffered, auto-fallback)
-- Labels rendered client-side as DOM elements with CSS transform transitions, synced via SSE wall_time_ms (no HLS+sidecar smoothing — see `docs/05-dashboard.md` for the rationale vs. iMac's `/live.html`)
+- Labels rendered client-side as DOM elements positioned per displayed video frame by the **video-clock overlay engine** (2026-07-02): rVFC `rtpTimestamp` (WebRTC) / `mediaTime` (MSE) anchor the camera's 90 kHz clock; SSE events (canonical `pts`, same crystal) are BUFFERED and played out at the video's pace — never applied at arrival. Epoch offset C auto-calibrated (rolling median + measured jitter-buffer depth); Smooth mode deepens the WebRTC jitter buffer to ~0.8s (`jitterBufferTarget`) for guaranteed lookahead, Realtime toggle for minimum delay. Coasting tracks render dashed/held. Spec: `docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md`
 
 ## Key Rules
 
