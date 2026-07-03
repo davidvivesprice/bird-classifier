@@ -27,6 +27,19 @@ frames) — with N=6 at 30fps that is 200ms of reader stall, and the outcome is
 one visually-torn frame fed to a detector, not corruption of state. Accepted.
 
 Set PIPELINE_DECODE_INPROC=1 to fall back to the old in-process decoder.
+
+2026-07-03 EXTENSION — detection moves into the same child. After decode
+isolation went live, the parent kept SEGV-ing: fresh cores put the fault in
+libhailort 4.23 (the SECOND native crasher, distinct from libav — both fire
+under sustained demo load). With hef_path set, the child also runs the
+HailoDetector per decoded frame and ships detections through the ring
+(fixed-size float32 block per slot); the parent uses PrecomputedDetector — a
+shim honoring the BirdDetector interface — so process_thread is unchanged.
+One supervised cage for BOTH native crashers; the parent process keeps only
+pure-Python + CPU-onnx state (tracker, classifier, SSE) and survives.
+Child respawn re-inits the Hailo VDevice (~2-4s) — within tracker coast.
+NOTE: while the child owns the Hailo VDevice, Model-Lab HAILO classifiers
+cannot load in the parent (CPU models like the active aiy_onnx are fine).
 """
 from __future__ import annotations
 
@@ -51,26 +64,37 @@ CHILD_STALL_S = 10.0     # no new frame for this long -> kill + respawn child
 SUPERVISE_TICK_S = 1.0
 RESPAWN_BACKOFF_S = 1.0
 
-# meta layout per slot (float64): [pts, wall_ms, width, height]
-META_F64 = 4
+# meta layout per slot (float64): [pts, wall_ms, width, height, ndet, det_ms]
+META_F64 = 6
+# detections per slot: (MAX_DETS, 5) float32 = [x1, y1, x2, y2, confidence]
+MAX_DETS = 16
 
 
 def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
-                ctr_name: str, width: int, height: int,
+                ctr_name: str, det_name: str, width: int, height: int,
+                hef_path: Optional[str], det_confidence: float,
                 stop_ev, err_q) -> None:
-    """Decode loop, runs in the child process. Everything libav lives here."""
+    """Decode (+ optionally Hailo-detect) loop, in the child process.
+    Everything libav AND everything libhailort lives here."""
     # The av_log guard is proven NOT to stop the SEGV, but it still silences
     # log spam; import order kept for consistency with frame_capture.
     import pipeline.av_log_guard  # noqa: F401
     import av
     import cv2
 
+    detector = None
+    if hef_path:
+        from pipeline.hailo_detector import HailoDetector
+        detector = HailoDetector(hef_path=hef_path, confidence=det_confidence)
+
     shm = shared_memory.SharedMemory(name=shm_name)
     msh = shared_memory.SharedMemory(name=meta_name)
     csh = shared_memory.SharedMemory(name=ctr_name)
+    dsh = shared_memory.SharedMemory(name=det_name)
     ring = np.ndarray((RING_SLOTS, height, width, 3), dtype=np.uint8, buffer=shm.buf)
     meta = np.ndarray((RING_SLOTS, META_F64), dtype=np.float64, buffer=msh.buf)
     ctr = np.ndarray((1,), dtype=np.int64, buffer=csh.buf)
+    dets = np.ndarray((RING_SLOTS, MAX_DETS, 5), dtype=np.float32, buffer=dsh.buf)
 
     def open_container():
         if rtsp_url.startswith("rtsp://"):
@@ -102,9 +126,26 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
                 if img.shape[1] != width or img.shape[0] != height:
                     img = cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
                 pts = float(av_frame.time) if av_frame.time is not None else 0.0
+                ndet, det_ms = 0, 0.0
                 slot = int(ctr[0] + 1) % RING_SLOTS
+                if detector is not None:
+                    t0 = time.monotonic()
+                    try:
+                        found = detector.detect(img)
+                    except Exception as e:   # Python-level errors: skip frame's dets
+                        found = []
+                        try:
+                            err_q.put_nowait(f"detect error: {e}")
+                        except Exception:
+                            pass
+                    det_ms = (time.monotonic() - t0) * 1000.0
+                    ndet = min(len(found), MAX_DETS)
+                    for i in range(ndet):
+                        b = found[i].box
+                        dets[slot, i] = (b[0], b[1], b[2], b[3], found[i].confidence)
                 ring[slot] = img
-                meta[slot] = (pts, time.time() * 1000.0, img.shape[1], img.shape[0])
+                meta[slot] = (pts, time.time() * 1000.0, img.shape[1], img.shape[0],
+                              float(ndet), det_ms)
                 ctr[0] += 1          # publish AFTER the slot is fully written
         except Exception as e:
             try:
@@ -129,9 +170,13 @@ class FrameCaptureProc:
                  capture_width: int = 1920, capture_height: int = 1080,
                  detect_width: int = 640, detect_height: int = 360,
                  width: Optional[int] = None, height: Optional[int] = None,
-                 fps: Optional[int] = None):
+                 fps: Optional[int] = None,
+                 hef_path: Optional[str] = None,
+                 det_confidence: float = 0.3):
         self.camera_name = camera_name
         self.rtsp_url = rtsp_url
+        self.hef_path = hef_path
+        self.det_confidence = det_confidence
         if width is not None:
             capture_width = width
         if height is not None:
@@ -167,11 +212,15 @@ class FrameCaptureProc:
         self._msh = shared_memory.SharedMemory(
             create=True, size=RING_SLOTS * META_F64 * 8)
         self._csh = shared_memory.SharedMemory(create=True, size=8)
+        self._dsh = shared_memory.SharedMemory(
+            create=True, size=RING_SLOTS * MAX_DETS * 5 * 4)
         self._ring = np.ndarray((RING_SLOTS, h, w, 3), dtype=np.uint8,
                                 buffer=self._shm.buf)
         self._meta = np.ndarray((RING_SLOTS, META_F64), dtype=np.float64,
                                 buffer=self._msh.buf)
         self._ctr = np.ndarray((1,), dtype=np.int64, buffer=self._csh.buf)
+        self._dets = np.ndarray((RING_SLOTS, MAX_DETS, 5), dtype=np.float32,
+                                buffer=self._dsh.buf)
         self._ctr[0] = -1
         self._consumed = -1
 
@@ -196,7 +245,7 @@ class FrameCaptureProc:
         for t in (self._reader_thread, self._supervisor_thread):
             if t is not None:
                 t.join(timeout=3)
-        for s in (self._shm, self._msh, self._csh):
+        for s in (self._shm, self._msh, self._csh, self._dsh):
             try:
                 s.close(); s.unlink()
             except Exception:
@@ -207,7 +256,8 @@ class FrameCaptureProc:
         self._child = self._mp.Process(
             target=_child_main,
             args=(self.rtsp_url, self._shm.name, self._msh.name, self._csh.name,
-                  self.detect_width, self.detect_height,
+                  self._dsh.name, self.detect_width, self.detect_height,
+                  self.hef_path, self.det_confidence,
                   self._child_stop, self._err_q),
             daemon=True,
             name=f"decode-{self.camera_name}",
@@ -228,7 +278,7 @@ class FrameCaptureProc:
             self._consumed = latest
             slot = latest % RING_SLOTS
             img = self._ring[slot].copy()
-            pts, wall_ms, w, h = self._meta[slot]
+            pts, wall_ms, w, h, ndet, det_ms = self._meta[slot]
             frame = Frame(
                 bgr=img,
                 wall_time_ms=float(wall_ms),
@@ -238,6 +288,17 @@ class FrameCaptureProc:
                 bgr_full=img,
                 full_width=int(w), full_height=int(h),
             )
+            if self.hef_path:
+                # detections computed by the child ride the ring; the parent's
+                # PrecomputedDetector shim hands them to process_thread.
+                from pipeline.detector import Detection
+                dets = self._dets[slot, :int(ndet)].copy()
+                frame.precomputed_detections = [
+                    Detection(box=[float(d[0]), float(d[1]), float(d[2]), float(d[3])],
+                              confidence=float(d[4]))
+                    for d in dets
+                ]
+                frame.det_ms = float(det_ms)
             if self.out_queue.full():
                 try:
                     self.out_queue.get_nowait()
@@ -304,9 +365,25 @@ class FrameCaptureProc:
         return len(self._restart_timestamps)
 
 
+class PrecomputedDetector:
+    """Detector shim for process_thread: detections were already computed by
+    the isolated child (riding the frame through the shared ring). Honors the
+    BirdDetector interface; uses_motion_regions=False keeps the MOG2 bypass.
+    NOTE: process_thread's own det-timing measures this no-op (~0ms); the true
+    Hailo time is frame.det_ms (shipped from the child)."""
+    uses_motion_regions = False
+
+    def detect(self, frame, motion_regions=None, forced_full=False):
+        return list(getattr(frame, "precomputed_detections", []) or [])
+
+
 def make_frame_capture(*args, **kwargs):
-    """Factory: process-isolated by default; PIPELINE_DECODE_INPROC=1 reverts."""
+    """Factory: process-isolated by default; PIPELINE_DECODE_INPROC=1 reverts
+    (in-process decode; drops hef_path/det_confidence — the caller must then
+    construct its own in-process detector)."""
     if os.environ.get("PIPELINE_DECODE_INPROC") == "1":
         from pipeline.frame_capture import FrameCapture
+        kwargs.pop("hef_path", None)
+        kwargs.pop("det_confidence", None)
         return FrameCapture(*args, **kwargs)
     return FrameCaptureProc(*args, **kwargs)

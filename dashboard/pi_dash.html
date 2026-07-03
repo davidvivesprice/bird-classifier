@@ -1490,7 +1490,10 @@
       cEst: null, iqrMs: null,
       state: 'UNCALIBRATED',     // UNCALIBRATED -> LOCKED (via >=20 samples, IQR<80ms)
       bVideoMs: 0,               // measured video-side buffering (getStats / SourceBuffer gap)
-      dLabelMs: Number(localStorage.getItem('syncDeltaLabelMs') || '100'),
+      // Label availability latency (go2rtc->decode + pipeline + transport).
+      // Default measured by the sync rig 2026-07-03 on LAN: the 100ms guess
+      // produced a +52ms systematic clock bias; 50ms centers it.
+      dLabelMs: Number(localStorage.getItem('syncDeltaLabelMs') || '50'),
       lastSampleAt: 0, reanchors: 0, lastReason: '',
       statsPrev: null,
     };
@@ -1715,7 +1718,12 @@
       const med = vals[n >> 1];
       const iqr = n >= 4 ? (vals[Math.floor(0.75 * n)] - vals[Math.floor(0.25 * n)]) : Infinity;
       est.iqrMs = Math.round(iqr * 1000);
-      est.cEst = med + est.bVideoMs / 1000 - est.dLabelMs / 1000;
+      // Per-transport trim, rig-measured (2026-07-03): on MSE the SourceBuffer
+      // gap overstates residual display latency by ~2 frames (currentTime lags
+      // the actually-displayed frame), leaving boxes 67ms late. WebRTC needs 0.
+      const trimMs = clock.transport === 'mse'
+        ? Number(localStorage.getItem('syncMseTrimMs') || '-67') : 0;
+      est.cEst = med + est.bVideoMs / 1000 - est.dLabelMs / 1000 + trimMs / 1000;
       if (est.state !== 'LOCKED' && n >= 20 && est.iqrMs < 80) est.state = 'LOCKED';
     }
 

@@ -275,10 +275,24 @@ def main():
             # SnapshotWriter uses this frame's PTS to extract a matching
             # 1080p frame from the main-stream HLS segmenter when a track
             # locks.
+            # Isolation split (2026-07-03): in PI_MODE the supervised child
+            # runs BOTH native crashers — libav decode AND Hailo detection
+            # (libhailort 4.23 SEGVs in the parent were killing tracker state
+            # even after decode isolation; fresh cores put the fault squarely
+            # in libhailort). The parent gets detections via the ring and a
+            # PrecomputedDetector shim; PIPELINE_DECODE_INPROC=1 reverts to
+            # the old fully in-process wiring.
+            isolated = os.environ.get("PIPELINE_DECODE_INPROC") != "1"
+            hef_path = os.environ.get(
+                "PI_YOLO_HEF",
+                "/usr/share/hailo-models/yolov8s_h8l.hef",
+            )
             capture = FrameCapture(
                 name, detect_url, out_queue=frame_q,
                 capture_width=640, capture_height=360,
                 detect_width=640, detect_height=360,
+                hef_path=(hef_path if (PI_MODE and isolated) else None),
+                det_confidence=0.3,
             )
             aoi = CAMERA_AOI_POLYGONS.get(name)
             motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
@@ -295,15 +309,14 @@ def main():
                 initialization_delay=int(os.environ.get("PIPELINE_TRACK_INIT_DELAY", "2")),
             )
             camera_trackers[name] = tracker
-            if PI_MODE:
+            if PI_MODE and isolated:
+                from pipeline.frame_capture_proc import PrecomputedDetector
+                detector = PrecomputedDetector()
+                log.info("[PI_MODE] Hailo detection ISOLATED in decode child (hef=%s)", hef_path)
+            elif PI_MODE:
                 from pipeline.hailo_detector import HailoDetector
-                # Default Hailo HEF for YOLOv8-s. Env override allowed.
-                hef_path = os.environ.get(
-                    "PI_YOLO_HEF",
-                    "/usr/share/hailo-models/yolov8s_h8l.hef",
-                )
                 detector = HailoDetector(hef_path=hef_path, confidence=0.3)
-                log.info("[PI_MODE] HailoDetector: %s", hef_path)
+                log.info("[PI_MODE] HailoDetector in-process: %s", hef_path)
             else:
                 detector = BirdDetector(
                     yolo_model_path=YOLO_MODEL,
