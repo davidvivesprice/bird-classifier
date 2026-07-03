@@ -136,8 +136,11 @@ def main() -> int:
         "active_tracks": trk.get("active_tracks"),
         "snap_submitted": sw.get("submitted"),
         "snap_written": sw.get("written"),
-        "ring_pick_ok": sw.get("ring_pick_ok"),
-        "ring_pick_empty": sw.get("ring_pick_empty"),
+        # hi-res source counters. Column names kept for CSV continuity; the
+        # ring buffer is legacy — these read the keys SnapshotWriter actually
+        # publishes on the HLS-by-PTS path.
+        "ring_pick_ok": sw.get("hires_hls_ok"),
+        "ring_pick_empty": sw.get("hires_hls_miss"),
         "uptime_s": health.get("uptime_s"),
     }
 

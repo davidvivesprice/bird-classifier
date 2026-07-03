@@ -1,8 +1,8 @@
 streams:
   feeder-main:
-    - rtsp://192.168.4.9:7447/axlDsSsOtFpL2kb1#tcp
+    - rtsp://192.168.4.9:7447/<ROTATED-TOKEN-PLACEHOLDER>#tcp
   ground-main:
-    - rtsp://192.168.4.9:7447/xisKSnlW1sIgNRty#tcp
+    - rtsp://192.168.4.9:7447/<ROTATED-TOKEN-PLACEHOLDER>#tcp
 
 api:
   listen: ":1984"

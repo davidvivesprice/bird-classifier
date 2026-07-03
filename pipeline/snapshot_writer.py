@@ -193,7 +193,8 @@ class SnapshotWriter:
     def submit(self, camera: str, frame_bgr: np.ndarray, wall_time_ms: float, track,
                frame_bgr_full: Optional[np.ndarray] = None,
                pts: float = 0.0):
-        """Non-blocking submit. Drops oldest on backpressure.
+        """Non-blocking submit. Drops the NEW payload when the queue is full
+        (counted in stats["dropped_full"]); the in-flight backlog is preserved.
 
         The caller passes the detection-sized frame (`frame_bgr`, e.g.
         640×360) and may pass an inline decoded input frame as

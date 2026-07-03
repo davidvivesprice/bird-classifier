@@ -803,8 +803,9 @@
     <div class="live-stage" id="live-stage">
       <!-- WebRTC live transport via go2rtc's <video-stream> custom element.
            video-stream.js handles WebRTC → MSE → MJPEG fallback per browser.
-           Labels rendered as DOM nodes (.live-bbox + .live-label) with CSS
-           transition smoothing, driven by SSE events. See setupLiveView(). -->
+           Labels rendered as DOM nodes (.live-bbox + .live-label) positioned
+           per displayed frame by the video-clock overlay engine (buffered SSE
+           playout on the camera's 90 kHz clock). See setupLiveView(). -->
       <video-stream id="live-video" class="live-video" mode="webrtc,mse"></video-stream>
       <div class="live-labels" id="live-labels"></div>
       <div class="live-empty" id="live-empty">No birds in frame.</div>
@@ -1302,11 +1303,16 @@
   //     (auto-negotiated by video-rtc.js). Sub-second latency. Works on iPad
   //     Safari "Install as App" (PWA).
   //   - Labels: LAN uses SSE; Cloudflare uses the same-origin WebSocket mirror.
-  //   - Smoothing: CSS `transform` transitions (240ms cubic-bezier) — the
-  //     browser interpolates between SSE updates for free.
-  //   - Track lifecycle: lazy-create DOM nodes per track_id; GC after 1.5s
-  //     of no update; opacity-fade out on remove.
-  //   - Diag chip (?syncdiag=1): SSE rate, track count, last-event age.
+  //   - Positioning: the video-clock engine (2026-07-02) — events buffered per
+  //     track keyed by pts; rVFC anchors the camera's 90 kHz clock
+  //     (rtpTimestamp on WebRTC / mediaTime on MSE); a rAF loop renders each
+  //     box at the displayed frame's time (BRACKET lerp / REALTIME hold).
+  //     No CSS transform transitions (opacity fades only). Smooth mode deepens
+  //     the jitter buffer (~0.8s) for guaranteed lookahead; Realtime toggle.
+  //   - Track lifecycle: birth/death/lock-flip land on VIDEO time (0.6s stale
+  //     → fade); 15s wall-clock backstop GC.
+  //   - Diag chip (?syncdiag=1): transport, clock anchor, C±IQR, lookahead,
+  //     mode, bVideo, seq gaps.
   //   - Labels toggle: persisted in localStorage; hides .live-labels.
   function setupLiveView() {
     const stage = document.getElementById('live-stage');
