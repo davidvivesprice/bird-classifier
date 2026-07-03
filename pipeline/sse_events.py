@@ -66,6 +66,16 @@ class _SSEHandler(BaseHTTPRequestHandler):
 
         q: "queue.Queue[str]" = queue.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.server_state._add_client(camera, q)
+        # Send timeout: without it, a client that stops reading (stalled proxy,
+        # suspended laptop, wedged curl) blocks wfile.write() FOREVER — the
+        # handler thread stops draining q, the queue fills, and that client
+        # receives nothing ever again even if it recovers. With the timeout the
+        # stalled connection dies cleanly and the client reconnects. Healthy
+        # idle streams are unaffected (keepalives are tiny and ACKed).
+        try:
+            self.connection.settimeout(10.0)
+        except Exception:
+            pass
         try:
             while True:
                 try:

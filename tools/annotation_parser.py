@@ -71,8 +71,13 @@ def parse_timecode(s: str, fps: int = 30) -> Optional[float]:
             h, m, sec, f = 0, nums[0], nums[1], nums[2]
         else:
             h, m, sec, f = nums[0], nums[1], nums[2], 0
-    elif len(nums) == 2:  # MM:SS
-        h, m, sec, f = 0, nums[0], nums[1], 0
+    elif len(nums) == 2:  # SS:FF (David's truncated Final Cut form) or MM:SS
+        # Frames-last convention: a 2nd value < fps is frames (SS:FF, e.g. "25:25"
+        # = 25.83s); only treat as MM:SS when the 2nd value can't be frames.
+        if nums[1] < fps:
+            h, m, sec, f = 0, 0, nums[0], nums[1]
+        else:
+            h, m, sec, f = 0, nums[0], nums[1], 0
     elif len(nums) == 1:
         h, m, sec, f = 0, 0, nums[0], 0
     else:

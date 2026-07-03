@@ -5095,7 +5095,13 @@ async def proxy_pipeline_sse(camera: str = "feeder"):
     from starlette.responses import StreamingResponse
 
     async def gen():
-        async with httpx.AsyncClient(timeout=None) as client:
+        # read=30s: the upstream emits keepalives every 15s, so a healthy
+        # stream never trips this — but a dead upstream (pipeline restart,
+        # wedged socket) closes the response instead of hanging it open
+        # forever. EventSource only reconnects on CLOSE; a silent hang looks
+        # "connected" to the browser and the labels freeze without recovery.
+        timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "GET",
                 f"{_PIPELINE_SSE_URL}/events/sse",
@@ -5137,7 +5143,11 @@ async def _iter_pipeline_sse_payloads(camera: str):
     import httpx
 
     tail = ""
-    async with httpx.AsyncClient(timeout=None) as client:
+    # Same dead-upstream guard as the SSE proxy: keepalives arrive every 15s,
+    # so read=30s only trips when the upstream is actually gone — the bridge
+    # then closes and the browser's WS reconnect logic takes over.
+    timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream(
             "GET",
             f"{_PIPELINE_SSE_URL}/events/sse",
@@ -5274,12 +5284,20 @@ import subprocess as _sp_for_demo
 
 
 def _systemctl(*args):
-    """Run `systemctl --user <args>` and return (stdout, returncode). No raise."""
-    proc = _sp_for_demo.run(
-        ["systemctl", "--user", *args],
-        capture_output=True, text=True, timeout=10,
-    )
-    return proc.stdout + proc.stderr, proc.returncode
+    """Run `systemctl --user <args>` and return (stdout, returncode). No raise.
+
+    timeout=45 with a caught TimeoutExpired: a pipeline restart can exceed 10s
+    (thread joins + Hailo teardown), and an unhandled TimeoutExpired here used
+    to 500 the demo-mode POST even though systemd completed the restart fine.
+    """
+    try:
+        proc = _sp_for_demo.run(
+            ["systemctl", "--user", *args],
+            capture_output=True, text=True, timeout=45,
+        )
+        return proc.stdout + proc.stderr, proc.returncode
+    except _sp_for_demo.TimeoutExpired:
+        return f"systemctl --user {' '.join(args)}: timed out after 45s", 124
 
 
 def _demo_mode_active() -> bool:

@@ -29,6 +29,7 @@ from typing import Optional
 
 import numpy as np
 import cv2
+import pipeline.av_log_guard  # noqa: F401  installs the av_log() SEGV guard (before av.open)
 import av
 
 from pipeline.frame import Frame

@@ -1,4 +1,11 @@
-"""Integration tests for visit-based event model."""
+"""Integration tests for visit-based event model.
+
+These assert the STATE of the production classifications.db after the visits
+migration — an iMac-era feature (April 2026, ~10K visits populated there).
+The Pi's classifications.db never had the visits model deployed, so on hosts
+without a `visits` table the whole module skips rather than fail on an
+environment difference the code can't control.
+"""
 import pytest
 import sqlite3
 from pathlib import Path
@@ -11,6 +18,12 @@ def real_db():
         pytest.skip("Production database not found")
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    has_visits = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='visits'"
+    ).fetchall()
+    if not has_visits:
+        conn.close()
+        pytest.skip("visits event-model not deployed on this host (iMac-era feature)")
     yield conn
     conn.close()
 

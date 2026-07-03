@@ -7,6 +7,12 @@ camera-trap ML paper documents this as the dominant data-leakage mode.
 import numpy as np
 import pytest
 
+# stratified_group_kfold uses scikit-learn, which is deliberately NOT
+# installed on the Pi (flagship training/splitting runs on Colab/iMac;
+# 30MB of sklearn on the lean production device buys nothing). The tests
+# run wherever the tool actually runs.
+pytest.importorskip("sklearn")
+
 from tier2_eval.split import (
     derive_visit_ids,
     stratified_group_kfold,

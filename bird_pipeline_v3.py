@@ -14,9 +14,13 @@ import time
 from pathlib import Path
 
 # Dump every thread's Python traceback on a fatal signal (SIGSEGV/SIGABRT).
-# The pipeline has hit periodic SEGVs in Hailo C code; this captures where.
 import faulthandler
 faulthandler.enable(all_threads=True)
+
+# Install the PyAV av_log() SEGV guard before ANY av.open() happens anywhere in
+# this process. Root cause of the periodic SEGVs was libav's thread-unsafe log
+# repeat-suppressor, not Hailo — see pipeline/av_log_guard.py.
+import pipeline.av_log_guard  # noqa: F401  (import for its import-time side effect)
 
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / "models"
@@ -137,7 +141,12 @@ def main():
     from solar_utils import is_nighttime
 
     # Import pipeline modules
-    from pipeline.frame_capture import FrameCapture
+    # Decode runs PROCESS-ISOLATED by default (2026-07-03): libav SEGVs inside
+    # av_read_frame (~80x/3days, proven unfixable via av.logging config) used
+    # to kill the whole pipeline and wipe every track. With the decoder in a
+    # supervised child process, a decode crash is a ~2s frame gap the tracker
+    # coasts through. PIPELINE_DECODE_INPROC=1 reverts to in-process decode.
+    from pipeline.frame_capture_proc import make_frame_capture as FrameCapture
     from pipeline.motion_gate import MotionGate
     from pipeline.detector import BirdDetector
     from pipeline.tracker import BirdTracker
