@@ -120,6 +120,13 @@ class CameraProcessThread:
         t_det = time.monotonic()
         detections = self.detector.detect(frame, regions, forced_full=forced_full)
         det_ms = (time.monotonic() - t_det) * 1000
+        # Isolated mode: detection already ran in the decode child; the local
+        # timing above measured only the PrecomputedDetector shim (~0 ms). The
+        # child ships its true Hailo time on the frame — use that so the
+        # health endpoint's yolo_ms / detector-fps stay meaningful.
+        child_det_ms = getattr(frame, "det_ms", None)
+        if child_det_ms:
+            det_ms = float(child_det_ms)
         # Record timing whenever YOLO actually ran. A full-frame detector
         # (not uses_motion) runs every frame; a region-gated one (BirdDetector)
         # returns instantly when regions is empty and forced_full is False —

@@ -122,3 +122,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Hard-exit to dodge the Hailo GC-teardown SEGV (libhailort crashes during
+    # interpreter shutdown AFTER all output is written — harmless but it dumps
+    # a ~600MB core every run). Same dodge as tools/demo_grade.py.
+    os._exit(0)
