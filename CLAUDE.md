@@ -53,7 +53,7 @@ SQLite is the sole data store: `~/bird-snapshots/logs/classifications.db` (per-c
 
 For the full reference, see the chapter book at `~/docs/bird-observatory-pi/` (00-overview through 08-deployment).
 
-### Services (4 systemd-user units + 1 timer)
+### Services (4 long-running systemd-user units + hardening timers — full set in `deploy/systemd/`)
 
 | Service | Port | What it does |
 |---------|------|-------------|
@@ -67,9 +67,9 @@ For the full reference, see the chapter book at `~/docs/bird-observatory-pi/` (0
 
 ### Detection Pipeline (v3 on Pi)
 
-go2rtc (RTSP) → FrameCapture (`feeder-sub` 640×360, native ~30 fps, no fps filter) → HailoDetector (YOLOv8s on Hailo-8L, **full-frame every frame**) → BirdTracker (Norfair + Frigate-distance) → PiClassifier (AIY ONNX on CPU, ~7.4 ms / crop) → vote lock → SnapshotWriter (1080p frame extracted from the HLS passthrough-mux segments by PTS at lock; AIY rerun) → SSE broadcast → dashboard.
+go2rtc (RTSP) → **supervised decode+detect CHILD PROCESS** (`pipeline/frame_capture_proc.py`, 2026-07-03: PyAV decode of `feeder-sub` 640×360 + HailoDetector YOLOv8s **full-frame every frame**, shipped through a shared-memory ring — both native SEGV crashers, libav and libhailort, are caged there; the parent survives their crashes and the tracker coasts through the ~2-4 s respawn; `PIPELINE_DECODE_INPROC=1` reverts) → BirdTracker (Norfair + Frigate-distance, in the parent) → PiClassifier (AIY ONNX on CPU, ~7.4 ms / crop) → vote lock → SnapshotWriter (1080p frame extracted from the HLS passthrough-mux segments by PTS at lock; AIY rerun) → SSE broadcast → dashboard. See `docs/working/progress/2026-07-03-native-crash-isolation.md`.
 
-> **2026-06-29 foundations changes:** MotionGate/MOG2 is **bypassed on the Hailo path** — HailoDetector runs full-frame and ignores motion regions, so computing MOG2 every frame was wasted CPU and the thermal hog (F1). Tracker `hit_counter_max` 90→**150** (~5s coast through detection gaps; S1); `distance_threshold` 2.5; all tracker params env-tunable (`PIPELINE_TRACK_*`). Classifier vote-eligibility floor 0.25→**0.16** (`PIPELINE_CLASSIFIER_FLOOR`), `MAX_CLASSIFICATION_ATTEMPTS` 5→12 (F2); lock gate unchanged (≥3 votes, ≥0.35 conf, ≥60% agreement). The hi-res ring buffer is legacy (None); snapshots come from the HLS-by-PTS path. See `docs/working/specs/2026-06-27-pi-live-id-foundations-design.md`.
+> **2026-06-29 foundations changes:** MotionGate/MOG2 is **bypassed on the Hailo path** — HailoDetector runs full-frame and ignores motion regions, so computing MOG2 every frame was wasted CPU and the thermal hog (F1). Tracker `hit_counter_max` 90→**150** (~5s coast through detection gaps; S1); `distance_threshold` 2.5; all tracker params env-tunable (`PIPELINE_TRACK_*`). Classifier vote-eligibility floor 0.25→**0.16** (`PIPELINE_CLASSIFIER_FLOOR`), `MAX_CLASSIFICATION_ATTEMPTS` 5→12 (F2); lock gate now **calibrated** (≥3 votes, ≥**0.70 calibrated P(correct)** via `pipeline/calibration.py` isotonic map, ≥60% agreement; env `PIPELINE_LOCK_CONF`). The hi-res ring buffer is legacy (None); snapshots come from the HLS-by-PTS path. See `docs/working/specs/2026-06-27-pi-live-id-foundations-design.md`.
 
 Per-camera classifier config: only feeder camera enabled (ground commented out in `bird_pipeline_v3.py:CAMERAS_DETECT`). Pi has no Coral; AIY runs on CPU. Hailo classifiers (ResNet50, YOLOv8s, YOLOv6n) cohabit with the YOLOv8 detector on a single shared `VDevice` via the HailoRT scheduler — see `docs/04-hailo-engine.md` and `docs/working/specs/2026-04-25-hailo-playbook.md`.
 

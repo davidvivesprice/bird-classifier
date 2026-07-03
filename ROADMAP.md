@@ -6,7 +6,7 @@
 > Each chapter below has one binary "chip" — green or not. We work **one
 > chapter at a time** and keep everything else quiet.
 
-_Last updated: 2026-06-15 · Owner: David · Active surface: Raspberry Pi 5_
+_Last updated: 2026-07-03 · Owner: David · Active surface: Raspberry Pi 5_
 
 ---
 
@@ -17,20 +17,27 @@ keystone and needs nothing else to stand up.
 
 | # | Chapter | One-line chip (is it green?) | Status |
 |---|---------|------------------------------|--------|
-| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🔴 not landed |
-| **2** | **Clean, accurate data** | Pull N recent detections: each is genuinely the claimed bird (or honestly "unknown"), with a high-quality crop, tight bounding box, and correct metadata. | 🔴 not landed |
+| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🟡 mostly green *(2026-07-03: timing PROVEN by the rig — +5 ms absolute offset, 3.2 px median box error, multi-bird, birth/death on the video clock; named residuals: locked label rides a track-ID switch to the wrong bird with no correction, and iPad-over-tunnel needs a manual check)* |
+| **2** | **Clean, accurate data** | Pull N recent detections: each is genuinely the claimed bird (or honestly "unknown"), with a high-quality crop, tight bounding box, and correct metadata. | 🔴 not landed *(flagship classifier designed + data manifest built — `docs/working/specs/2026-06-29-flagship-classifier-design.md`; David cleaning data before training)* |
 | **3** | **Presentation** | The data is delightful to look at. (Raw numbers are fine until 1 & 2 are green.) | ⚪ deferred |
 
-**✅ Done 2026-06-15 — fake feed is off the Pi.** The demo loops as an always-on
-compose service on the NAS (`/volume2/docker/bird-demo`, mediamtx+ffmpeg),
-served at `rtsp://192.168.4.243:8554/feeder-main`. The Pi consumes it exactly
-like the real camera; the on-Pi loop is retired. Dashboard verified showing
-the NAS demo with live labels.
+**✅ Done 2026-06-15 — fake feed is off the Pi.** *(Superseded 2026-07-02: the
+NAS feed created a demo-rig **split-brain** — the browser played go2rtc's local
+`feeder-demo` exec loop while the pipeline analyzed the NAS loop, two unrelated
+clocks, so every demo sync observation was invalid. Demo mode now points BOTH
+at the one local `feeder-demo` loop — a deliberate, measured reversal of the
+"feed off the Pi" rule: the shared clock is what makes measurement possible,
+and the 360p x264 encode cost proved acceptable (2-hour bird-dense soak,
+≤80 °C, no throttle).)*
 
-**The next concrete move:** build the **empirical offset rig** (Chapter 1,
-step 2) and **strip the Pi to live-ID only** (step 3) so we measure the live
-path cleanly. See the refined sequence at the bottom and "What we learned"
-below.
+**✅ Done 2026-07-03 — the empirical offset rig exists and Chapter 1 is
+measured.** Machine timecode burned into the demo (`~/sim/current.mp4`),
+offline ground truth from the same pipeline, real-Chrome probe
+(`tools/sync_rig.py`). Certified: Smooth **+5 ms** absolute offset / 18 ms
+clock jitter p90 / 3.2 px median box error; MSE 0 ms / 2.5 px; pipeline-restart
+recovery 9.1 s. **The next concrete moves:** fix the locked-label
+track-ID-switch defect (the Blue Jay label passing bird to bird), iPad-tunnel
+manual check, then Chapter 2.
 
 ---
 
@@ -88,8 +95,8 @@ The label is glued and alive:
 - **No "lost it / found it" identity churn.** A perched bird keeps one stable
   track.
 - Handles **multiple birds in frame at once.**
-- **No perceptible timing lag**, verified by the offset harness (target band
-  TBD, e.g. ±1 frame).
+- **No perceptible timing lag**, verified by the offset harness (band set at
+  ±40 ms ≈ ±1 frame; **achieved 2026-07-03: +5 ms absolute, 18 ms jitter p90**).
 
 This does **not** depend on the model being accurate. The label being
 pixel-glued to the bird is deliberately kept as the **measurement instrument**
@@ -224,9 +231,11 @@ when we open Chapter 1.)
   natural home for the RTSP demo loop. Also the UPS/NUT primary.
 - **Existing harness:** `tools/sync_replay_assert.py`, `tools/annotation_parser.py`,
   the frame-by-frame demo annotations.
-- **Existing overlay stack:** WebRTC + DOM labels with CSS smoothing
-  (`dashboard/pi_dash.html`), HLS segmenter + PTS sidecar
-  (`pipeline/hls_segmenter.py`) for replay/measurement.
+- **Existing overlay stack:** WebRTC/MSE + DOM labels driven by the
+  **video-clock engine** (`dashboard/pi_dash.html`, 2026-07-02: rVFC
+  `rtpTimestamp`/`mediaTime` anchors, buffered playout, no CSS-transition
+  smoothing), HLS segmenter + PTS sidecar (`pipeline/hls_segmenter.py`) for
+  replay/measurement.
 - **Self-heal + power resilience:** `deploy/` (watchdog, service-canary,
   pi-watch), NUT graceful shutdown — all landed; keeps the Pi alive while we
   work the chapters.
@@ -242,8 +251,8 @@ Read this before touching anything; it encodes hard-won constraints.
   `imac-origin/pi-main`. Edit here, rsync to `vives@pi5.local:/home/vives/bird-classifier/`.
 - iMac repo (frozen reference, do **not** develop): `/Users/vives/bird-classifier/`,
   branch `main`. Read for patterns only.
-- Docs reference book: `~/docs/bird-observatory-pi/` (a separate Claude owns
-  doc-sync; coordinate via `docs/working/progress/cross-claude-comms.md`).
+- Docs reference book: `~/docs/bird-observatory-pi/` (kept in sync by the same
+  sole coder as the code; audited against the code via DOC_AUDIT.md).
 
 **Load-bearing constraints (violating these is how we lost weeks)**
 - **PTS is the only clock for sync decisions.** Wall-clock is fine for log
@@ -252,8 +261,11 @@ Read this before touching anything; it encodes hard-won constraints.
 - **Measure overlay timing empirically.** Never iterate via "does this look
   right to you." Use the timecode + annotation + `sync_replay_assert` rig and
   report offset in ms.
-- **The demo feed runs OFF the Pi** (NAS or M4 Mac) as RTSP. Never make the Pi
-  both produce and consume the test stream.
+- ~~**The demo feed runs OFF the Pi** (NAS or M4 Mac) as RTSP. Never make the Pi
+  both produce and consume the test stream.~~ **Reversed 2026-07-02, measured:**
+  the browser and the pipeline MUST consume the same stream (shared clock) or
+  sync measurement is meaningless — the NAS/local split-brain proved it. The
+  local `feeder-demo` exec loop's cost is acceptable (2-hour soak, ≤80 °C).
 - **One chapter at a time.** If you're touching snapshots/presentation/mobile
   while Chapter 1 is open, stop.
 - **Pi 5 has no hardware H.264 decoder** (HEVC decode only, no encoder of
@@ -271,19 +283,21 @@ Read this before touching anything; it encodes hard-won constraints.
   with the LIVE/DEFERRED/PAUSED/DEAD avenues table (so you don't re-chase
   dead paths, e.g. HW H.264 decode on Pi 5).
 
-**Chapter 1 sequence (measure-first)**
-1. ✅ Stand up the RTSP demo loop on the NAS; point the Pi at it. *(2026-06-15)*
-2. 🔶 **Empirical offset rig — substrate DONE, probe NEXT** *(2026-06-16)*:
-   - ✅ Timecoded demo built (frame# + `%{pts:hms}` burned in, OCR-ready) and
-     served as the `feeder-tc` RTSP stream on the NAS (clean `feeder-main`
-     untouched). Verified: frame 300 ↔ 00:00:10.000.
-   - ⏳ **NEXT:** the probe — screenshot the dashboard on `feeder-tc`, OCR the
-     burned timecode (what frame is on screen) + read the label/bbox position,
-     compare to the annotations → offset in ms. Transport-agnostic.
-3. ✅ **Strip the Pi to live-ID only** *(2026-06-16)*: demo mode now auto-sets
-   PIPELINE_DISABLE_SEGMENTER + PIPELINE_DISABLE_SNAPSHOTS (live = full
-   pipeline, demo = stripped measurement). Segmenter was the main demo-mode
-   load; snapshots skipped so the bird-dense loop measures clean.
-4. Measure. Decide load-vs-code per the diagnostic ladder above (M4 as the
-   overpowered control).
-5. Fix to green on 1a, then 1b. Each change re-measured automatically.
+**Chapter 1 sequence (measure-first) — COMPLETE 2026-07-03**
+1. ✅ Stand up the RTSP demo loop *(2026-06-15 NAS; 2026-07-02 unified to the
+   local `feeder-demo` exec loop — see the split-brain reversal above)*.
+2. ✅ **Empirical offset rig** *(2026-07-03)*: machine-readable timecode strip
+   (26 binary blocks + checksum, survives H.264, decoded from the canvas — no
+   OCR needed) burned into `~/sim/current.mp4`; offline ground truth from the
+   same pipeline on the same stamped file; real-Chrome probe reads
+   glass-frame + rendered boxes per sample → offset in ms + px
+   (`tools/sync_rig.py`).
+3. ✅ **Strip the Pi to live-ID only** *(2026-06-16; +NIGHT_BYPASS 2026-07-02)*:
+   demo mode auto-sets PIPELINE_DISABLE_SEGMENTER + PIPELINE_DISABLE_SNAPSHOTS
+   + PIPELINE_NIGHT_BYPASS.
+4. ✅ Measured. It was **code, not load** (no label↔video clock alignment
+   existed at all; the fix was the video-clock engine + buffered playout,
+   2026-07-02).
+5. ✅ 1a green on the rig *(Smooth +5 ms / 3.2 px; MSE 0 ms / 2.5 px; chaos
+   re-lock 9.1 s)*. 1b residual: the locked-label track-ID-switch defect
+   (the Blue Jay label passing bird to bird — David, 2026-07-03).
