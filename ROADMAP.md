@@ -17,7 +17,7 @@ keystone and needs nothing else to stand up.
 
 | # | Chapter | One-line chip (is it green?) | Status |
 |---|---------|------------------------------|--------|
-| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🟡 mostly green *(2026-07-03: timing PROVEN by the rig — +5 ms absolute offset, 3.2 px median box error, multi-bird, birth/death on the video clock; named residuals: locked label rides a track-ID switch to the wrong bird with no correction, and iPad-over-tunnel needs a manual check)* |
+| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🟡 mostly green *(2026-07-03: timing PROVEN by the rig — +5 ms absolute offset, 3.2 px median box error, multi-bird, birth/death on the video clock; label-ride defect FIXED 2026-07-04 (F1–F5 package); remaining: appearance ReID polish + iPad-over-tunnel manual check)* |
 | **2** | **Clean, accurate data** | Pull N recent detections: each is genuinely the claimed bird (or honestly "unknown"), with a high-quality crop, tight bounding box, and correct metadata. | 🔴 not landed *(flagship classifier designed + data manifest built — `docs/working/specs/2026-06-29-flagship-classifier-design.md`; David cleaning data before training)* |
 | **3** | **Presentation** | The data is delightful to look at. (Raw numbers are fine until 1 & 2 are green.) | ⚪ deferred |
 
@@ -299,5 +299,10 @@ Read this before touching anything; it encodes hard-won constraints.
    existed at all; the fix was the video-clock engine + buffered playout,
    2026-07-02).
 5. ✅ 1a green on the rig *(Smooth +5 ms / 3.2 px; MSE 0 ms / 2.5 px; chaos
-   re-lock 9.1 s)*. 1b residual: the locked-label track-ID-switch defect
-   (the Blue Jay label passing bird to bird — David, 2026-07-03).
+   re-lock 9.1 s)*. 1b: the locked-label ride defect (the Blue Jay label
+   passing bird to bird — David, 2026-07-03) **FIXED 2026-07-04** (label-
+   integrity package F1–F5: containment dedup, absolute jump cap,
+   classification pacing, post-lock re-verify, unverifiable-lock release).
+   Measured on the live demo: teleports 9→0, dup frames 2.6%→0.4%,
+   label coverage 48%→73–82%, wrap-ride 40 s→~5.5 s. Remaining polish:
+   appearance ReID for cross-gap identity (Claudette's plan).
