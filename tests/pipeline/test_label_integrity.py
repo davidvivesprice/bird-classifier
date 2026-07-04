@@ -147,6 +147,23 @@ def test_locked_track_unlocks_on_persistent_disagreement():
         "ridden Blue Jay lock survived persistent disagreement")
 
 
+def test_locked_track_unlocks_when_unverifiable():
+    """A lock whose crops can't produce ANY vote for a sustained stretch is
+    stale — post-fix live capture showed a Blue Jay lock riding a mostly-feeder
+    box across the demo loop wrap for 40s because sub-floor verifies counted
+    'neither way'. A real locked bird yields votes; a ridden patch doesn't."""
+    import pipeline.process_thread as pt
+    none_result = ClassificationResult(species=None, confidence=0.0,
+                                       model_source="aiy_onnx", should_retry=False)
+    thread, calls = _mk_thread([none_result])
+    tr = _track(is_locked=True, species="Blue Jay", species_confidence=0.9,
+                needs_classification=False,
+                vote_history=[("Blue Jay", 0.9)] * 3)
+    _run_frames(thread, tr, pt.LOCK_VERIFY_EVERY * (pt.LOCK_UNVERIFIED_N + 2))
+    assert len(calls) >= pt.LOCK_UNVERIFIED_N, "locked track was never re-verified"
+    assert tr.is_locked is False, "unverifiable lock never released"
+
+
 def test_locked_track_stays_locked_on_agreement():
     import pipeline.process_thread as pt
     bluejay = ClassificationResult(species="Blue Jay", confidence=0.9,

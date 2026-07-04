@@ -57,6 +57,12 @@ CLASSIFY_COOLDOWN_FRAMES = int(os.environ.get("PIPELINE_CLASSIFY_COOLDOWN", "90"
 LOCK_VERIFY_EVERY = int(os.environ.get("PIPELINE_LOCK_VERIFY_EVERY", "15"))
 LOCK_UNLOCK_DISAGREEMENTS = int(os.environ.get("PIPELINE_LOCK_UNLOCK_N", "4"))
 LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.45"))
+# A lock is also released when verification can't produce ANY vote this many
+# times in a row (sub-floor crops). Post-fix live capture 2026-07-04: a Blue
+# Jay lock rode a mostly-feeder box across the demo loop wrap for 40s — the
+# crops were unclassifiable, so disagreement-based unlock never fired. A real
+# locked bird yields votes; a ridden patch yields None forever.
+LOCK_UNVERIFIED_N = int(os.environ.get("PIPELINE_LOCK_UNVERIFIED_N", "8"))
 
 
 class CameraProcessThread:
@@ -324,8 +330,29 @@ class CameraProcessThread:
                 except Exception as e:
                     log.warning("[%s] verify error: %s", self.name, e)
                     continue
-                if result.should_retry or result.species is None:
-                    continue          # weak evidence — counts neither way
+                if result.should_retry:
+                    continue
+                if result.species is None:
+                    # Sub-floor crop. One is noise; a sustained run means the
+                    # locked box no longer contains a classifiable bird.
+                    track.no_vote_streak += 1
+                    if track.no_vote_streak >= LOCK_UNVERIFIED_N:
+                        log.info(
+                            "[%s] track %s UNLOCKED: '%s' unverifiable "
+                            "(%d consecutive sub-floor crops)",
+                            self.name, track.track_id, track.species,
+                            track.no_vote_streak,
+                        )
+                        track.is_locked = False
+                        track.needs_classification = True
+                        track.vote_history = []
+                        track.species = None
+                        track.species_confidence = None
+                        track.classification_attempts = 0
+                        track.no_vote_streak = 0
+                        track.lock_disagreements = 0
+                    continue
+                track.no_vote_streak = 0
                 if result.species == track.species:
                     track.lock_disagreements = 0
                 elif (result.confidence or 0) >= LOCK_VERIFY_MIN_CONF:
