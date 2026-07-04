@@ -52,7 +52,11 @@ LOCK_CONF_THRESHOLD = float(os.environ.get("PIPELINE_LOCK_CONF", "0.70"))
 #   a ridden or wrong lock now self-corrects in ~2s instead of never.
 # Worst-case classifier load: ~6/s per unlocked track + ~2/s per locked track
 # (7.4ms/crop CPU) — bounded, unlike the old every-frame burst.
-CLASSIFY_EVERY = int(os.environ.get("PIPELINE_CLASSIFY_EVERY", "5"))
+# Default 2 (2026-07-04): census-graded on the annotated demo — at 5, brief
+# visits (titmice, ~1-2s) never accumulated 3 votes; at 2, all 9 annotated
+# windows lock (jay 0.4s, titmouse 1.0s) and correct-species coverage rose
+# 5/9 -> 7/9 with zero true phantoms. Worst-case CPU ~15 classify/s/track.
+CLASSIFY_EVERY = int(os.environ.get("PIPELINE_CLASSIFY_EVERY", "2"))
 CLASSIFY_COOLDOWN_FRAMES = int(os.environ.get("PIPELINE_CLASSIFY_COOLDOWN", "90"))
 LOCK_VERIFY_EVERY = int(os.environ.get("PIPELINE_LOCK_VERIFY_EVERY", "15"))
 LOCK_UNLOCK_DISAGREEMENTS = int(os.environ.get("PIPELINE_LOCK_UNLOCK_N", "4"))
