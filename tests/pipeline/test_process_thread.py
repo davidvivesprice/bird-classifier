@@ -417,6 +417,10 @@ def test_process_thread_emits_sse_event_for_active_tracks():
     fake_track.needs_classification = False
     fake_track.classification_attempts = 0
     fake_track.is_locked = True  # Phase 2: locked by vote consensus
+    # pacing fields (2026-07-04 classification-lifecycle contract)
+    fake_track.last_classify_fc = 5   # just verified — no re-verify this frame
+    fake_track.no_vote_streak = 0
+    fake_track.lock_disagreements = 0
 
     tracker_out = MagicMock()
     tracker_out.new = [fake_track]
@@ -559,6 +563,11 @@ def test_species_confidence_separate_from_yolo_confidence():
     fake_track.species = None
     fake_track.species_confidence = None
     fake_track.model_source = None
+    # pacing fields (2026-07-04 classification-lifecycle contract)
+    fake_track.frame_count = 100
+    fake_track.last_classify_fc = -1_000_000
+    fake_track.no_vote_streak = 0
+    fake_track.lock_disagreements = 0
 
     classifier = MagicMock()
     classifier.classify.return_value = ClassificationResult(
@@ -618,6 +627,11 @@ def test_voting_locks_species_after_consensus():
     fake_track.species_confidence = None
     fake_track.model_source = None
     fake_track.confidence = 0.9
+    # pacing fields (2026-07-04 classification-lifecycle contract)
+    fake_track.frame_count = 100
+    fake_track.last_classify_fc = -1_000_000
+    fake_track.no_vote_streak = 0
+    fake_track.lock_disagreements = 0
 
     # Classifier returns "Downy Woodpecker" 3 times
     call_count = [0]
@@ -635,10 +649,12 @@ def test_voting_locks_species_after_consensus():
                   wall_time_ms=time.time() * 1000,
                   camera="feeder", width=640, height=360)
 
-    # Run classification 3 times (simulating 3 successive frames)
+    # Run classification 3 times (simulating 3 successive frames, advancing
+    # frame_count past the CLASSIFY_EVERY cadence gate each time)
     for i in range(3):
         fake_track.needs_classification = True  # reset for each "frame"
         fake_track.classification_attempts = i  # simulate incremental attempts
+        fake_track.frame_count = 100 + i * 10   # past the cadence gate
         t._classify_tracks(frame, [fake_track])
 
     assert fake_track.species == "Downy Woodpecker"
@@ -649,7 +665,9 @@ def test_voting_locks_species_after_consensus():
 
 
 def test_voting_takes_plurality_at_attempt_cap():
-    """At MAX_CLASSIFICATION_ATTEMPTS without consensus, take the plurality."""
+    """When a no-vote burst hits MAX_CLASSIFICATION_ATTEMPTS without consensus,
+    take the plurality of the votes so far and enter cooldown (2026-07-04
+    contract: cool down and retry later, never give up for the track's life)."""
     from unittest.mock import MagicMock
     from pipeline.process_thread import CameraProcessThread
     from pipeline.classifier import ClassificationResult, MAX_CLASSIFICATION_ATTEMPTS
@@ -664,7 +682,7 @@ def test_voting_takes_plurality_at_attempt_cap():
 
     fake_track = MagicMock()
     fake_track.needs_classification = True
-    fake_track.classification_attempts = MAX_CLASSIFICATION_ATTEMPTS  # at cap
+    fake_track.classification_attempts = 5
     fake_track.vote_history = [
         ("Downy Woodpecker", 0.7),
         ("Hairy Woodpecker", 0.6),
@@ -673,9 +691,20 @@ def test_voting_takes_plurality_at_attempt_cap():
         ("Downy Woodpecker", 0.75),
     ]  # 3/5 Downy → 60% agreement, should be taken as plurality
     fake_track.is_locked = False
+    fake_track.bbox = [100, 100, 300, 300]
     fake_track.species = None
     fake_track.species_confidence = None
     fake_track.model_source = None
+    fake_track.frame_count = 100
+    fake_track.last_classify_fc = -1_000_000
+    fake_track.no_vote_streak = MAX_CLASSIFICATION_ATTEMPTS - 1  # one more no-vote hits the cap
+    fake_track.lock_disagreements = 0
+
+    # sub-floor crop: classifier returns no species
+    classifier = MagicMock()
+    classifier.classify.return_value = ClassificationResult(
+        species=None, confidence=0.0, model_source="aiy_onnx", should_retry=False)
+    t.classifier = classifier
 
     frame = Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8),
                   wall_time_ms=time.time() * 1000,
@@ -685,8 +714,10 @@ def test_voting_takes_plurality_at_attempt_cap():
 
     assert fake_track.species == "Downy Woodpecker"
     assert fake_track.species_confidence == 0.8  # max confidence for the winning species
-    assert fake_track.needs_classification is False
     assert fake_track.model_source == "vote_plurality"
+    # cooldown entered, NOT permanent surrender
+    assert fake_track.no_vote_streak >= MAX_CLASSIFICATION_ATTEMPTS
+    assert fake_track.needs_classification is True
 
 
 def test_disagreement_detector_stops_flipflopping_track_early():
@@ -719,6 +750,11 @@ def test_disagreement_detector_stops_flipflopping_track_early():
     fake_track.species = None
     fake_track.species_confidence = None
     fake_track.model_source = None
+    # pacing fields (2026-07-04 classification-lifecycle contract)
+    fake_track.frame_count = 100
+    fake_track.last_classify_fc = -1_000_000
+    fake_track.no_vote_streak = 0
+    fake_track.lock_disagreements = 0
 
     species_sequence = ["Northern Cardinal", "Black-capped Chickadee", "House Wren"]
     call_index = [0]
@@ -739,9 +775,14 @@ def test_disagreement_detector_stops_flipflopping_track_early():
     for i in range(3):
         fake_track.needs_classification = True
         fake_track.classification_attempts = i
+        fake_track.frame_count = 100 + i * 10   # past the cadence gate
         t._classify_tracks(frame, [fake_track])
 
-    assert fake_track.needs_classification is False, "Disagreed track should stop early"
+    # 2026-07-04 contract: early-stop = enter cooldown (burst exhausted), not
+    # permanent surrender; the label falls back to the plurality meanwhile.
+    from pipeline.process_thread import MAX_CLASSIFICATION_ATTEMPTS
+    assert fake_track.no_vote_streak >= MAX_CLASSIFICATION_ATTEMPTS, \
+        "Disagreed track should enter cooldown early"
     assert fake_track.is_locked is False, "Disagreement early-stop is not a vote-lock"
     assert fake_track.species in species_sequence, "Should still emit a species (plurality)"
     assert fake_track.model_source == ModelSource.VOTE_PLURALITY

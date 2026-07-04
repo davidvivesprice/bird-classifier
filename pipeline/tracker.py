@@ -23,6 +23,18 @@ from pipeline.detector import Detection
 #   (Norfair matches exactly one detection per object). 0 disables.
 _MAX_JUMP_MULT = float(os.environ.get("PIPELINE_TRACK_MAX_JUMP_MULT", "1.5"))
 _DEDUP_IOU = float(os.environ.get("PIPELINE_TRACK_DEDUP_IOU", "0.55"))
+# 2026-07-04 label-integrity hardening (live-demo evidence, ev_* frames):
+# - MAX_JUMP_PX: ABSOLUTE pixel ceiling on per-match motion. The relative gate
+#   above is toothless for big boxes — a 520px-wide Blue Jay box allows ~780px
+#   "jumps", i.e. the whole frame, which is exactly how its locked label rode
+#   bird-to-bird across the goldfinch cluster (224px teleports observed).
+#   Applied as min(relative, absolute). 0 disables.
+# - DEDUP_CONT: containment-based dedup companion. YOLO's classic bird dup is a
+#   head-box INSIDE the body-box: IoU 0.1-0.4 (slips the IoU gate) but
+#   intersection/min-area ~1.0. Observed live: T15274/T15275 cont=1.00 pairs
+#   spawning the phantom tracks that steal locked tracks' detections.
+_MAX_JUMP_PX = float(os.environ.get("PIPELINE_TRACK_MAX_JUMP_PX", "120"))
+_DEDUP_CONT = float(os.environ.get("PIPELINE_TRACK_DEDUP_CONT", "0.65"))
 # Stationary-box re-injection (Frigate's trick): when the detector misses a
 # STILL bird, seed its last box as a synthetic detection so its track_id — and
 # thus its accumulated votes/lock/label — survives the gap instead of dying and
@@ -43,6 +55,18 @@ def _iou(a, b) -> float:
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
     ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / ua if ua > 0 else 0.0
+
+
+def _containment(a, b) -> float:
+    """Intersection over the SMALLER box's area — 1.0 when one box sits fully
+    inside the other, regardless of the size ratio (which is what keeps IoU
+    low for head-in-body dups)."""
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    min_area = min((a[2] - a[0]) * (a[3] - a[1]),
+                   (b[2] - b[0]) * (b[3] - b[1]))
+    return inter / min_area if min_area > 0 else 0.0
 
 
 @dataclass
@@ -69,6 +93,13 @@ class Track:
     # (see update(): bbox comes from last_detection), so consumers should render
     # coasting tracks as stale/held rather than as a live fix on the bird.
     coasting: bool = False
+    # Classification pacing + post-lock verification state (2026-07-04):
+    # frame_count value at the last classify call (cadence + cooldown anchor);
+    # consecutive classify calls that produced no vote (sub-floor crops);
+    # consecutive verified votes disagreeing with a locked species.
+    last_classify_fc: int = -1_000_000
+    no_vote_streak: int = 0
+    lock_disagreements: int = 0
 
     @property
     def is_stationary(self) -> bool:
@@ -117,11 +148,19 @@ def _frigate_distance(detection: norfair.Detection,
 
     # Absolute-motion ceiling (raw pixels). Without this, a shrinking box lets a
     # track claim a detection on the far side of the frame — the phantom/hog.
-    if _MAX_JUMP_MULT > 0:
+    # The limit is min(relative, absolute): the relative term scales DOWN for
+    # small birds; the absolute cap (_MAX_JUMP_PX) stops big boxes from turning
+    # the relative gate into "anywhere in the frame" (the Blue-Jay-rides bug).
+    if _MAX_JUMP_MULT > 0 or _MAX_JUMP_PX > 0:
         max_w = max(det_w, trk_w, 1)
         max_h = max(det_h, trk_h, 1)
-        if (abs(det_cx - trk_cx) > _MAX_JUMP_MULT * max_w or
-                abs(det_by - trk_by) > _MAX_JUMP_MULT * max_h):
+        lim_x = _MAX_JUMP_MULT * max_w if _MAX_JUMP_MULT > 0 else float("inf")
+        lim_y = _MAX_JUMP_MULT * max_h if _MAX_JUMP_MULT > 0 else float("inf")
+        if _MAX_JUMP_PX > 0:
+            lim_x = min(lim_x, _MAX_JUMP_PX)
+            lim_y = min(lim_y, _MAX_JUMP_PX)
+        if (abs(det_cx - trk_cx) > lim_x or
+                abs(det_by - trk_by) > lim_y):
             return 1e6  # reject this match
 
     return d_x + d_y
@@ -154,10 +193,20 @@ class BirdTracker:
         # on one bird) would otherwise spawn a second track_id, since Norfair
         # matches exactly one detection per object. Greedy: keep the highest-
         # confidence box, drop any box overlapping a kept one above _DEDUP_IOU.
-        if _DEDUP_IOU > 0 and len(detections) > 1:
+        if (_DEDUP_IOU > 0 or _DEDUP_CONT > 0) and len(detections) > 1:
             kept: list = []
             for d in sorted(detections, key=lambda x: -x.confidence):
-                if all(_iou(d.box, k.box) <= _DEDUP_IOU for k in kept):
+                dup = False
+                for k in kept:
+                    if _DEDUP_IOU > 0 and _iou(d.box, k.box) > _DEDUP_IOU:
+                        dup = True
+                        break
+                    # head-in-body dup: near-total containment of the smaller
+                    # box, even when IoU is low
+                    if _DEDUP_CONT > 0 and _containment(d.box, k.box) > _DEDUP_CONT:
+                        dup = True
+                        break
+                if not dup:
                     kept.append(d)
             detections = kept
 

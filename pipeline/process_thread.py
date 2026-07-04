@@ -31,6 +31,33 @@ FORCED_FULL_YOLO_INTERVAL_S = 10.0
 # re-derive its own threshold from its calibration curve.
 LOCK_CONF_THRESHOLD = float(os.environ.get("PIPELINE_LOCK_CONF", "0.70"))
 
+# ── Classification lifecycle (2026-07-04 label-integrity package) ──────────
+# The old model — classify EVERY frame until a 12-attempt LIFETIME cap, then
+# never again — was tuned for the 5fps thermal-throttle era. At the restored
+# 30fps it burned out in ~0.4s (usually on the bird's blurriest landing
+# frames), leaving long-lived tracks "identifying…" forever; and a lock ended
+# classification permanently, so a wrong/ridden lock could never be corrected
+# (the Blue Jay bug, live-demo evidence 2026-07-04).
+#
+# New model: PACE, don't die.
+# - CLASSIFY_EVERY: classify an unlocked track at most every N hit-frames.
+# - MAX_CLASSIFICATION_ATTEMPTS (pipeline/classifier.py) is now a CONSECUTIVE
+#   no-vote cap: that many sub-floor results in a row -> plurality fallback +
+#   cooldown, NOT permanent surrender.
+# - CLASSIFY_COOLDOWN_FRAMES: hit-frames to wait after a no-vote burst before
+#   trying again (the bird may simply look better later).
+# - LOCK_VERIFY_EVERY: locked tracks keep getting re-checked at this cadence;
+#   LOCK_UNLOCK_DISAGREEMENTS consecutive confident disagreements
+#   (>= LOCK_VERIFY_MIN_CONF calibrated) unlock the track and restart voting —
+#   a ridden or wrong lock now self-corrects in ~2s instead of never.
+# Worst-case classifier load: ~6/s per unlocked track + ~2/s per locked track
+# (7.4ms/crop CPU) — bounded, unlike the old every-frame burst.
+CLASSIFY_EVERY = int(os.environ.get("PIPELINE_CLASSIFY_EVERY", "5"))
+CLASSIFY_COOLDOWN_FRAMES = int(os.environ.get("PIPELINE_CLASSIFY_COOLDOWN", "90"))
+LOCK_VERIFY_EVERY = int(os.environ.get("PIPELINE_LOCK_VERIFY_EVERY", "15"))
+LOCK_UNLOCK_DISAGREEMENTS = int(os.environ.get("PIPELINE_LOCK_UNLOCK_N", "4"))
+LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.45"))
+
 
 class CameraProcessThread:
     # Class-level defaults. Tests construct via __new__ (skipping __init__) and
@@ -250,6 +277,23 @@ class CameraProcessThread:
         #    count), numpy stats (mean/p99) throttled to every 2 seconds.
         self._update_health(frame, det_ms)
 
+    def _crop_track(self, frame: Frame, track):
+        """Crop the track's bbox from the detect frame as PIL RGB, or None if
+        degenerate (off-frame / sub-5px). Failure is transient — the bird may
+        re-enter frame — so no state is written here."""
+        x1, y1, x2, y2 = [int(v) for v in track.bbox]
+        x1 = max(0, x1); y1 = max(0, y1)
+        x2 = min(frame.width, x2); y2 = min(frame.height, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        crop_bgr = frame.bgr[y1:y2, x1:x2]
+        if crop_bgr.size == 0:
+            return None
+        crop_pil = Image.fromarray(crop_bgr[:, :, ::-1])   # BGR → RGB
+        if crop_pil.size[0] < 5 or crop_pil.size[1] < 5:
+            return None
+        return crop_pil
+
     def _classify_tracks(self, frame: Frame, tracks: list):
         """Run the active classifier on tracks that still need classification.
 
@@ -263,38 +307,63 @@ class CameraProcessThread:
         "first-blurry-crop permanently mislabels the bird" problem from Phase 1.
         """
         for track in tracks:
-            if not track.needs_classification:
-                continue
-            if track.classification_attempts >= MAX_CLASSIFICATION_ATTEMPTS:
-                # Attempt cap reached without consensus. Take the plurality
-                # winner if any votes exist, otherwise leave unlabeled.
-                if track.vote_history and not track.is_locked:
-                    species_counts = Counter(s for s, c in track.vote_history)
-                    top_species, top_count = species_counts.most_common(1)[0]
-                    top_conf = max(c for s, c in track.vote_history if s == top_species)
-                    track.species = top_species
-                    track.species_confidence = top_conf
-                    track.model_source = ModelSource.VOTE_PLURALITY
-                track.needs_classification = False
+            since_last = track.frame_count - track.last_classify_fc
+
+            # ── Locked tracks: low-cadence re-verification (never final) ──
+            if track.is_locked:
+                if LOCK_VERIFY_EVERY <= 0 or since_last < LOCK_VERIFY_EVERY:
+                    continue
+                crop_pil = self._crop_track(frame, track)
+                if crop_pil is None:
+                    continue
+                track.last_classify_fc = track.frame_count
+                try:
+                    result = self.classifier.classify(
+                        crop_pil, frame.wall_time_ms, self.name
+                    )
+                except Exception as e:
+                    log.warning("[%s] verify error: %s", self.name, e)
+                    continue
+                if result.should_retry or result.species is None:
+                    continue          # weak evidence — counts neither way
+                if result.species == track.species:
+                    track.lock_disagreements = 0
+                elif (result.confidence or 0) >= LOCK_VERIFY_MIN_CONF:
+                    track.lock_disagreements += 1
+                    if track.lock_disagreements >= LOCK_UNLOCK_DISAGREEMENTS:
+                        log.info(
+                            "[%s] track %s UNLOCKED: '%s' contradicted %dx "
+                            "(latest: %s @ %.2f) — restarting votes",
+                            self.name, track.track_id, track.species,
+                            track.lock_disagreements,
+                            result.species, result.confidence or 0,
+                        )
+                        track.is_locked = False
+                        track.needs_classification = True
+                        track.vote_history = [(result.species, result.confidence)]
+                        track.species = result.species
+                        track.species_confidence = result.confidence
+                        track.model_source = result.model_source
+                        track.classification_attempts = 0
+                        track.no_vote_streak = 0
+                        track.lock_disagreements = 0
                 continue
 
-            # Crop the bird
-            x1, y1, x2, y2 = [int(v) for v in track.bbox]
-            x1 = max(0, x1); y1 = max(0, y1)
-            x2 = min(frame.width, x2); y2 = min(frame.height, y2)
-            if x2 <= x1 or y2 <= y1:
-                track.needs_classification = False
-                continue
-            crop_bgr = frame.bgr[y1:y2, x1:x2]
-            if crop_bgr.size == 0:
-                track.needs_classification = False
-                continue
-            # OpenCV BGR → PIL RGB
-            crop_pil = Image.fromarray(crop_bgr[:, :, ::-1])
-            if crop_pil.size[0] < 5 or crop_pil.size[1] < 5:
-                track.needs_classification = False
+            # ── Unlocked tracks: paced voting with cooldown, never give up ──
+            if track.no_vote_streak >= MAX_CLASSIFICATION_ATTEMPTS:
+                # No-vote burst exhausted — cool down, then try again (the
+                # bird may simply look better later; never surrender forever).
+                if since_last < CLASSIFY_COOLDOWN_FRAMES:
+                    continue
+                track.no_vote_streak = 0
+            elif since_last < CLASSIFY_EVERY:
                 continue
 
+            crop_pil = self._crop_track(frame, track)
+            if crop_pil is None:
+                continue
+
+            track.last_classify_fc = track.frame_count
             track.classification_attempts += 1
             try:
                 result = self.classifier.classify(
@@ -305,11 +374,12 @@ class CameraProcessThread:
                 continue
 
             if result.should_retry:
-                # Will retry on next frame (needs_classification stays True)
+                # Will retry at the next cadence slot
                 continue
 
             # Got a result — add to vote history
             if result.species is not None:
+                track.no_vote_streak = 0
                 track.vote_history.append((result.species, result.confidence))
                 # Propagate model_source from the latest vote
                 track.model_source = result.model_source
@@ -366,12 +436,25 @@ class CameraProcessThread:
                                 c for s, c in track.vote_history if s == top_species
                             )
                             track.model_source = ModelSource.VOTE_PLURALITY
-                        track.needs_classification = False
+                        # Flip-flopping: stop wasting the current burst, but
+                        # cool down and retry later rather than giving up for
+                        # the track's whole life.
+                        track.no_vote_streak = MAX_CLASSIFICATION_ATTEMPTS
             else:
-                # Classifier returned None (unlabeled) — counts as an attempt
-                # but doesn't add a vote. Track stays needs_classification=True
-                # for next frame.
-                pass
+                # Classifier returned None (sub-floor crop) — no vote. After a
+                # full burst of these, take the plurality (if any votes exist)
+                # and enter cooldown; the cadence gate retries after
+                # CLASSIFY_COOLDOWN_FRAMES.
+                track.no_vote_streak += 1
+                if (track.no_vote_streak >= MAX_CLASSIFICATION_ATTEMPTS
+                        and track.vote_history):
+                    species_counts = Counter(s for s, c in track.vote_history)
+                    top_species, _ = species_counts.most_common(1)[0]
+                    track.species = top_species
+                    track.species_confidence = max(
+                        c for s, c in track.vote_history if s == top_species
+                    )
+                    track.model_source = ModelSource.VOTE_PLURALITY
 
         # Evict windows for tracks that are no longer active so memory doesn't
         # grow unboundedly across a long session.
