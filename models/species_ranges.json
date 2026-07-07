@@ -1,0 +1,227 @@
+{
+  "description": "Bird range database for Chilmark, Martha's Vineyard, MA feeder. Validates species against geographic range, season, and feeder plausibility. Sources: Cornell Lab of Ornithology, eBird Science, Audubon Society.",
+
+  "metadata": {
+    "location": "Chilmark, Martha's Vineyard, MA",
+    "latitude": 41.35,
+    "longitude": -70.74,
+    "date_created": "2026-03-05",
+    "date_updated": "2026-03-15"
+  },
+
+  "species": {
+    "Black-capped Chickadee": {
+      "north_limit": 50.0,
+      "south_limit": 35.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Common year-round resident. Primary chickadee for Martha's Vineyard."
+    },
+
+    "Carolina Chickadee": {
+      "north_limit": 40.5,
+      "south_limit": 25.0,
+      "status": "year_round",
+      "valid": false,
+      "flags": ["range_boundary_violation"],
+      "notes": "Range limit is southern NJ (~40.5N). INVALID for Martha's Vineyard (41.35N). Every detection = misID'd Black-capped."
+    },
+
+    "Tufted Titmouse": {
+      "north_limit": 48.0,
+      "south_limit": 20.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round resident; range expanding northward"
+    },
+
+    "Northern Cardinal": {
+      "north_limit": 50.0,
+      "south_limit": 20.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round staple at feeders"
+    },
+
+    "Carolina Wren": {
+      "north_limit": 45.0,
+      "south_limit": 20.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round; range expanding northward"
+    },
+
+    "Red-bellied Woodpecker": {
+      "north_limit": 43.0,
+      "south_limit": 20.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Range-expanding; now present on Martha's Vineyard"
+    },
+
+    "Hairy Woodpecker": {
+      "north_limit": 52.0,
+      "south_limit": 30.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round resident"
+    },
+
+    "Downy Woodpecker": {
+      "north_limit": 52.0,
+      "south_limit": 20.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round resident; common at suet feeders"
+    },
+
+    "House Sparrow": {
+      "north_limit": 55.0,
+      "south_limit": 15.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Introduced; year-round throughout"
+    },
+
+    "Song Sparrow": {
+      "north_limit": 52.0,
+      "south_limit": 15.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round resident"
+    },
+
+    "House Finch": {
+      "north_limit": 55.0,
+      "south_limit": 15.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round; very common at feeders"
+    },
+
+    "Purple Finch": {
+      "north_limit": 52.0,
+      "south_limit": 30.0,
+      "status": "year_round",
+      "valid": true,
+      "notes": "Year-round in Northeast; can be confused with House Finch"
+    },
+
+    "Common Redpoll": {
+      "north_limit": 52.0,
+      "south_limit": 35.0,
+      "status": "winter_irruptive",
+      "valid_months": [10, 11, 12, 1, 2, 3],
+      "valid": true,
+      "notes": "Winter irruptive visitor"
+    },
+
+    "Orchard Oriole": {
+      "north_limit": 42.0,
+      "south_limit": 20.0,
+      "status": "seasonal_summer",
+      "valid_months": [5, 6, 7, 8],
+      "valid": true,
+      "caution_level": "medium",
+      "notes": "Summer breeder; at northern edge of range on MV"
+    },
+
+    "Boat-tailed Grackle": {
+      "north_limit": 40.0,
+      "south_limit": 25.0,
+      "status": "year_round",
+      "valid": false,
+      "flags": ["range_boundary_violation"],
+      "notes": "Range limit is NJ coast (~40N). INVALID for Martha's Vineyard (41.35N). Should be Common Grackle."
+    },
+
+    "Seaside Sparrow": {
+      "status": "year_round",
+      "valid": false,
+      "flags": ["habitat_mismatch"],
+      "notes": "Salt marsh obligate. Valid on MV coast but NOT at inland feeder mic. High BirdNET false positive rate."
+    },
+
+    "Common Tern": {
+      "status": "seasonal_summer",
+      "valid_months": [5, 6, 7, 8, 9],
+      "coastal_only": true,
+      "valid": false,
+      "flags": ["coastal_only", "habitat_mismatch"],
+      "notes": "Coastal/marine species. Not at feeders. Out of season Oct-Apr."
+    },
+
+    "Ruddy Turnstone": {
+      "status": "seasonal_summer",
+      "valid_months": [5, 6, 7, 8, 9],
+      "coastal_only": true,
+      "valid": false,
+      "flags": ["coastal_only", "shorebird"],
+      "notes": "Shorebird. Never at feeders."
+    },
+
+    "Northern Harrier": {
+      "north_limit": 55.0,
+      "south_limit": 25.0,
+      "status": "year_round",
+      "valid": true,
+      "caution_level": "high",
+      "notes": "Valid on MV but rarely vocalizes near feeders. High false positive rate in BirdNET."
+    },
+
+    "White-winged Crossbill": {
+      "north_limit": 55.0,
+      "south_limit": 35.0,
+      "status": "winter_irruptive",
+      "valid_months": [10, 11, 12, 1, 2, 3, 4],
+      "valid": true,
+      "caution_level": "medium",
+      "notes": "Irruptive winter visitor. Possible but uncommon on MV."
+    },
+
+    "Black Scoter": {
+      "coastal_only": true,
+      "status": "winter_irruptive",
+      "valid_months": [10, 11, 12, 1, 2, 3, 4],
+      "valid": false,
+      "flags": ["coastal_only", "habitat_mismatch"],
+      "notes": "Sea duck. Never at feeders."
+    },
+
+    "Least Sandpiper": {
+      "status": "seasonal_summer",
+      "valid_months": [5, 6, 7, 8, 9],
+      "coastal_only": true,
+      "valid": false,
+      "flags": ["coastal_only", "shorebird"],
+      "notes": "Shorebird. Never at feeders."
+    },
+
+    "Semipalmated Sandpiper": {
+      "status": "seasonal_summer",
+      "valid_months": [5, 6, 7, 8, 9],
+      "coastal_only": true,
+      "valid": false,
+      "flags": ["coastal_only", "shorebird"],
+      "notes": "Shorebird. Never at feeders."
+    }
+  },
+
+  "validation_rules": {
+    "carolina_chickadee_rule": "Carolina Chickadee valid only south of 40.5N. INVALID for Martha's Vineyard (41.35N). Convert to Black-capped Chickadee.",
+    "boat_tailed_grackle_rule": "Boat-tailed Grackle valid only south of ~40N. INVALID for Martha's Vineyard. Convert to Common Grackle.",
+    "habitat_rules": "Shorebirds, sea ducks, terns, and salt marsh species are INVALID at an inland feeder microphone.",
+    "date_aware_rules": "Some species valid only in certain months (e.g., summer breeders, winter irruptives)"
+  },
+
+  "high_risk_detections": [
+    "Carolina Chickadee",
+    "Boat-tailed Grackle",
+    "Seaside Sparrow",
+    "Common Tern",
+    "Ruddy Turnstone",
+    "Black Scoter",
+    "Least Sandpiper",
+    "Semipalmated Sandpiper"
+  ]
+}
