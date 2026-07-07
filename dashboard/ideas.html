@@ -960,6 +960,14 @@
     <ol style="counter-reset: navnum 14;">
       <li><a href="#i15">The Reviewer's Duel</a></li>
     </ol>
+    <div class="label" style="margin-top:24px">The Review Port · 07-07</div>
+    <ol style="counter-reset: navnum 15;">
+      <li><a href="#i16">The Daily Twenty</a></li>
+      <li><a href="#i17">One Verdict Per Visit</a></li>
+      <li><a href="#i18">The Almanac</a></li>
+      <li><a href="#i19">The Species Room</a></li>
+      <li><a href="#i20">Confusion Duels</a></li>
+    </ol>
     <div class="label" style="margin-top:28px">Also</div>
     <ul style="list-style:none;padding:0;margin:0;font-size:13px;">
       <li style="margin-bottom:10px;color:var(--text-dim);padding-left:24px;"><a href="#credits" style="color:inherit">Where these came from</a></li>
@@ -1684,6 +1692,496 @@
       <p class="note">Game mechanics: streaks, accuracy, daily cap, scoring. But scoring is <em>internal motivation</em>, never a public leaderboard that makes someone else's opinion part of the ritual. A daily badge. A streak counter you see only when you log in. Nothing shareable by default. The ambient goal is cleaner training data; the felt experience is playing, which is why you keep coming back.</p>
       <p class="note">The same data powers both this and idea 08 (Field Journal). Toggle between "Duel" and "Journal" modes on the Classify tab — or have the mode follow the content (fast for confident-but-wrong frames, slow for ambiguous multi-birds). Keyboard shortcuts from 08 preserved exactly so muscle memory carries over.</p>
     </section>
+
+<style>
+/* ═══════════ Ideas 16–20 · The Review Port (2026-07-07) ═══════════ */
+.rvhdr { margin: 72px 0 40px; padding-top: 40px; border-top: 1px solid var(--border-strong); }
+.rvhdr .kicker { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); margin-bottom: 10px; }
+.rvhdr h2 { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 40px; line-height: 1.05; }
+.rvhdr p { color: var(--text-muted); max-width: 640px; margin-top: 12px; font-size: 15px; }
+.dt-wrap { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 700px) { .dt-wrap { grid-template-columns: 1fr; } }
+.dt-meter { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+.dt-meter .big { font-family: 'Fraunces', serif; font-size: 44px; font-weight: 600; line-height: 1; }
+.dt-meter .big span { font-size: 18px; color: var(--text-dim); }
+.dt-meter .lbl { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-dim); margin: 4px 0 14px; }
+.dt-bucket { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); padding: 5px 0; border-top: 1px dashed var(--border); }
+.dt-bucket b { color: var(--text); font-weight: 600; }
+.dt-bucket .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 7px; }
+.dt-stack { position: relative; min-height: 320px; }
+.dt-card { position: absolute; inset: 0; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; transition: transform .45s cubic-bezier(.2,.9,.3,1.15), opacity .35s ease; box-shadow: 0 18px 44px rgba(0,0,0,.45); }
+.dt-card.behind1 { transform: translateY(12px) scale(.965); opacity: .55; z-index: 1; pointer-events: none; }
+.dt-card.behind2 { transform: translateY(24px) scale(.93); opacity: .28; z-index: 0; pointer-events: none; }
+.dt-card.top { z-index: 2; }
+.dt-card.fly-yes { transform: translateX(130%) rotate(9deg); opacity: 0; }
+.dt-card.fly-no  { transform: translateX(-130%) rotate(-9deg); opacity: 0; }
+.dt-card .why { align-self: flex-start; font-size: 11px; letter-spacing: .06em; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-muted); }
+.dt-card .why.correction { color: var(--cardinal); border-color: rgba(208,90,90,.5); background: rgba(208,90,90,.08); }
+.dt-card .why.uncertain  { color: var(--dusk); border-color: rgba(244,162,97,.5); background: rgba(244,162,97,.08); }
+.dt-card .why.training   { color: var(--emerald); border-color: rgba(88,196,138,.5); background: rgba(88,196,138,.08); }
+.dt-card .crop { flex: 1; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 64px; }
+.dt-card .who { display: flex; justify-content: space-between; align-items: baseline; }
+.dt-card .who .sp { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; }
+.dt-card .who .cf { font-size: 12px; color: var(--text-dim); }
+.dt-card .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.dt-card .chip { font-size: 11px; color: var(--text-muted); background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
+.dt-keys { display: flex; gap: 10px; margin-top: 14px; justify-content: center; font-size: 12px; color: var(--text-dim); }
+.dt-keys .k { background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 6px; padding: 2px 9px; font-family: monospace; color: var(--text); }
+.dt-undo { position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%) translateY(8px); background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 16px; font-size: 12px; opacity: 0; transition: all .3s ease; white-space: nowrap; }
+.dt-undo.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.dt-undo .k { font-family: monospace; color: var(--gold); }
+.dt-done { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 8px; text-align: center; }
+.dt-done .fin { font-family: 'Playfair Display', serif; font-size: 30px; font-weight: 800; }
+.dt-done .sub { color: var(--text-muted); font-size: 14px; }
+.vv-card { background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 16px; padding: 20px; }
+.vv-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+.vv-head .sp { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; }
+.vv-head .span { font-size: 12px; color: var(--text-dim); }
+.vv-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
+.vv-frame { aspect-ratio: 1; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 34px; position: relative; overflow: hidden; border: 1px solid var(--border); transition: transform .25s ease; }
+.vv-frame:hover { transform: scale(1.06); }
+.vv-frame .t { position: absolute; bottom: 4px; right: 6px; font-size: 9px; color: rgba(255,255,255,.75); font-family: monospace; }
+.vv-audio { display: inline-flex; align-items: center; gap: 10px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; font-size: 12px; color: var(--text-muted); cursor: pointer; margin-bottom: 14px; }
+.vv-audio .bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
+.vv-audio .bars i { width: 3px; background: var(--emerald); border-radius: 2px; height: 4px; }
+.vv-audio.playing .bars i { animation: vvbar .7s ease-in-out infinite alternate; }
+.vv-audio .bars i:nth-child(2) { animation-delay: .12s; } .vv-audio .bars i:nth-child(3) { animation-delay: .24s; }
+.vv-audio .bars i:nth-child(4) { animation-delay: .36s; } .vv-audio .bars i:nth-child(5) { animation-delay: .48s; }
+@keyframes vvbar { from { height: 4px; } to { height: 14px; } }
+.vv-verdicts { display: flex; gap: 10px; flex-wrap: wrap; }
+.vv-btn { flex: 1; min-width: 120px; text-align: center; padding: 12px; border-radius: 12px; border: 1px solid var(--border-strong); cursor: pointer; font-size: 14px; font-weight: 600; transition: all .2s ease; background: var(--bg-elev); }
+.vv-btn:hover { transform: translateY(-2px); }
+.vv-btn.yes:hover { border-color: var(--emerald); box-shadow: 0 6px 22px var(--emerald-glow); }
+.vv-btn.no:hover  { border-color: var(--cardinal); box-shadow: 0 6px 22px rgba(208,90,90,.25); }
+.vv-btn small { display: block; font-weight: 400; font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+.vv-ratio { text-align: center; margin-top: 14px; font-size: 13px; color: var(--text-muted); }
+.vv-ratio b { color: var(--gold); font-family: 'Fraunces', serif; font-size: 18px; }
+.vv-flash { animation: vvflash .8s ease; }
+@keyframes vvflash { 0% { box-shadow: 0 0 0 0 var(--emerald-glow); } 40% { box-shadow: 0 0 0 14px transparent; } 100% { box-shadow: none; } }
+.al-today { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700; line-height: 1.3; margin-bottom: 22px; }
+.al-today em { color: var(--gold); font-style: normal; }
+.al-row { display: grid; grid-template-columns: 150px 1fr 70px; gap: 14px; align-items: center; padding: 9px 0; border-top: 1px dashed var(--border); }
+.al-row .sp { font-size: 14px; font-weight: 600; }
+.al-row .sp small { display: block; font-weight: 400; font-size: 11px; color: var(--text-dim); }
+.al-strip { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 26px; }
+.al-cell { border-radius: 2px; background: var(--bg-elev); transition: transform .15s ease; }
+.al-cell:hover { transform: scaleY(1.25); }
+.al-row .n { text-align: right; font-family: 'Fraunces', serif; font-size: 18px; }
+.al-row .n small { display: block; font-size: 10px; color: var(--text-dim); font-family: 'Outfit', sans-serif; }
+.al-record { margin-top: 20px; background: linear-gradient(135deg, rgba(226,179,88,.10), transparent 60%), var(--bg-card); border: 1px solid rgba(226,179,88,.35); border-radius: 14px; padding: 16px 20px; display: flex; gap: 16px; align-items: center; min-height: 74px; }
+.al-record .medal { font-size: 30px; }
+.al-record .txt { font-size: 14px; line-height: 1.5; }
+.al-record .txt b { color: var(--gold); }
+.al-record .txt small { display: block; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.al-fade { animation: alfade .6s ease; }
+@keyframes alfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.sr-room { border-radius: 18px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--bg-card); }
+.sr-hero { position: relative; height: 210px; background: radial-gradient(ellipse 70% 90% at 30% 20%, rgba(90,90,100,.55), transparent 70%), linear-gradient(160deg, #3d4450 0%, #23272f 55%, #15181d 100%); display: flex; align-items: flex-end; padding: 20px; }
+.sr-hero .bird { position: absolute; right: 36px; top: 22px; font-size: 96px; filter: drop-shadow(0 12px 22px rgba(0,0,0,.5)); transition: transform .5s cubic-bezier(.2,.8,.2,1.2); }
+.sr-room:hover .sr-hero .bird { transform: translateY(-7px) rotate(-4deg); }
+.sr-hero h3 { font-family: 'Playfair Display', serif; font-size: 38px; font-weight: 800; line-height: 1; }
+.sr-hero .sci { font-style: italic; color: var(--text-muted); font-size: 14px; }
+.sr-yard { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+.sr-stat { padding: 14px 12px; border-right: 1px solid var(--border); }
+.sr-stat:last-child { border-right: none; }
+.sr-stat .v { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 600; }
+.sr-stat .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); margin-top: 2px; }
+.sr-body { padding: 18px 20px; }
+.sr-voice { display: inline-flex; align-items: center; gap: 10px; background: var(--bg-elev); border: 1px solid var(--emerald); border-radius: 999px; padding: 8px 16px; cursor: pointer; font-size: 13px; margin-bottom: 14px; }
+.sr-voice .play { width: 0; height: 0; border-left: 9px solid var(--emerald); border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.sr-voice.playing .play { border-left: none; width: 8px; height: 12px; border-right: 3px solid var(--emerald); border-left: 3px solid var(--emerald); }
+.sr-voice small { color: var(--text-dim); }
+.sr-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.sr-chip { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 6px 11px; font-size: 12px; color: var(--text-muted); opacity: 0; transform: translateY(6px); }
+.sr-room.seen .sr-chip { animation: srchip .45s ease forwards; }
+.sr-room.seen .sr-chip:nth-child(2) { animation-delay: .07s; } .sr-room.seen .sr-chip:nth-child(3) { animation-delay: .14s; }
+.sr-room.seen .sr-chip:nth-child(4) { animation-delay: .21s; } .sr-room.seen .sr-chip:nth-child(5) { animation-delay: .28s; }
+@keyframes srchip { to { opacity: 1; transform: none; } }
+.sr-gal { display: flex; gap: 8px; }
+.sr-shot { flex: 1; aspect-ratio: 4/3; border-radius: 10px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font-size: 11px; color: rgba(255,255,255,.85); border: 1px solid var(--border); cursor: pointer; transition: transform .2s ease; }
+.sr-shot:hover { transform: translateY(-3px); }
+.sr-src { margin-top: 12px; font-size: 11px; color: var(--text-dim); }
+.sr-src b { color: var(--text-muted); }
+.du-arena { background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 16px; padding: 20px; }
+.du-q { text-align: center; margin-bottom: 16px; }
+.du-q .prompt { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; }
+.du-q .sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.du-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.du-side { border: 2px solid var(--border-strong); border-radius: 14px; padding: 16px; text-align: center; cursor: pointer; transition: all .18s ease; background: var(--bg-elev); }
+.du-side:hover { transform: translateY(-3px); border-color: var(--gold); }
+.du-side.right { border-color: var(--emerald); box-shadow: 0 0 0 4px var(--emerald-glow); }
+.du-side.wrongpick { border-color: var(--cardinal); animation: dushake .35s ease; }
+@keyframes dushake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.du-side .glyph { font-size: 56px; margin-bottom: 8px; }
+.du-side .nm { font-family: 'Fraunces', serif; font-size: 17px; font-weight: 600; }
+.du-side .hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.du-side .key { display: inline-block; margin-top: 8px; font-family: monospace; font-size: 11px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 5px; padding: 1px 8px; color: var(--text-muted); }
+.du-timer { height: 4px; border-radius: 2px; background: var(--bg-elev); overflow: hidden; margin-bottom: 14px; }
+.du-timer i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--emerald), var(--gold)); transform-origin: left; animation: dutime 6s linear forwards; }
+@keyframes dutime { to { transform: scaleX(0); } }
+.du-foot { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text-muted); }
+.du-combo { font-family: 'Fraunces', serif; font-size: 16px; color: var(--gold); }
+.du-note { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+</style>
+
+    <div class="rvhdr" id="review-port">
+      <div class="kicker">Ideas 16–20 · 2026-07-07 · The Review Port</div>
+      <h2>Reviewing 125,000 backlogged frames is a sentence.<br>Reviewing <em style="color:var(--gold)">twenty that matter</em> is a ritual.</h2>
+      <p>The iMac review pipeline is being ported to the Pi. These five mockups are the improvement half: three ways the act of reviewing gets faster and saner, one redesign of how the numbers speak, and one redesign of the species page. All interactive — click and type in them.</p>
+    </div>
+
+    <!-- ============ IDEA 16: THE DAILY TWENTY ============ -->
+    <section class="idea" id="i16">
+      <div class="idea-head">
+        <div class="idea-num">16</div>
+        <div class="idea-title">The <em>Daily Twenty</em> — a queue with an ending</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">125,730 pending is not a queue, it's a guilt engine. Twenty hand-picked cards is a morning coffee.</p>
+      <div class="idea-prose">
+        <p>The smart-queue logic already exists (corrections → uncertain → training-gaps) but hides behind a sub-tab. Promote it to the whole experience: every day the system deals <b>twenty cards it actually needs answered</b> — each wearing the <em>reason</em> it was picked. When the stack is empty, the ritual is over. No infinite scroll, no backlog shame. Try the keys: <b>Y</b> correct · <b>N</b> wrong · <b>Space</b> skip · <b>Z</b> undo.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="dt-wrap">
+          <div class="dt-meter">
+            <div class="big" id="dt-count">5<span> left</span></div>
+            <div class="lbl">today's deal</div>
+            <div class="dt-bucket"><span><span class="dot" style="background:var(--cardinal)"></span>corrections</span><b id="dt-b1">2</b></div>
+            <div class="dt-bucket"><span><span class="dot" style="background:var(--dusk)"></span>model unsure</span><b id="dt-b2">2</b></div>
+            <div class="dt-bucket"><span><span class="dot" style="background:var(--emerald)"></span>training gaps</span><b id="dt-b3">1</b></div>
+            <div class="dt-bucket"><span>streak</span><b id="dt-streak">0 🔥</b></div>
+          </div>
+          <div style="position:relative">
+            <div class="dt-stack" id="dt-stack"></div>
+            <div class="dt-done" id="dt-done">
+              <div style="font-size:46px">🌅</div>
+              <div class="fin">That's the twenty.</div>
+              <div class="sub">The model got what it needed today. Come back tomorrow.</div>
+            </div>
+            <div class="dt-undo" id="dt-undo">undone? press <span class="k">Z</span> — <span id="dt-undo-txt"></span></div>
+            <div class="dt-keys"><span class="k">Y</span> correct <span class="k">N</span> wrong <span class="k">Space</span> skip <span class="k">Z</span> undo</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Every card wears its reason as a colored chip — "the prior thinks this Cardinal is time-implausible" reviews differently than "need 12 more confirmed Titmice for training." The bucket meter drains as you go. Verdicts land in the airtight history table with idempotency keys; <b>Z</b> is the undo endpoint that has existed server-side since April and never got a button.</p>
+    </section>
+
+    <!-- ============ IDEA 17: ONE VERDICT PER VISIT ============ -->
+    <section class="idea" id="i17">
+      <div class="idea-head">
+        <div class="idea-num">17</div>
+        <div class="idea-title">One verdict per <em>visit</em>, not per frame</div>
+        <div class="idea-badges"><span class="badge hard">Structural</span></div>
+      </div>
+      <p class="idea-tagline">The backlog isn't 125,000 opinions. It's ~3,000 bird visits photographed 40 times each.</p>
+      <div class="idea-prose">
+        <p>The tracker already groups frames into visits — the census work made visits the native unit of truth. Review should speak the same language: one card shows the visit's five best crops <em>and its sound</em>, one verdict covers every frame in it. Multi-bird visits split into one card per tracked bird. The same 2,285 reviews ever made, spent at the visit level, would have covered the whole backlog twice over.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="vv-card" id="vv-card">
+          <div class="vv-head">
+            <div><div class="sp" id="vv-sp">American Goldfinch ♀</div><div class="span" id="vv-span">Visit of 38 frames · 9:41:02 → 9:41:59 · feeder cam</div></div>
+            <div class="span">1 of 3 birds in this window</div>
+          </div>
+          <div class="vv-strip" id="vv-strip"></div>
+          <div class="vv-audio" id="vv-audio"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span> heard at 9:41:12 — <b>&nbsp;Goldfinch, 84%</b>&nbsp;· tap to play</div>
+          <div class="vv-verdicts">
+            <div class="vv-btn yes" data-v="yes">✓ All 38 are her<small>confirms the whole visit</small></div>
+            <div class="vv-btn no" data-v="no">✗ Wrong bird<small>opens species picker</small></div>
+            <div class="vv-btn" data-v="mixed">◐ Mixed<small>drops to frame view</small></div>
+          </div>
+          <div class="vv-ratio">this verdict labeled <b id="vv-n">38</b> frames · backlog −<b id="vv-pct">1.2%</b></div>
+        </div>
+      </div>
+      <p class="note">"Mixed" is the honesty valve — when a track rode two birds (we've met that bug), the card gracefully degrades to per-frame review for just that visit. The audio chip is the new BirdNET service corroborating: seen <em>and</em> heard is the strongest label we can produce, and it should look that strong.</p>
+    </section>
+
+    <!-- ============ IDEA 18: THE ALMANAC ============ -->
+    <section class="idea" id="i18">
+      <div class="idea-head">
+        <div class="idea-num">18</div>
+        <div class="idea-title">The <em>Almanac</em> — numbers that read like weather</div>
+        <div class="idea-badges"><span class="badge easy">Mostly endpoints that exist</span></div>
+      </div>
+      <p class="idea-tagline">Three different hour-of-day charts currently coexist. One rhythm language, spoken everywhere.</p>
+      <div class="idea-prose">
+        <p>Lead with a sentence, not a scoreboard (the Daily-Highlights lesson). Below it, every species gets the <em>same</em> 24-hour rhythm strip — one visual grammar for "when" — with today's count and how it compares to a typical day. The Record Book rotates one superlative at a time like a museum placard. Hover the strips.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="al-today" id="al-today">Today the yard has hosted <em>11 species</em> across <em>214 visits</em> — a busier-than-usual Tuesday, led by an early goldfinch rush at <em>7 am</em>.</div>
+        <div id="al-rows"></div>
+        <div class="al-record" id="al-record"></div>
+      </div>
+      <p class="note">The daily-rhythm, record-book, and season endpoints already exist on the iMac and query tables the Pi also has. The port is mostly <em>deleting</em> two redundant chart languages and committing to this one. The sentence up top is a template fill — the same trick as the Story Strip (idea 01), which pairs with this as its "right now" sibling.</p>
+    </section>
+
+    <!-- ============ IDEA 19: THE SPECIES ROOM ============ -->
+    <section class="idea" id="i19">
+      <div class="idea-head">
+        <div class="idea-num">19</div>
+        <div class="idea-title">The <em>Species Room</em> — your yard first, the encyclopedia second</div>
+        <div class="idea-badges"><span class="badge medium">Medium</span></div>
+      </div>
+      <p class="idea-tagline">Wikipedia knows what a catbird is. Only the observatory knows what a catbird is <em>here</em>.</p>
+      <div class="idea-prose">
+        <p>The species popup buries the good part: our own history with this bird. Reorder the room — hero, then <b>your yard's numbers</b>, then its <b>voice from our own mic</b> (real as of this week), then the field-guide facts as scannable chips, then a gallery mixing our archive with reference shots. Hover the room; play the voice.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="sr-room" id="sr-room">
+          <div class="sr-hero">
+            <div class="bird">🐦‍⬛</div>
+            <div><h3>Gray Catbird</h3><div class="sci">Dumetella carolinensis</div></div>
+          </div>
+          <div class="sr-yard">
+            <div class="sr-stat"><div class="v">May 4</div><div class="k">first this year</div></div>
+            <div class="sr-stat"><div class="v">61</div><div class="k">visits this month</div></div>
+            <div class="sr-stat"><div class="v">7–9 am</div><div class="k">favorite hours</div></div>
+            <div class="sr-stat"><div class="v">94%</div><div class="k">best audio ID</div></div>
+          </div>
+          <div class="sr-body">
+            <div class="sr-voice" id="sr-voice"><span class="play"></span> Its voice, from our mic <small>· 07-02, 12:25 pm</small></div>
+            <div class="sr-chips">
+              <div class="sr-chip">🪶 Robin-sized, slate gray</div>
+              <div class="sr-chip">🎭 Mimic — 100+ song fragments</div>
+              <div class="sr-chip">🫐 Loves fruit & suet</div>
+              <div class="sr-chip">🌳 Dense shrubs, forest edge</div>
+              <div class="sr-chip">🧡 Rusty patch under the tail</div>
+            </div>
+            <div class="sr-gal">
+              <div class="sr-shot" style="background:linear-gradient(160deg,#4a505c,#20242b)">adult · our photo</div>
+              <div class="sr-shot" style="background:linear-gradient(160deg,#565c66,#262a31)">calling · our photo</div>
+              <div class="sr-shot" style="background:linear-gradient(160deg,#3c414d,#191d23)">reference · AAB</div>
+            </div>
+            <div class="sr-src">Sources: <b>your archive</b> (947 photos, 12 clips) · Wikipedia summary · AllAboutBirds gallery — all cached, no live scrapes.</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Everything above exists in shipped data: species_info.json (230 species), species_gallery.json, the audio DB's best-clip query, and the visits table for yard stats. The one engineering change worth making during the port: pre-fetch reference images at night instead of scraping AllAboutBirds inside a request handler with a 20-second timeout.</p>
+    </section>
+
+    <!-- ============ IDEA 20: CONFUSION DUELS ============ -->
+    <section class="idea" id="i20">
+      <div class="idea-head">
+        <div class="idea-num">20</div>
+        <div class="idea-title"><em>Confusion Duels</em> — review as target practice</div>
+        <div class="idea-badges"><span class="badge easy">Easy once 16 ships</span></div>
+      </div>
+      <p class="idea-tagline">The model's whole error budget lives in four species pairs. Aim the human there.</p>
+      <div class="idea-prose">
+        <p>Downy-or-Hairy. House-Finch-hen-or-Goldfinch-hen — the exact pair that bounced this week's census. A duel deals one real crop and asks a two-key question against its confusable twin, field marks as hints. Every answer is a normal review verdict in the airtight table — but it plays like a game, and it concentrates human judgment precisely where the confusion matrix bleeds. <b>←</b> / <b>→</b> to answer.</p>
+      </div>
+      <div class="mockup-frame">
+        <div class="du-arena" id="du-arena">
+          <div class="du-q"><div class="prompt" id="du-prompt">This crop — which one is it?</div><div class="sub" id="du-sub">the model said Downy at 0.54 — its shakiest call of the morning</div></div>
+          <div class="du-timer"><i id="du-bar"></i></div>
+          <div class="du-pair" id="du-pair">
+            <div class="du-side" data-side="a"><div class="glyph">🐦</div><div class="nm" id="du-a">Downy Woodpecker</div><div class="hint" id="du-ah">stubby bill, ~⅓ head depth</div><div class="key">←</div></div>
+            <div class="du-side" data-side="b"><div class="glyph">🐦</div><div class="nm" id="du-b">Hairy Woodpecker</div><div class="hint" id="du-bh">chisel bill, ≈ head depth</div><div class="key">→</div></div>
+          </div>
+          <div class="du-foot">
+            <div>round <b id="du-round">1</b> / 5 · <span id="du-score">0 correct</span></div>
+            <div class="du-combo" id="du-combo"></div>
+          </div>
+          <div class="du-note">answers write verdicts with reviewer = "duel" — same audit trail, different door</div>
+        </div>
+      </div>
+      <p class="note">Pairs come straight from the review data: the confusable groups already curated for the audio game, plus whatever the confusion matrix says this month. The timer is gentle theater — nothing is lost when it expires except the combo. This is idea 15's spirit aimed at the model's actual weaknesses.</p>
+    </section>
+
+<script>
+(function ideas16to20() {
+  function isVisible(el) {
+    const r = el.getBoundingClientRect();
+    return r.top < window.innerHeight * 0.75 && r.bottom > window.innerHeight * 0.25;
+  }
+  // ── 16 · Daily Twenty ──
+  const cards = [
+    { sp: "Northern Cardinal", cf: "0.91", why: "correction", whyTxt: "prior: time-implausible", chips: ["feeder cam", "7:02 am", "🎤 not heard"], glyph: "🐦‍🔥", bg: "linear-gradient(150deg,#5a2b2b,#221416)" },
+    { sp: "Tufted Titmouse", cf: "0.44", why: "uncertain", whyTxt: "model unsure (0.44)", chips: ["feeder cam", "8:15 am", "score gap 0.06"], glyph: "🐦", bg: "linear-gradient(150deg,#4a4f5a,#1b1e24)" },
+    { sp: "American Goldfinch", cf: "0.87", why: "training", whyTxt: "need 12 more confirmed", chips: ["feeder cam", "9:41 am", "🎤 also heard"], glyph: "🐤", bg: "linear-gradient(150deg,#6b5a26,#241f10)" },
+    { sp: "House Finch ♀", cf: "0.52", why: "uncertain", whyTxt: "cowbird? finch? (0.52)", chips: ["feeder cam", "10:03 am", "visit outlier"], glyph: "🐦", bg: "linear-gradient(150deg,#55483c,#1e1a15)" },
+    { sp: "Blue Jay", cf: "0.96", why: "correction", whyTxt: "locked label rode a switch", chips: ["feeder cam", "10:22 am", "🎤 also heard"], glyph: "🐦‍⬛", bg: "linear-gradient(150deg,#2b3a5a,#141a26)" },
+  ];
+  const stack = document.getElementById("dt-stack");
+  const buckets = { correction: "dt-b1", uncertain: "dt-b2", training: "dt-b3" };
+  let idx = 0, streak = 0, history = [];
+  function renderStack() {
+    if (!stack) return;
+    stack.innerHTML = "";
+    const remaining = cards.slice(idx);
+    document.getElementById("dt-count").innerHTML = remaining.length + "<span> left</span>";
+    if (!remaining.length) { document.getElementById("dt-done").style.display = "flex"; return; }
+    document.getElementById("dt-done").style.display = "none";
+    remaining.slice(0, 3).reverse().forEach((c, i, arr) => {
+      const pos = arr.length - 1 - i;
+      const el = document.createElement("div");
+      el.className = "dt-card " + (pos === 0 ? "top" : pos === 1 ? "behind1" : "behind2");
+      el.innerHTML = `<div class="why ${c.why}">${c.whyTxt}</div>
+        <div class="crop" style="background:${c.bg}">${c.glyph}</div>
+        <div class="who"><div class="sp">${c.sp}</div><div class="cf">model ${c.cf}</div></div>
+        <div class="chips">${c.chips.map(x => `<div class="chip">${x}</div>`).join("")}</div>`;
+      stack.appendChild(el);
+    });
+  }
+  function counts() {
+    const rem = cards.slice(idx);
+    for (const [k, id] of Object.entries(buckets))
+      document.getElementById(id).textContent = rem.filter(c => c.why === k).length;
+    document.getElementById("dt-streak").textContent = streak + " 🔥";
+  }
+  function verdict(kind) {
+    if (idx >= cards.length) return;
+    const top = stack.querySelector(".dt-card.top");
+    if (top) top.classList.add(kind === "no" ? "fly-no" : "fly-yes");
+    history.push({ card: cards[idx], kind });
+    const u = document.getElementById("dt-undo");
+    document.getElementById("dt-undo-txt").textContent = `${cards[idx].sp} → ${kind}`;
+    u.classList.add("show");
+    clearTimeout(u._t); u._t = setTimeout(() => u.classList.remove("show"), 2600);
+    streak = kind === "skip" ? 0 : streak + 1;
+    idx += 1;
+    setTimeout(() => { renderStack(); counts(); }, 300);
+  }
+  function undo() {
+    if (!history.length) return;
+    history.pop(); idx = Math.max(0, idx - 1); streak = Math.max(0, streak - 1);
+    renderStack(); counts();
+  }
+  const sec16 = document.getElementById("i16");
+  document.addEventListener("keydown", (e) => {
+    if (!sec16 || !isVisible(sec16)) return;
+    if (e.key === "y" || e.key === "Y") { verdict("yes"); e.preventDefault(); }
+    else if (e.key === "n" || e.key === "N") { verdict("no"); e.preventDefault(); }
+    else if (e.key === " ") { verdict("skip"); e.preventDefault(); }
+    else if (e.key === "z" || e.key === "Z") { undo(); e.preventDefault(); }
+  });
+  stack?.addEventListener("click", () => verdict("yes"));
+  renderStack(); counts();
+
+  // ── 17 · Visit verdicts ──
+  const strip = document.getElementById("vv-strip");
+  if (strip) {
+    const shades = ["#6b5a26", "#75622a", "#5d4f22", "#80692d", "#665527"];
+    const times = ["41:02", "41:14", "41:27", "41:40", "41:59"];
+    strip.innerHTML = shades.map((s, i) =>
+      `<div class="vv-frame" style="background:linear-gradient(150deg,${s},#1c180d)">🐤<span class="t">9:${times[i]}</span></div>`).join("");
+    document.getElementById("vv-audio").addEventListener("click", function () {
+      this.classList.toggle("playing");
+    });
+    const visits = [
+      { sp: "American Goldfinch ♀", n: 38, span: "9:41:02 → 9:41:59" },
+      { sp: "Blue Jay", n: 71, span: "10:22:10 → 10:24:31" },
+      { sp: "Tufted Titmouse", n: 12, span: "11:05:44 → 11:05:58" },
+    ];
+    let vi = 0;
+    document.querySelectorAll(".vv-btn").forEach(b => b.addEventListener("click", () => {
+      const card = document.getElementById("vv-card");
+      card.classList.remove("vv-flash"); void card.offsetWidth; card.classList.add("vv-flash");
+      vi = (vi + 1) % visits.length;
+      const v = visits[vi];
+      document.getElementById("vv-sp").textContent = v.sp;
+      document.getElementById("vv-span").textContent = `Visit of ${v.n} frames · ${v.span} · feeder cam`;
+      document.getElementById("vv-n").textContent = v.n;
+      document.getElementById("vv-pct").textContent = (v.n / 31.4).toFixed(1) + "%";
+    }));
+  }
+
+  // ── 18 · Almanac ──
+  const rows = [
+    { sp: "American Goldfinch", sci: "up 40% vs typical", n: 63, peak: [6,7,8,9,16,17], base: "#e2b358" },
+    { sp: "House Finch", sci: "steady", n: 48, peak: [7,8,9,10,11,15,16], base: "#d05a5a" },
+    { sp: "Black-capped Chickadee", sci: "quiet morning", n: 34, peak: [8,9,13,14,15], base: "#58c48a" },
+    { sp: "Blue Jay", sci: "two loud visits", n: 12, peak: [10,15], base: "#6d8fd0" },
+    { sp: "Gray Catbird", sci: "heard more than seen", n: 9, peak: [6,7,19], base: "#9a86c8" },
+  ];
+  const rowsEl = document.getElementById("al-rows");
+  if (rowsEl) {
+    rowsEl.innerHTML = rows.map(r => {
+      const cells = Array.from({ length: 24 }, (_, h) => {
+        const on = r.peak.includes(h);
+        const near = r.peak.some(p => Math.abs(p - h) === 1);
+        const op = on ? 0.95 : near ? 0.4 : 0.08;
+        return `<div class="al-cell" style="background:${r.base}; opacity:${op}" title="${h}:00"></div>`;
+      }).join("");
+      return `<div class="al-row"><div class="sp">${r.sp}<small>${r.sci}</small></div>
+        <div class="al-strip">${cells}</div>
+        <div class="n">${r.n}<small>visits</small></div></div>`;
+    }).join("");
+    const records = [
+      { medal: "🥇", txt: "<b>214 visits</b> before 2 pm — the busiest Tuesday since counting began.", sub: "previous record: 197, June 24" },
+      { medal: "🎤", txt: "First bird ever detected by <b>ear before eye</b>: Gray Catbird, 6:14 am.", sub: "the audio service is 3 days old" },
+      { medal: "🕰️", txt: "Earliest Goldfinch of the season: <b>5:52 am</b> — 19 minutes before sunrise.", sub: "she beat the coffee machine" },
+    ];
+    let ri = 0;
+    const rec = document.getElementById("al-record");
+    function showRecord() {
+      const r = records[ri % records.length]; ri += 1;
+      rec.classList.remove("al-fade"); void rec.offsetWidth; rec.classList.add("al-fade");
+      rec.innerHTML = `<div class="medal">${r.medal}</div><div class="txt">${r.txt}<small>${r.sub}</small></div>`;
+    }
+    showRecord(); setInterval(showRecord, 6000);
+  }
+
+  // ── 19 · Species Room ──
+  const room = document.getElementById("sr-room");
+  if (room) {
+    new IntersectionObserver((es) => es.forEach(e => e.isIntersecting && room.classList.add("seen")),
+      { threshold: 0.35 }).observe(room);
+    document.getElementById("sr-voice").addEventListener("click", function () {
+      this.classList.toggle("playing");
+    });
+  }
+
+  // ── 20 · Duels ──
+  const duels = [
+    { prompt: "This crop — which one is it?", sub: "the model said Downy at 0.54 — its shakiest call of the morning",
+      a: "Downy Woodpecker", ah: "stubby bill, ~⅓ head depth", b: "Hairy Woodpecker", bh: "chisel bill, ≈ head depth", right: "a" },
+    { prompt: "Brown, streaky, at the thistle sock.", sub: "the census's nemesis pair — the model flips these weekly",
+      a: "House Finch ♀", ah: "blurry streaks, curved bill", b: "American Goldfinch ♀", bh: "clear wingbars, conical bill", right: "b" },
+    { prompt: "Black cap, gray back, at the suet.", sub: "a classic — everyone gets this wrong once",
+      a: "Black-capped Chickadee", ah: "buffy flanks, ragged bib edge", b: "Tufted Titmouse", bh: "crest! rusty flanks", right: "a" },
+    { prompt: "Big, loud, bossy.", sub: "the model said Blue Jay at 0.96 — but check anyway",
+      a: "Blue Jay", ah: "crest + black necklace", b: "Belted Kingfisher", bh: "shaggy crest, huge dagger bill", right: "a" },
+    { prompt: "Red bird, backlit, awful light.", sub: "trust the silhouette, not the color",
+      a: "Northern Cardinal", ah: "tall crest, thick orange bill", b: "Scarlet Tanager", bh: "no crest, pale bill", right: "a" },
+  ];
+  let di = 0, dscore = 0, dcombo = 0;
+  const pair = document.getElementById("du-pair");
+  function loadDuel() {
+    const d = duels[di % duels.length];
+    document.getElementById("du-prompt").textContent = d.prompt;
+    document.getElementById("du-sub").textContent = d.sub;
+    document.getElementById("du-a").textContent = d.a;
+    document.getElementById("du-ah").textContent = d.ah;
+    document.getElementById("du-b").textContent = d.b;
+    document.getElementById("du-bh").textContent = d.bh;
+    document.getElementById("du-round").textContent = (di % duels.length) + 1;
+    pair.querySelectorAll(".du-side").forEach(s => s.classList.remove("right", "wrongpick"));
+    const bar = document.getElementById("du-bar");
+    bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
+  }
+  function answer(side) {
+    const d = duels[di % duels.length];
+    const el = pair.querySelector(`.du-side[data-side="${side}"]`);
+    if (side === d.right) { el.classList.add("right"); dscore += 1; dcombo += 1; }
+    else { el.classList.add("wrongpick"); pair.querySelector(`.du-side[data-side="${d.right}"]`).classList.add("right"); dcombo = 0; }
+    document.getElementById("du-score").textContent = dscore + " correct";
+    document.getElementById("du-combo").textContent = dcombo >= 2 ? "🔥 ×" + dcombo : "";
+    di += 1;
+    setTimeout(loadDuel, 900);
+  }
+  if (pair) {
+    pair.querySelectorAll(".du-side").forEach(s => s.addEventListener("click", () => answer(s.dataset.side)));
+    const sec20 = document.getElementById("i20");
+    document.addEventListener("keydown", (e) => {
+      if (!sec20 || !isVisible(sec20)) return;
+      if (e.key === "ArrowLeft") { answer("a"); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { answer("b"); e.preventDefault(); }
+    });
+    loadDuel();
+  }
+})();
+</script>
 
     <footer class="footer" id="credits">
       <p><em>Where these came from:</em> Three reviewers were dispatched on April 17 2026 after a long session rebuilding the overlay, AOI, and snapshot pipeline. One audited every doc for truth drift; one looked for performance and data-integrity bugs; one reviewed the experience against the mission of <em>delightful + deadly accurate + beautiful stories</em>.</p>
