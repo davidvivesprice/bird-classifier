@@ -438,6 +438,26 @@
     border-top: 1px solid var(--border);
     background: var(--border);
   }
+  /* keyboard review (2026-07-07 port): selection ring + species picker */
+  .recent-card.kbd-selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  .recent-card.verdict-other { opacity: .55; }
+  .pr-picker {
+    position: fixed; z-index: 60; background: var(--bg-card);
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(0,0,0,.5); padding: 10px; width: 240px;
+    display: none;
+  }
+  .pr-picker.open { display: block; }
+  .pr-picker input {
+    width: 100%; background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 6px 8px; font-size: 12px;
+    font-family: var(--font-mono); margin-bottom: 8px;
+  }
+  .pr-picker .opt {
+    padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+  .pr-picker .opt:hover, .pr-picker .opt.hl { background: var(--bg-hover); }
+  .pr-picker .opt.special { color: var(--danger); }
   .recent-btn {
     background: var(--bg-card);
     color: var(--text-muted);
@@ -981,6 +1001,126 @@
         </div>
       </div>`;
   }
+
+  // ── Keyboard review (2026-07-07, the review port) ──────────────────
+  // The pre-designed scheme (ideas #15/#16): ←/→ select a card on the
+  // Recent strip · Y correct · N wrong → species picker · T trash ·
+  // Space skip · Z undo the last verdict. Writes go through the v2
+  // endpoint with client_id idempotency; Z hits /api/pi-review/undo.
+  const YARD_SPECIES = [
+    'American Goldfinch', 'House Finch', 'Black-capped Chickadee',
+    'Tufted Titmouse', 'Blue Jay', 'Northern Cardinal', 'Gray Catbird',
+    'Downy Woodpecker', 'Hairy Woodpecker', 'White-breasted Nuthatch',
+    'Mourning Dove', 'Chipping Sparrow', 'Song Sparrow', 'Red-bellied Woodpecker',
+  ];
+  let kbSel = -1;
+  let lastHistoryId = null;
+  const prPicker = document.createElement('div');
+  prPicker.className = 'pr-picker';
+  prPicker.innerHTML = '<input type="text" placeholder="actual species… (Esc cancels)">'
+    + '<div class="opts"></div>';
+  document.body.appendChild(prPicker);
+  const prPickerInput = prPicker.querySelector('input');
+  const prPickerOpts = prPicker.querySelector('.opts');
+  let pickerFile = null;
+
+  function kbCards() { return [...recentGrid.querySelectorAll('.recent-card')]; }
+  function kbSelect(i) {
+    const cards = kbCards();
+    if (!cards.length) return;
+    kbSel = Math.max(0, Math.min(i, cards.length - 1));
+    cards.forEach((c, j) => c.classList.toggle('kbd-selected', j === kbSel));
+    cards[kbSel].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  async function kbVerdict(file, verdict, correctSpecies) {
+    try {
+      const resp = await fetch(`/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          verdict,
+          correct_species: correctSpecies || '',
+          client_id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
+        }),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const d = await resp.json();
+      lastHistoryId = d.history_id;
+      const card = kbCards()[kbSel];
+      if (card) {
+        card.classList.remove('verdict-yes', 'verdict-no', 'verdict-other');
+        card.classList.add('reviewed',
+          verdict === 'yes' ? 'verdict-yes' : verdict === 'no' ? 'verdict-no' : 'verdict-other');
+      }
+      loadReviewStats();
+      kbSelect(kbSel + 1);
+    } catch (e) { /* transient — card stays unmarked */ }
+  }
+  function openPicker(file) {
+    pickerFile = file;
+    const card = kbCards()[kbSel];
+    const r = card ? card.getBoundingClientRect() : { left: 200, bottom: 200 };
+    prPicker.style.left = Math.min(r.left, window.innerWidth - 260) + 'px';
+    prPicker.style.top = Math.min(r.bottom + 6, window.innerHeight - 320) + 'px';
+    prPicker.classList.add('open');
+    prPickerInput.value = '';
+    renderPickerOpts('');
+    prPickerInput.focus();
+  }
+  function closePicker() { prPicker.classList.remove('open'); pickerFile = null; }
+  function renderPickerOpts(q) {
+    const ql = q.toLowerCase();
+    const opts = YARD_SPECIES.filter(s => s.toLowerCase().includes(ql)).slice(0, 8);
+    prPickerOpts.innerHTML =
+      opts.map((s, i) => `<div class="opt${i === 0 ? ' hl' : ''}" data-sp="${s}">${s}</div>`).join('')
+      + '<div class="opt special" data-sp="__nab__">🚫 Not a bird</div>'
+      + '<div class="opt special" data-sp="__trash__">🗑 Trash frame</div>';
+    prPickerOpts.querySelectorAll('.opt').forEach(o => o.addEventListener('mousedown', (e) => {
+      e.preventDefault(); pickOption(o.dataset.sp);
+    }));
+  }
+  function pickOption(sp) {
+    const file = pickerFile;
+    closePicker();
+    if (!file) return;
+    if (sp === '__nab__') kbVerdict(file, 'not_a_bird');
+    else if (sp === '__trash__') kbVerdict(file, 'trash');
+    else kbVerdict(file, 'no', sp);
+  }
+  prPickerInput.addEventListener('input', () => renderPickerOpts(prPickerInput.value));
+  prPickerInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') closePicker();
+    else if (e.key === 'Enter') {
+      const hl = prPickerOpts.querySelector('.opt.hl') || prPickerOpts.querySelector('.opt');
+      if (hl) pickOption(hl.dataset.sp);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (prPicker.classList.contains('open')) return;      // picker owns keys
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
+    const cards = kbCards();
+    if (!cards.length) return;
+    const strip = recentGrid.getBoundingClientRect();
+    const stripVisible = strip.top < window.innerHeight && strip.bottom > 0;
+    if (!stripVisible) return;
+    const file = kbSel >= 0 && cards[kbSel] ? cards[kbSel].getAttribute('data-file') : null;
+    switch (e.key) {
+      case 'ArrowRight': kbSelect(kbSel + 1); e.preventDefault(); break;
+      case 'ArrowLeft':  kbSelect(kbSel - 1); e.preventDefault(); break;
+      case 'y': case 'Y': if (file) { kbVerdict(file, 'yes'); e.preventDefault(); } break;
+      case 'n': case 'N': if (file) { openPicker(file); e.preventDefault(); } break;
+      case 't': case 'T': if (file) { kbVerdict(file, 'trash'); e.preventDefault(); } break;
+      case ' ':           if (file) { kbVerdict(file, 'skip'); e.preventDefault(); } break;
+      case 'z': case 'Z':
+        if (lastHistoryId != null) {
+          fetch(`/api/pi-review/undo/${lastHistoryId}`, { method: 'POST' })
+            .then(() => { lastHistoryId = null; loadRecent(); loadReviewStats(); });
+          e.preventDefault();
+        }
+        break;
+    }
+  });
 
   async function loadRecent() {
     try {
