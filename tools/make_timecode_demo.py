@@ -9,14 +9,24 @@ Pure black/white 8x8 blocks survive H.264; decode = sample each block center.
 Also a human-readable "f NNNNN" top-right. Verifies decode-back from the
 ENCODED file on 200 sampled frames before declaring success.
 """
+import os
 import sys
+import tempfile
 import av
 import cv2
 import numpy as np
 
-SCRATCH = "/tmp/sync-rig"
-SRC = f"{SCRATCH}/demo360.mp4"
-OUT = f"{SCRATCH}/demo360tc.mp4"
+# Usage: make_timecode_demo.py [SRC] [OUT]
+#   SRC defaults to the sim reel; OUT defaults to SRC (safe in-place: we encode
+#   to a temp file in the same directory, verify decode-back, then atomically
+#   replace — the input is never truncated mid-read).
+SRC = sys.argv[1] if len(sys.argv) > 1 else "/home/vives/sim/current.mp4"
+OUT = sys.argv[2] if len(sys.argv) > 2 else SRC
+_inplace = os.path.abspath(SRC) == os.path.abspath(OUT)
+_tmp = tempfile.NamedTemporaryFile(
+    dir=os.path.dirname(os.path.abspath(OUT)) or ".",
+    suffix=".mp4", delete=False).name
+_write_to = _tmp if _inplace else OUT
 
 BLOCK = 8
 NBLOCKS = 26
@@ -56,7 +66,7 @@ def decode_strip(img):
 # ---- encode ----
 inc = av.open(SRC)
 vs = inc.streams.video[0]
-outc = av.open(OUT, "w")
+outc = av.open(_write_to, "w")
 ovs = outc.add_stream("h264", rate=30)
 ovs.width, ovs.height = 640, 360
 ovs.pix_fmt = "yuv420p"
@@ -74,10 +84,10 @@ for frame in inc.decode(vs):
 for pkt in ovs.encode():
     outc.mux(pkt)
 outc.close(); inc.close()
-print(f"encoded {n} stamped frames -> {OUT}")
+print(f"encoded {n} stamped frames -> {_write_to}")
 
 # ---- verify decode-back from the ENCODED file ----
-inc = av.open(OUT)
+inc = av.open(_write_to)
 vs = inc.streams.video[0]
 ok = bad = 0
 expected = 0
@@ -92,4 +102,12 @@ for frame in inc.decode(vs):
     expected += 1
 inc.close()
 print(f"decode-back: {ok} ok, {bad} bad")
-sys.exit(0 if bad == 0 and ok > 150 else 1)
+success = bad == 0 and ok > 150
+if _inplace:
+    if success:
+        os.replace(_tmp, OUT)      # atomic: only replace after verification
+        print(f"in-place replace verified -> {OUT}")
+    else:
+        os.unlink(_tmp)
+        print("verification FAILED — original left untouched")
+sys.exit(0 if success else 1)

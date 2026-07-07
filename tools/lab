@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# lab — the bird-observatory verification lab, one command.
+#
+#   lab status              what's running, demo state, temp, crashes
+#   lab demo on|off         switch the pipeline+dashboard to/from the sim reel
+#   lab grade               full offline grade vs David's annotations (~3 min)
+#                           -> classifier scorecard + tracker quality + CENSUS
+#   lab census [file]       re-score a grade/capture events file (fast)
+#   lab watch [secs]        capture the LIVE demo for N secs (default 120) and
+#                           run the pathology report (teleports, dups, steals)
+#   lab gt                  regenerate sync-rig ground truth from the reel
+#   lab sync                run the browser sync rig (Mac only, ~6 min)
+#   lab reel <clips...>     load MP4s as the sim camera + re-stamp timecode
+#   lab restamp             re-stamp the timecode strip on the current reel
+#
+# Runs anywhere: on the Mac it drives the Pi over ssh; on the Pi it runs
+# directly. No env vars needed. The pipeline is ALWAYS restarted after
+# offline runs, even on Ctrl-C.
+set -euo pipefail
+
+PI_HOST="${LAB_PI_HOST:-vives@pi5.local}"
+PI_FALLBACK="vives@192.168.6.156"
+PI_DIR="/home/vives/bird-classifier"
+REEL="/home/vives/sim/current.mp4"
+ANN="/home/vives/may10.annotations.md"
+
+bold=$(tput bold 2>/dev/null || true); dim=$(tput dim 2>/dev/null || true)
+red=$(tput setaf 1 2>/dev/null || true); grn=$(tput setaf 2 2>/dev/null || true)
+ylw=$(tput setaf 3 2>/dev/null || true); rst=$(tput sgr0 2>/dev/null || true)
+
+on_pi() { [ -d "$PI_DIR" ] && [ "$(hostname)" = "pi5" ]; }
+
+pi() {  # run a command on the Pi (directly or over ssh)
+  if on_pi; then bash -c "$1"
+  else
+    ssh -o ConnectTimeout=10 "$PI_HOST" "$1" 2>/dev/null \
+      || ssh -o ConnectTimeout=10 "$PI_FALLBACK" "$1"
+  fi
+}
+
+pi_py() { pi "cd $PI_DIR && venv/bin/python3 $1"; }
+
+header() { echo "${bold}── $1 ─────────────────────────────${rst}"; }
+
+cmd_status() {
+  header "lab status"
+  pi '
+    echo "pipeline : $(systemctl --user is-active bird-pipeline.service)   dashboard: $(systemctl --user is-active bird-dashboard.service)"
+    D=$(curl -s --max-time 4 http://localhost:8099/api/demo-mode | grep -o "\"enabled\":[a-z]*" | cut -d: -f2)
+    echo "demo mode: ${D:-unknown}"
+    echo "temp     : $(vcgencmd measure_temp | grep -oE "[0-9.]+")°C"
+    H=$(curl -s --max-time 4 http://localhost:8100/api/pipeline/health)
+    echo "frames   : $(echo "$H" | grep -oE "\"frames_processed\": [0-9]+" | head -1 | grep -oE "[0-9]+")   yolo_ms: $(echo "$H" | grep -oE "\"yolo_ms_avg\": [0-9.]+" | head -1 | grep -oE "[0-9.]+" )"
+    echo "SEGVs 24h: $(journalctl --user -u bird-pipeline.service --since "-24 hours" --no-pager 2>/dev/null | grep -c status=11/SEGV)   child respawns 24h: $(journalctl --user -u bird-pipeline.service --since "-24 hours" --no-pager 2>/dev/null | grep -c respawning)"
+  '
+}
+
+cmd_demo() {
+  case "${1:-}" in
+    on|off) ;;
+    *) echo "usage: lab demo on|off"; exit 1;;
+  esac
+  local want; [ "$1" = "on" ] && want=true || want=false
+  header "demo → $1"
+  pi "curl -s -X POST http://localhost:8099/api/demo-mode -H 'Content-Type: application/json' -d '{\"enabled\": $want}' >/dev/null; sleep 8; echo \"pipeline: \$(systemctl --user is-active bird-pipeline.service)  demo: \$(curl -s --max-time 4 http://localhost:8099/api/demo-mode | grep -o '\"enabled\":[a-z]*')\""
+}
+
+cmd_grade() {
+  header "grade — full offline replay vs annotations (~3 min; pipeline pauses, auto-restores)"
+  # trap inside the remote shell guarantees the pipeline comes back
+  pi "
+    set -e
+    trap 'systemctl --user start bird-pipeline.service' EXIT
+    systemctl --user stop bird-pipeline.service
+    cd $PI_DIR
+    venv/bin/python3 tools/demo_grade.py --video $REEL --annotations $ANN \
+        --events /tmp/grade_last.jsonl 2>&1 | grep -vE 'scalar distance|WARNING|onnxruntime'
+    echo
+    echo '================ CENSUS (Davids bar: right number of birds) ================'
+    venv/bin/python3 tools/score_census.py /tmp/grade_last.jsonl
+  "
+  echo "${dim}(events kept at /tmp/grade_last.jsonl on the Pi — 'lab census' re-scores instantly)${rst}"
+}
+
+cmd_census() {
+  local f="${1:-/tmp/grade_last.jsonl}"
+  header "census — $f"
+  pi_py "tools/score_census.py $f"
+}
+
+cmd_watch() {
+  local secs="${1:-120}"
+  header "watch — capturing the live overlay stream for ${secs}s"
+  pi "
+    : > /tmp/lab_watch_events.jsonl
+    END=\$((\$(date +%s)+$secs))
+    while [ \$(date +%s) -lt \$END ]; do
+      timeout 60 curl -sN 'http://localhost:8105/events/sse?camera=feeder' | grep --line-buffered '^data:' >> /tmp/lab_watch_events.jsonl || true
+      sleep 0.2
+    done
+    cd $PI_DIR && venv/bin/python3 tools/watch_pathology.py /tmp/lab_watch_events.jsonl
+  "
+}
+
+cmd_gt() {
+  header "gt — regenerating sync-rig ground truth from the reel (~3 min; pipeline pauses)"
+  pi "
+    set -e
+    trap 'systemctl --user start bird-pipeline.service' EXIT
+    systemctl --user stop bird-pipeline.service
+    cd $PI_DIR
+    venv/bin/python3 -m tools.offline_replay $REEL /tmp/gt_events_tc.jsonl 2>&1 | tail -2
+  "
+  if ! on_pi; then
+    mkdir -p /tmp/sync-rig
+    scp -q "$PI_HOST:/tmp/gt_events_tc.jsonl" /tmp/sync-rig/ 2>/dev/null \
+      || scp -q "$PI_FALLBACK:/tmp/gt_events_tc.jsonl" /tmp/sync-rig/
+    echo "ground truth -> /tmp/sync-rig/gt_events_tc.jsonl"
+  fi
+}
+
+cmd_sync() {
+  if on_pi; then echo "${red}lab sync runs on the Mac (needs Chrome/Playwright).${rst}"; exit 1; fi
+  [ -f /tmp/sync-rig/gt_events_tc.jsonl ] || { echo "no ground truth yet — running 'lab gt' first"; cmd_gt; }
+  header "sync — browser rig, all transports (~6 min; demo toggles automatically)"
+  local py="/Users/vives/bird-classifier/venv/bin/python3"
+  [ -x "$py" ] || py=python3
+  "$py" "$(dirname "$0")/sync_rig.py"
+}
+
+cmd_reel() {
+  [ $# -ge 1 ] || { echo "usage: lab reel <clip.mp4> [more.mp4 ...]"; exit 1; }
+  header "reel — loading ${#} clip(s) into the sim camera"
+  local remote_clips=()
+  if on_pi; then remote_clips=("$@")
+  else
+    for c in "$@"; do
+      scp -q "$c" "$PI_HOST:/tmp/$(basename "$c")" 2>/dev/null \
+        || scp -q "$c" "$PI_FALLBACK:/tmp/$(basename "$c")"
+      remote_clips+=("/tmp/$(basename "$c")")
+    done
+  fi
+  pi "cd $PI_DIR && tools/sim_set.sh ${remote_clips[*]}"
+  cmd_restamp
+}
+
+cmd_restamp() {
+  header "restamp — burning the machine timecode strip into the reel (verified, atomic)"
+  pi_py "tools/make_timecode_demo.py $REEL 2>&1 | tail -3"
+  echo "${ylw}note:${rst} sync-rig ground truth is now stale — run 'lab gt' before 'lab sync'."
+}
+
+case "${1:-help}" in
+  status)  cmd_status;;
+  demo)    shift; cmd_demo "${1:-}";;
+  grade)   cmd_grade;;
+  census)  shift || true; cmd_census "${1:-}";;
+  watch)   shift || true; cmd_watch "${1:-120}";;
+  gt)      cmd_gt;;
+  sync)    cmd_sync;;
+  reel)    shift; cmd_reel "$@";;
+  restamp) cmd_restamp;;
+  help|--help|-h|*)
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+esac
