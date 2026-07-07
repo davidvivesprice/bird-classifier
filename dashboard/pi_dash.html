@@ -838,9 +838,9 @@
 
       <div class="panel">
         <h2>Audio</h2>
-        <div class="sub">BirdNET output from the feeder mic. Quiet periods leave gaps.</div>
+        <div class="sub">BirdNET on the feeder mic (Pi-local, 3s windows). Quiet periods leave gaps. <a href="/audio" style="color: var(--accent);">full audio browser →</a></div>
         <div class="audio-chart" id="audio-chart">
-          <div style="padding: 12px; text-align: center;">Audio pipeline ready to plug in — BirdNET service on iMac can cross-post here, or add a Pi-local analyzer next.</div>
+          <div id="heard-list" style="padding: 8px 12px;">listening…</div>
         </div>
       </div>
     </div>
@@ -2325,6 +2325,54 @@
   loadRecent();
   loadReviewStats();
   setupLiveView();
+
+  // ── Recently Heard (BirdNET on the feeder mic) ──────────────────────
+  // Feeds off the Pi-local analyzer's DB via the existing endpoints:
+  // /api/birdnet-summary (recent list, 60s poll) + /api/birdnet-events
+  // (SSE, live prepend). Renders inside the Audio panel's #heard-list.
+  (function setupAudioPanel() {
+    const list = document.getElementById('heard-list');
+    if (!list) return;
+    const heard = [];   // newest first: {time, common_name, confidence}
+    function render() {
+      if (!heard.length) {
+        list.textContent = 'listening… (no detections yet)';
+        return;
+      }
+      list.innerHTML = heard.slice(0, 8).map(d =>
+        `<div style="display:flex; justify-content:space-between; gap:8px; padding:2px 0; font-family:var(--font-mono); font-size:12px;">
+           <span>${d.species || d.common_name || '?'}</span>
+           <span style="opacity:.65">${Math.round((d.confidence || 0) * 100)}% · ${d.time || ''}</span>
+         </div>`).join('');
+    }
+    async function refresh() {
+      try {
+        const r = await fetch('/api/birdnet-summary');
+        if (!r.ok) return;
+        const d = await r.json();
+        const recent = d.recent || d.recent_detections || [];
+        heard.length = 0;
+        for (const it of recent.slice(0, 8)) heard.push(it);
+        render();
+      } catch (e) { /* analyzer may be starting; keep quiet */ }
+    }
+    refresh();
+    setInterval(refresh, 60000);
+    try {
+      const es = new EventSource('/api/birdnet-events');
+      es.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          const items = Array.isArray(d) ? d : (d.detections || [d]);
+          for (const it of items) {
+            if (it && (it.species || it.common_name)) heard.unshift(it);
+          }
+          heard.length = Math.min(heard.length, 20);
+          render();
+        } catch (err) { /* tolerate */ }
+      };
+    } catch (e) { /* SSE unavailable — poll still works */ }
+  })();
   setInterval(pollStats, 5000);
   setInterval(loadRecent, 10000);
   setInterval(loadReviewStats, 30000);

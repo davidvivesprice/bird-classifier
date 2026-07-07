@@ -49,8 +49,8 @@ class RangeFilter:
 
         Args:
             species_name: Common or scientific name of the species
-            latitude: Detection latitude (default: Cape Cod)
-            longitude: Detection longitude (default: Cape Cod)
+            latitude: Detection latitude (default: Chilmark, Martha's Vineyard, MA)
+            longitude: Detection longitude (default: Chilmark, Martha's Vineyard, MA)
             date: Detection date (datetime or "YYYY-MM-DD"). Default: today
             confidence: Detection confidence (0-1). Returns dict if provided for adjustment.
 
@@ -116,9 +116,12 @@ class RangeFilter:
 
         # Check coastal-only species (seabirds)
         if species_info.get("coastal_only", False):
-            # Simple check: if not near coast, flag as invalid
-            # Cape Cod is coastal, so this is valid. For inland locations, would need to check.
-            # For now, we'll flag all "coastal_only" seabirds detected inland as suspicious
+            # Chilmark is coastal, so coastal_only species are not auto-invalidated
+            # by location alone. The harder filter only fires when the species' DB
+            # entry ALSO carries the "seabird_inland" flag — that flag is the
+            # explicit "this species has been detected inland and is almost
+            # certainly a BirdNET false positive" marker. For coastal_only species
+            # without that flag, we let it through.
             if "seabird_inland" in species_info.get("flags", []):
                 result["reason"] = "Seabird detected inland (extremely high false positive rate in BirdNET)"
                 result["flags"].extend(species_info.get("flags", []))

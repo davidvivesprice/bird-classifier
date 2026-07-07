@@ -1,0 +1,38 @@
+# Bird audio analyzer — BirdNET V2.4 on the feeder mic (Pi port 2026-07-07).
+#
+# Pulls RTSP audio (UniFi "birds" stream, Opus 48kHz) via the self-healing
+# RTSPStreamManager, runs sliding 3s/1s BirdNET windows with bandpass +
+# noise-reduction preprocessing, overlap confirmation, dynamic thresholds and
+# a geographic range filter, then writes detections to
+# ~/bird-snapshots/birdnet-audio/birdnet_local.db (+ silence-trimmed WAV
+# clips). The dashboard's audio endpoints light up from that DB alone.
+#
+# Self-heal, two layers (the iMac Level-6 wedge lesson):
+#   1. rtsp_stream Level 6 re-refreshes tokens + reloads URLs on every retry.
+#   2. The in-process down-watchdog exits(1) after AUDIO_DOWN_EXIT_MIN (15)
+#      minutes of terminal DOWN — Restart=always then relaunches a FRESH
+#      process. A live-but-wedged loop can no longer strand the service.
+#
+# One-time host prep (documented in book ch12):
+#   venv/bin/pip install birdnetlib pydub watchdog noisereduce
+#   install the tflite_runtime -> ai_edge_litert shim (deploy/tflite-shim)
+#   symlink the vendored BirdNET V2.4 model files into
+#   venv/.../birdnetlib/models/analyzer/
+[Unit]
+Description=Bird audio analyzer — BirdNET on the feeder mic
+After=network-online.target go2rtc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bird-classifier
+EnvironmentFile=-%h/.bird-observatory-env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/bird-classifier/venv/bin/python3 -u audio_analyzer.py
+Restart=always
+RestartSec=10
+# native crashes in the audio stack should dump like the pipeline's do
+LimitCORE=infinity
+
+[Install]
+WantedBy=default.target

@@ -18,3 +18,11 @@ starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.41.0
+# ── audio stack (bird-audio.service, Pi port 2026-07-07) ──
+birdnetlib
+librosa
+pydub
+watchdog
+noisereduce
+# tflite backend = ai-edge-litert via the deploy/tflite-shim package
+ai-edge-litert

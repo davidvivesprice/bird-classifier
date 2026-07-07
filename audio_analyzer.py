@@ -37,7 +37,7 @@ _metrics = MetricsRegistry()
 
 # ── Configuration ──────────────────────────────────────────────────────────
 LAT = float(os.environ.get("BIRDNET_LAT", "41.35"))
-LON = float(os.environ.get("BIRDNET_LON", "-70.73"))
+LON = float(os.environ.get("BIRDNET_LON", "-70.74"))  # match range_filter.py + species_ranges.json metadata
 MIN_CONFIDENCE = float(os.environ.get("BIRDNET_MIN_CONF", "0.50"))
 
 SAMPLE_RATE = 48000
@@ -76,12 +76,17 @@ CLIPS_DIR = Path(
 )
 CLIP_MAX_AGE_DAYS = 30  # auto-delete clips older than this
 
-# ── Multi-Camera Configuration ───────────────────────────────────────────
+# ── Camera Configuration (Pi port 2026-07-07) ────────────────────────────
+# One camera on the Pi: the feeder G3 Dome. Its UniFi stream key in
+# rtsp_urls.json is "birds" (high/low variants handled inside rtsp_stream's
+# escalation ladder). The iMac's ground/magnolia pair stays reachable via env
+# for a future multi-mic setup.
 CAMERAS = [
-    {"name": "ground", "preferred": "ground", "fallback": "magnolia"},
-    {"name": "magnolia", "preferred": "magnolia", "fallback": "ground"},
+    {"name": os.environ.get("AUDIO_CAMERA_NAME", "feeder"),
+     "preferred": os.environ.get("AUDIO_CAMERA_STREAM", "birds"),
+     "fallback": os.environ.get("AUDIO_CAMERA_FALLBACK") or None},
 ]
-MULTI_CAMERA_ENABLED = os.environ.get("MULTI_CAMERA", "true").lower() in ("1", "true", "yes")
+MULTI_CAMERA_ENABLED = os.environ.get("MULTI_CAMERA", "false").lower() in ("1", "true", "yes")
 CROSS_CAM_DEDUP_WINDOW = 10  # seconds — same species on 2 cams = multi_source
 
 # ── Nighttime Pause ──────────────────────────────────────────────────────
@@ -112,6 +117,11 @@ try:
 except ImportError:
     nr = None
     NOISE_REDUCE_ENABLED = False
+
+
+# Auto-gain (Pi, quiet feeder mic — see preprocess_audio stage 4)
+_TARGET_RMS = float(os.environ.get("AUDIO_TARGET_RMS", "0.05"))
+_MAX_GAIN = float(os.environ.get("AUDIO_MAX_GAIN", "30"))
 
 
 def preprocess_audio(audio_float32):
@@ -152,6 +162,21 @@ def preprocess_audio(audio_float32):
         # Clip to [-1, 1] to prevent rare edge-case clipping
         np.clip(cleaned, -1.0, 1.0, out=cleaned)
 
+    # Stage 4 (Pi port 2026-07-07): auto-gain for the quiet feeder mic.
+    # The iMac deliberately used the ground/magnolia mics because the feeder
+    # camera's audio is faint — but the feeder mic is the only one the Pi
+    # has. Restoring to the ORIGINAL level (stage 3) keeps faint audio faint;
+    # measured live: 30s of real feeder audio at RMS 0.0065 produced ZERO raw
+    # BirdNET scores, while the same windows gain-normalized to 0.05 surfaced
+    # a Chipping Sparrow at 0.27. So: lift quiet windows to a target RMS,
+    # capped at AUDIO_MAX_GAIN to avoid amplifying pure noise floors.
+    # AUDIO_TARGET_RMS=0 disables.
+    if _TARGET_RMS > 0:
+        rms_now = np.sqrt(np.mean(cleaned ** 2))
+        if 1e-10 < rms_now < _TARGET_RMS:
+            cleaned = cleaned * min(_TARGET_RMS / rms_now, _MAX_GAIN)
+            np.clip(cleaned, -1.0, 1.0, out=cleaned)
+
     return cleaned
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -173,9 +198,9 @@ class DynamicThreshold:
     """Lowers detection threshold for species recently seen at high confidence.
 
     Mirrors BirdNET-Go's dynamic threshold system:
-    - 1st high-conf detection: threshold → 75% of base
-    - 2nd: 50% of base
-    - 3rd+: 25% of base (clamped to DYNAMIC_THRESHOLD_MIN)
+    - 1st high-conf detection: threshold → 85% of base
+    - 2nd: 75% of base
+    - 3rd+: 65% of base (clamped to DYNAMIC_THRESHOLD_MIN)
     """
 
     def __init__(self):
@@ -261,6 +286,9 @@ def init_db():
         "ALTER TABLE notes ADD COLUMN multi_source INTEGER DEFAULT 0",
         "ALTER TABLE notes ADD COLUMN preprocessing TEXT DEFAULT 'raw'",
         "ALTER TABLE notes ADD COLUMN confirmations INTEGER DEFAULT 1",
+        # dashboard best-clips + the game hard-filter has_clip=1; a fresh DB
+        # without this column silently returns empty clip lists (drift lesson)
+        "ALTER TABLE notes ADD COLUMN has_clip INTEGER DEFAULT 1",
     ]:
         try:
             _db_conn.execute(col_sql)
@@ -279,8 +307,8 @@ def insert_detection(det, clip_name, source="ground", preprocessing="raw", confi
             """
             INSERT INTO notes (source_node, date, time, common_name,
                                scientific_name, confidence, clip_name, input_file,
-                               source, preprocessing, confirmations)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               source, preprocessing, confirmations, has_clip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 source,
@@ -294,6 +322,10 @@ def insert_detection(det, clip_name, source="ground", preprocessing="raw", confi
                 source,
                 preprocessing,
                 confirmations,
+                # explicit: the dashboard's best-clips and the game hard-filter
+                # has_clip=1; relying on the column DEFAULT proved fragile on
+                # fresh DBs (iMac schema-drift lesson).
+                1 if clip_name else 0,
             ),
         )
         _db_conn.commit()
@@ -335,8 +367,47 @@ def check_cross_camera(species, source):
 
 
 # ── Audio Clip Saving ──────────────────────────────────────────────────────
+def _trim_silence(raw_pcm, sample_rate=None, floor_db=-32.0,
+                  min_keep_s=1.2, pad_s=0.15):
+    """Trim leading/trailing near-silence from a 16-bit mono PCM buffer.
+
+    The long-standing clip bug (forget-me-nots, iMac era): calls fill only
+    1-1.5s of the 3s analysis window, and the trailing silence creates dead
+    gaps in sequence playback (the Name That Call game especially). ffmpeg
+    silenceremove at playback proved too aggressive — the right place is here,
+    at save time, with a gentle RMS-envelope trim: keep everything above
+    floor_db relative to the clip's own peak RMS, pad by pad_s, and never
+    return less than min_keep_s.
+    """
+    sr = sample_rate or SAMPLE_RATE
+    audio = np.frombuffer(raw_pcm, dtype=np.int16)
+    if audio.size < int(sr * 0.5):
+        return raw_pcm
+    win = max(1, int(sr * 0.02))                      # 20ms envelope windows
+    n = audio.size // win
+    env = np.sqrt(
+        np.mean(audio[: n * win].astype(np.float64).reshape(n, win) ** 2, axis=1)
+    )
+    peak = env.max()
+    if peak <= 0:
+        return raw_pcm
+    thresh = peak * (10 ** (floor_db / 20.0))
+    above = np.nonzero(env > thresh)[0]
+    if above.size == 0:
+        return raw_pcm
+    pad = int(pad_s / 0.02)
+    a, b = max(0, above[0] - pad), min(n, above[-1] + 1 + pad)
+    # honor the minimum length, expanding symmetrically
+    need = int(min_keep_s / 0.02) - (b - a)
+    if need > 0:
+        a = max(0, a - need // 2)
+        b = min(n, b + (need - need // 2))
+    return audio[a * win: b * win].tobytes()
+
+
 def save_clip(raw_pcm, det):
-    """Save a 3-second PCM chunk as a WAV file. Returns relative clip path."""
+    """Save a detection's audio as a WAV clip (silence-trimmed at save time).
+    Returns relative clip path."""
     now = datetime.datetime.utcnow()
     year_month = now.strftime("%Y/%m")
     clip_dir = CLIPS_DIR / year_month
@@ -348,11 +419,13 @@ def save_clip(raw_pcm, det):
     filename = f"{sci_name}_{conf_pct}p_{ts}.wav"
     clip_path = clip_dir / filename
 
+    trimmed = _trim_silence(raw_pcm)
+
     with wave.open(str(clip_path), "wb") as wf:
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(2)  # 16-bit
         wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(raw_pcm)
+        wf.writeframes(trimmed)
 
     return f"{year_month}/{filename}"
 
@@ -732,8 +805,11 @@ def run(test_mode=False):
         for t in threads:
             t.join(timeout=10)
     else:
-        analyze_camera(analyzer, "ground", "ground", "magnolia",
-                       range_filter, test_mode)
+        # Single-camera mode uses the configured camera (Pi: feeder/"birds") —
+        # the old hardcoded ground/magnolia pair was iMac-era.
+        cam = CAMERAS[0]
+        analyze_camera(analyzer, cam["name"], cam["preferred"],
+                       cam.get("fallback"), range_filter, test_mode)
 
 
 # ── Metrics HTTP Server ───────────────────────────────────────────────────
@@ -780,15 +856,59 @@ def _handle_signal(signum, frame):
     _shutdown.set()
 
 
+def _start_down_watchdog():
+    """systemd death policy (Pi port): if a stream stays terminally DOWN
+    beyond DOWN_EXIT_MIN, exit(1) and let Restart=always relaunch a FRESH
+    process (which re-reads tokens/URLs at startup).
+
+    This is the structural cure for the iMac Level-6 wedge: the failure mode
+    there was a live, looping process that could never be restarted because
+    launchd's KeepAlive only acts on death. The in-ladder token refresh
+    (rtsp_stream Level 6) remains the first line; this watchdog guarantees
+    that even if the ladder itself wedges, the process dies and is reborn
+    clean. Health files are written by RTSPStreamManager to
+    /tmp/audio-stream-health-<camera>.json.
+    """
+    exit_min = float(os.environ.get("AUDIO_DOWN_EXIT_MIN", "15"))
+    if exit_min <= 0:
+        return
+
+    def _watch():
+        import glob
+        while True:
+            time.sleep(60)
+            for hf in glob.glob("/tmp/audio-stream-health-*.json"):
+                try:
+                    with open(hf) as f:
+                        h = json.load(f)
+                    if h.get("status") != "down":
+                        continue
+                    age_min = (time.time() - os.path.getmtime(hf)) / 60
+                    down_min = float(h.get("down_minutes", 0) or 0)
+                    if max(age_min, down_min) >= exit_min:
+                        log.critical(
+                            "stream %s DOWN >= %.0f min — exiting for a clean "
+                            "systemd restart (fresh token/URL load)",
+                            hf, exit_min,
+                        )
+                        os._exit(1)
+                except Exception:
+                    continue
+
+    threading.Thread(target=_watch, daemon=True, name="down-watchdog").start()
+
+
 def main():
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     _start_metrics_server()
+    _start_down_watchdog()
 
     test_mode = "--test" in sys.argv
 
     log.info("Bird Audio Analyzer starting")
-    log.info("  RTSP: managed (preferred=ground, fallback=birds)")
+    log.info("  RTSP: managed (preferred=%s, fallback=%s)",
+             CAMERAS[0]["preferred"], CAMERAS[0].get("fallback") or "none")
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)
@@ -799,7 +919,8 @@ def main():
     if MULTI_CAMERA_ENABLED:
         log.info("  Multi-camera: %s", ", ".join(c["name"] for c in CAMERAS))
     else:
-        log.info("  Single camera: ground")
+        log.info("  Single camera: %s (stream '%s')",
+                 CAMERAS[0]["name"], CAMERAS[0]["preferred"])
     log.info("  DB: %s", DB_PATH)
     log.info("  Clips: %s", CLIPS_DIR)
 

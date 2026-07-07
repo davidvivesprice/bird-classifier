@@ -175,10 +175,22 @@ class RTSPStreamManager:
         """Determine next escalation level based on failure count."""
         total = self._failure_count
 
-        # Stay in down state until a successful connection
+        # Terminal down state — but keep self-healing. The RTSP token this
+        # long-lived process cached can rotate (UniFi Protect regenerates the
+        # stream alias), turning every dial into AVERROR_INVALIDDATA. Level 2
+        # refreshes URLs once early in the ladder, but that single shot is easily
+        # missed (sync rate-limited, or the token rotates again during the
+        # descent). Without re-refreshing here, a process that reaches level 6
+        # re-dials the same dead token forever and never reads the file the
+        # nightly refresh cron updates — the "silent audio downtime" wedge. So on
+        # every down-retry, actively pull fresh tokens (rate-limited to
+        # REFRESH_COOLDOWN, which == DOWN_RETRY_INTERVAL) and reload from disk.
         if self._level == 6:
             self._backoff = DOWN_RETRY_INTERVAL
-            log.error("Level 6: still down, retrying in %ds", DOWN_RETRY_INTERVAL)
+            self._trigger_sync()
+            self._reload_urls()
+            log.error("Level 6: still down, refreshed tokens + reloaded URLs, retrying in %ds",
+                      DOWN_RETRY_INTERVAL)
             self._write_health("down")
             return
 
