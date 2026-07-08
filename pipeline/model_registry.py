@@ -218,8 +218,8 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
             "Google's AIY Birds V1 — a MobileNet-V1 trained on iNaturalist "
             "Birds, outputting probabilities across 965 species.\n\n"
             "How it runs on the Pi: ONNX runtime on the CPU. Each bird-region "
-            "crop costs ~7.4 ms (~134 FPS) — well above the pipeline's 5 FPS "
-            "detection rate, so we never wait on it.\n\n"
+            "crop costs ~7.4 ms (~134 FPS) — well above the pipeline's ~30 FPS "
+            "per-frame detection rate, so we never wait on it.\n\n"
             "Why it's primary: best species coverage on the planet for North "
             "American birds, and fast enough on CPU that we don't compete "
             "with the YOLOv8s detector for the Hailo NPU slot.\n\n"
@@ -291,8 +291,8 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
                 "smaller — faster inference, slightly less accurate.\n\n"
                 "Why it's here: alternative detector candidate for benchmark "
                 "comparison. We keep YOLOv8-S as the live detector because "
-                "per-frame budget isn't the bottleneck — the sub-stream is "
-                "already capped at 5 FPS for downstream classification."
+                "per-frame budget isn't the bottleneck — it already keeps "
+                "pace with the sub-stream's ~30 FPS, detecting every frame."
             ),
         },
     ]
