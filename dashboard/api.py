@@ -326,19 +326,6 @@ def serve_live_html():
     return RedirectResponse("/", status_code=302)
 
 
-@app.get("/api/species-facts")
-def species_facts():
-    """Hand-curated field notes per species (dashboard/species_facts.json) —
-    feeds the species card on the Recent strip."""
-    p = DASHBOARD_DIR / "species_facts.json"
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
 @app.get("/favicon.ico")
 def serve_favicon():
     """Browsers fall back to /favicon.ico when a page declares no icon —
@@ -3601,7 +3588,9 @@ def birdnet_clip(clip_path: str):
     if not full_path.is_relative_to(BIRDNET_CLIPS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if not full_path.exists():
+    # is_file, not exists: an empty/dir path resolves to the clips dir itself,
+    # and FileResponse(directory) blows up with a 500
+    if not full_path.is_file():
         raise HTTPException(status_code=404, detail="Clip not found")
 
     return FileResponse(
@@ -3639,7 +3628,7 @@ def birdnet_clip_enhanced(clip_path: str):
     raw_path = (BIRDNET_CLIPS_DIR / safe_path).resolve()
     if not raw_path.is_relative_to(BIRDNET_CLIPS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
-    if not raw_path.exists():
+    if not raw_path.is_file():  # empty/dir paths must 404, not 500
         raise HTTPException(status_code=404, detail="Clip not found")
 
     # Check cache

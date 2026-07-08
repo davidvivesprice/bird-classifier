@@ -1104,6 +1104,10 @@
   try { applyTheme(localStorage.getItem('pi-theme') || 'observatory'); } catch (e) {}
   picker.forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.theme)));
 
+  // Shared demo-mode state so the topbar chip and the live-video source
+  // picker don't each run their own /api/demo-mode poll.
+  const demoCache = { enabled: null, ts: 0 };
+
   // ── Toasts ───────────────────────────────────────────────────────
   const toasts = document.getElementById('toasts');
   const toast = (msg, kind) => {
@@ -1882,12 +1886,19 @@
     // can call to switch the src immediately on user click (no 5s lag).
     let pickInFlight = false;
     async function pickLiveSrc() {
+      // The topbar's refreshDemoState polls the same endpoint on the same
+      // cadence — reuse its fresh answer instead of doubling idle chatter.
+      if (demoCache.enabled !== null && Date.now() - demoCache.ts < 4500) {
+        return demoCache.enabled ? 'feeder-demo' : 'feeder-main';
+      }
       if (pickInFlight) return null;        // suppress concurrent fetches
       pickInFlight = true;
       try {
         const r = await fetch('/api/demo-mode');
         if (r.ok) {
           const data = await r.json();
+          demoCache.enabled = !!data.enabled;
+          demoCache.ts = Date.now();
           return data.enabled ? 'feeder-demo' : 'feeder-main';
         }
       } catch (e) { /* tolerate */ } finally { pickInFlight = false; }
@@ -2769,6 +2780,8 @@
     try {
       const r = await fetch('/api/demo-mode');
       const data = await r.json();
+      demoCache.enabled = !!data.enabled;
+      demoCache.ts = Date.now();
       const nextReviewMode = data.enabled ? 'demo' : 'live';
       demoBtn.classList.toggle('demo-on', !!data.enabled);
       // Button is a fixed "demo" control; on/off shown via .demo-on styling.
