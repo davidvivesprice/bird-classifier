@@ -41,6 +41,9 @@ class CandidateModel:
     description: str
     type_: str           # "onnx_cpu" | "hailo" | "tflite_cpu" | "placeholder"
     path: str
+    display_name: str = ""             # human product name for UI surfaces
+                                       # outside the Lab ("AIY Birds"); the raw
+                                       # ``name`` id stays for APIs and logs
     loader: Optional[Callable] = None  # callable(path) -> obj with .classify()
     available: bool = True             # False = shows in UI but disabled
     notes: str = ""                    # one-phrase metadata for the UI row
@@ -71,6 +74,7 @@ class ModelRegistry:
         return [
             {
                 "name": c.name,
+                "display_name": c.display_name or c.name,
                 "description": c.description,
                 "type": c.type_,
                 "available": c.available and not c.is_placeholder(),
@@ -208,6 +212,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
     aiy_onnx = root / "aiy_birds_v1.onnx"
     reg.register(CandidateModel(
         name="aiy_onnx",
+        display_name="AIY Birds",
         description="AIY Birds V1 · 965 bird species",
         type_="onnx_cpu",
         path=str(aiy_onnx),
@@ -232,6 +237,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
     resnet = hailo_root / "resnet_v1_50_h8l.hef"
     reg.register(CandidateModel(
         name="resnet50_hailo",
+        display_name="ResNet-50",
         description="ResNet-50 · ImageNet 1000 classes",
         type_="hailo",
         path=str(resnet),
@@ -242,9 +248,9 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
             "The classic 50-layer residual CNN, trained on ImageNet's 1000 "
             "classes — only ~50 of which are bird species, mostly Eurasian.\n\n"
             "How it runs on the Pi: compiled as a Hailo HEF and run on the "
-            "NPU. Cohabits with the YOLOv8s detector on the same Hailo-8L "
-            "VDevice via the HailoRT ROUND_ROBIN scheduler (see playbook §9 "
-            "Path 1). Per-call latency ~21 ms when co-scheduled.\n\n"
+            "NPU. It shares the Hailo-8L chip with the YOLOv8s detector — "
+            "the chip's own scheduler alternates between them. Per-call "
+            "latency ~21 ms when sharing.\n\n"
             "Why it's here: demonstrates the Hailo classifier path works in "
             "production, and serves as a sanity check before we drop our "
             "Tier 2 flagship onto the same path. Not great for fine-grained "
@@ -260,6 +266,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
     yolo_specs = [
         {
             "name": "yolov8s_hailo",
+            "display_name": "YOLOv8-S",
             "description": "YOLOv8-S · COCO 80-class detector",
             "filename": "yolov8s_h8l.hef",
             "notes": "Hailo NPU · 17 ms · Lab only",
@@ -281,6 +288,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
         },
         {
             "name": "yolov6n_hailo",
+            "display_name": "YOLOv6-N",
             "description": "YOLOv6-N · COCO 80-class detector (smaller)",
             "filename": "yolov6n_h8l.hef",
             "notes": "Hailo NPU · smaller variant · Lab only",
@@ -300,6 +308,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
         p = hailo_root / s["filename"]
         reg.register(CandidateModel(
             name=s["name"],
+            display_name=s.get("display_name", ""),
             description=s["description"],
             type_="hailo",
             path=str(p),
@@ -313,12 +322,13 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
     # 5. Flagship placeholder — the Tier 2 custom-trained model, not yet built.
     reg.register(CandidateModel(
         name="flagship_pending",
-        description="Flagship yard model · coming soon",
+        display_name="Yard Flagship",
+        description="Flagship yard model · in training",
         type_="placeholder",
         path="",
         loader=None,
         available=False,
-        notes="Tier 2 · not yet trained",
+        notes="custom-trained for this exact yard",
         info=(
             "The model we're building specifically for our feeder, replacing "
             "AIY's 965 generic species with a tight set tuned to what we "
@@ -332,8 +342,7 @@ def build_default_registry(models_dir: str, regional_species=None) -> ModelRegis
             "first-class output, not a low-confidence guess\n"
             "• EfficientNet-Lite0 backbone — Hailo-Zoo first-class, baked-"
             "in normalization, ~2 ms / crop on Hailo\n\n"
-            "Status: dataset audit in progress. Not yet trained. See "
-            "project_yard_model_revamp.md and the tier2_eval/ harness."
+            "Status: dataset audit in progress. Not yet trained."
         ),
     ))
 

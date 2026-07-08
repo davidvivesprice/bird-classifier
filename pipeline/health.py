@@ -42,6 +42,10 @@ class HealthState:
                 "uptime_s": int(time.time() - self._start_time),
             }
         data["overall"] = self._compute_status(data)
+        # Expose the pause state: at night capture is stopped BY DESIGN, and
+        # every consumer (dashboard fps line, empty-state copy, alerting)
+        # otherwise misreads frozen counters as a fault.
+        data["night"] = is_nighttime()
         return data
 
     def _compute_status(self, data: dict) -> str:

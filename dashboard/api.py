@@ -158,6 +158,121 @@ app.add_middleware(
 )
 
 
+# ── Tunnel guard ─────────────────────────────────────────────────────
+# pi5.vivessato.com currently has no Cloudflare Access challenge, so the
+# whole app is internet-reachable. Until Access is (re)enabled on the CF
+# side, refuse state-changing requests that arrive via the tunnel unless
+# the browser carries the unlock cookie. LAN-direct requests (no CF
+# headers) are untouched. Unlock once per device: /unlock?key=<contents
+# of ~/.dashboard-mutate-key on the Pi>.
+
+from starlette.responses import RedirectResponse, HTMLResponse
+
+_MUTATE_KEY_PATH = Path.home() / ".dashboard-mutate-key"
+_mutate_key_cache = {"key": None, "ts": 0.0}
+
+def _mutate_key():
+    now = _time.time()
+    if _mutate_key_cache["key"] is None or now - _mutate_key_cache["ts"] > 60:
+        try:
+            _mutate_key_cache["key"] = _MUTATE_KEY_PATH.read_text().strip()
+        except OSError:
+            _mutate_key_cache["key"] = ""
+        _mutate_key_cache["ts"] = now
+    return _mutate_key_cache["key"]
+
+# Dev/test pages stay reachable on the LAN but not from the open internet.
+_DEV_PAGES = ("/work", "/hls-test", "/sync-test", "/motion-sandbox", "/tmp-preview")
+
+@app.middleware("http")
+async def tunnel_guard(request: StarletteRequest, call_next):
+    if "cf-ray" in request.headers:  # arrived via the Cloudflare tunnel
+        key = _mutate_key()
+        authed = bool(key) and request.cookies.get("obs_key") == key
+        if not authed:
+            if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+                return JSONResponse(
+                    {"detail": "This dashboard is view-only from the internet. "
+                               "Open your unlock link once on this device to enable actions."},
+                    status_code=403)
+            p = request.url.path
+            if any(p == d or p.startswith(d + "/") for d in _DEV_PAGES):
+                return RedirectResponse("/", status_code=302)
+    return await call_next(request)
+
+
+@app.get("/unlock")
+def unlock(key: str = ""):
+    """Set the mutation cookie for this browser (one-time link per device)."""
+    real = _mutate_key()
+    if not real or key != real:
+        raise HTTPException(status_code=403, detail="bad key")
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie("obs_key", real, max_age=365 * 24 * 3600,
+                    httponly=True, secure=True, samesite="lax")
+    return resp
+
+
+# ── Compression ──────────────────────────────────────────────────────
+# Gzip text responses (HTML/JSON/JS — the dashboard HTML alone is 115KB,
+# ~25KB gzipped) but leave streams and already-compressed media alone:
+# gzipping SSE breaks event delivery timing, gzipping JPEG/WAV wastes Pi CPU.
+
+from starlette.middleware.gzip import GZipMiddleware
+
+_NO_GZIP_PREFIXES = (
+    "/api/pipeline/events", "/bird-api/pipeline/events",
+    "/api/birdnet-events", "/bird-api/birdnet-events",
+    "/api/birdnet-clip", "/bird-api/birdnet-clip",
+    "/api/image", "/bird-api/image",
+    "/api/snapshot", "/bird-api/snapshot",
+    "/api/species-image", "/bird-api/species-image",
+)
+
+class SelectiveGZip:
+    def __init__(self, app):
+        self._gzip = GZipMiddleware(app, minimum_size=1024)
+        self._plain = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not any(
+                scope.get("path", "").startswith(p) for p in _NO_GZIP_PREFIXES):
+            await self._gzip(scope, receive, send)
+        else:
+            await self._plain(scope, receive, send)
+
+app.add_middleware(SelectiveGZip)
+
+
+# ── Friendly 404 ─────────────────────────────────────────────────────
+# API paths keep JSON; anything a human hits in a browser gets a small
+# branded page with a way home instead of {"detail":"Not Found"}.
+
+_404_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found · Vives Observatory</title>
+<link rel="icon" href="/apple-touch-icon.png">
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0b0d11; color:#e8e6e1; font-family: Georgia, 'Times New Roman', serif; }
+  .card { text-align:center; padding:40px; }
+  h1 { font-size:44px; margin:0 0 6px; } h1 em { color:#d4a24e; font-style:normal; }
+  p { color:#9ea3ad; margin:0 0 22px; font-size:15px; }
+  a { color:#d4a24e; text-decoration:none; border:1px solid #d4a24e44; padding:9px 18px;
+      border-radius:999px; font-size:14px; } a:hover { background:#d4a24e1a; }
+</style></head><body><div class="card">
+<h1>Flew the <em>coop</em></h1>
+<p>That page isn&rsquo;t here — maybe it migrated.</p>
+<a href="/">&larr; Back to the observatory</a>
+</div></body></html>"""
+
+@app.exception_handler(404)
+async def not_found_handler(request: StarletteRequest, exc):
+    if request.url.path.startswith(("/api/", "/bird-api/")):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return HTMLResponse(_404_HTML, status_code=404)
+
+
 # ── Serve dashboard HTML directly (for Tailscale / direct access) ──
 
 DASHBOARD_DIR = Path(__file__).parent
@@ -168,13 +283,13 @@ def serve_pi_dash():
     return FileResponse(str(DASHBOARD_DIR / "pi_dash.html"), media_type="text/html")
 
 
+@app.head("/")
 @app.get("/")
 def serve_dashboard():
-    """Serve the main dashboard HTML. On Pi (PI_MODE=1), serve pi_dash.html
-    which is the Pi-specific rebuild with model lab + themes."""
-    if os.environ.get("PI_MODE", "0") == "1":
-        return FileResponse(str(DASHBOARD_DIR / "pi_dash.html"), media_type="text/html")
-    return FileResponse(str(DASHBOARD_DIR / "index.html"), media_type="text/html")
+    """Serve the dashboard. This is the Pi repo — pi_dash.html IS the product;
+    the old PI_MODE env conditional left the stale iMac-era index.html one
+    unset variable away from becoming the homepage."""
+    return FileResponse(str(DASHBOARD_DIR / "pi_dash.html"), media_type="text/html")
 
 
 @app.get("/apple-touch-icon.png")
@@ -205,8 +320,30 @@ def serve_game_visual_icon():
 
 @app.get("/live")
 def serve_live_html():
-    """Serve the lightweight live video page (used as iframe in dashboard)."""
-    return FileResponse(str(DASHBOARD_DIR / "live.html"), media_type="text/html")
+    """The old standalone delayed-HLS live page. Superseded by the dashboard's
+    WebRTC Live panel — redirect so nobody judges the product by a ~12s-delayed
+    stale twin. live.html stays on disk if it's ever needed for diagnostics."""
+    return RedirectResponse("/", status_code=302)
+
+
+@app.get("/api/species-facts")
+def species_facts():
+    """Hand-curated field notes per species (dashboard/species_facts.json) —
+    feeds the species card on the Recent strip."""
+    p = DASHBOARD_DIR / "species_facts.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+@app.get("/favicon.ico")
+def serve_favicon():
+    """Browsers fall back to /favicon.ico when a page declares no icon —
+    covers every page in one route (PNG favicons are universally accepted)."""
+    return FileResponse(str(DASHBOARD_DIR / "apple-touch-icon.png"), media_type="image/png")
 
 
 @app.get("/audio")
@@ -3067,11 +3204,13 @@ def birdnet_summary():
                 "last_seen": row["last_seen"],
             })
 
-        # Per-date breakdowns
+        # Per-date breakdowns (last_seen per species so day views can say
+        # when a bird was ACTUALLY last heard, not when its best clip was)
         cur.execute("""
             SELECT date, common_name, scientific_name,
                    COUNT(*) as count,
-                   ROUND(AVG(confidence), 3) as avg_confidence
+                   ROUND(AVG(confidence), 3) as avg_confidence,
+                   MAX(time) as last_seen_time
             FROM notes
             GROUP BY date, common_name
             ORDER BY date DESC, count DESC
@@ -3086,6 +3225,7 @@ def birdnet_summary():
                 "scientific_name": row["scientific_name"],
                 "count": row["count"],
                 "avg_confidence": row["avg_confidence"],
+                "last_seen": f"{d} {row['last_seen_time']}",
             })
             by_date[d]["total_detections"] += row["count"]
 
@@ -3115,6 +3255,21 @@ def birdnet_summary():
                 "clip_name": row["clip_name"] or "",
             })
 
+        # True per-hour histogram for the newest day with data. The dashboard
+        # rhythm strip previously bucketed the capped `recent` list (200 rows)
+        # and silently dropped whole mornings.
+        newest_date = dates[0] if dates else None
+        hour_counts = [0] * 24
+        if newest_date:
+            cur.execute("""
+                SELECT CAST(strftime('%H', time) AS INTEGER) as h, COUNT(*) as n
+                FROM notes WHERE date = ? GROUP BY h
+            """, (newest_date,))
+            for row in cur.fetchall():
+                if row["h"] is not None and 0 <= row["h"] <= 23:
+                    hour_counts[row["h"]] = row["n"]
+
+        lt = _time.localtime()
         result = {
             "total_detections": totals["total"],
             "species_count": totals["species"],
@@ -3122,6 +3277,9 @@ def birdnet_summary():
             "by_date": by_date,
             "dates": dates,
             "recent": recent,
+            "hours": {"date": newest_date, "counts": hour_counts},
+            "server_date": _time.strftime("%Y-%m-%d", lt),
+            "server_hour": lt.tm_hour,
             "tz_offset": _birdnet_tz_offset(),
         }
 
@@ -3131,6 +3289,60 @@ def birdnet_summary():
 
     except Exception:
         raise
+
+
+@app.get("/api/today-summary")
+def today_summary():
+    """Bird-first numbers for the dashboard ribbon: what the yard actually did.
+
+    Reports the current local day; when today has no data yet (overnight),
+    also reports the newest day that does, so the UI can show real numbers
+    honestly labeled instead of a wall of zeros.
+    """
+    lt = _time.localtime()
+    server_date = _time.strftime("%Y-%m-%d", lt)
+
+    def day_block(day):
+        blk = {"date": day, "species": 0, "sightings": 0, "last_seen": None,
+               "heard_species": 0, "heard_calls": 0}
+        try:
+            with _sqlite3.connect(f"file:{cdb.DB_PATH}?mode=ro", uri=True) as c:
+                c.row_factory = _sqlite3.Row
+                r = c.execute(
+                    "SELECT COUNT(*) n, COUNT(DISTINCT common_name) sp, MAX(source_timestamp) last "
+                    "FROM classifications WHERE action='classified' AND source_date = ?",
+                    (day,)).fetchone()
+                blk["sightings"] = r["n"] or 0
+                blk["species"] = r["sp"] or 0
+                blk["last_seen"] = r["last"]
+        except Exception:
+            pass
+        try:
+            with _sqlite3.connect(f"file:{BIRDNET_DB_PATH}?mode=ro", uri=True) as c:
+                c.row_factory = _sqlite3.Row
+                r = c.execute(
+                    "SELECT COUNT(*) n, COUNT(DISTINCT common_name) sp FROM notes WHERE date = ?",
+                    (day,)).fetchone()
+                blk["heard_calls"] = r["n"] or 0
+                blk["heard_species"] = r["sp"] or 0
+        except Exception:
+            pass
+        return blk
+
+    today = day_block(server_date)
+    out = {"server_date": server_date, "today": today, "newest": today}
+    if today["sightings"] == 0 and today["heard_calls"] == 0:
+        newest_day = None
+        try:
+            with _sqlite3.connect(f"file:{cdb.DB_PATH}?mode=ro", uri=True) as c:
+                row = c.execute("SELECT MAX(source_date) FROM classifications "
+                                "WHERE action='classified'").fetchone()
+                newest_day = row[0]
+        except Exception:
+            pass
+        if newest_day and newest_day != server_date:
+            out["newest"] = day_block(newest_day)
+    return out
 
 
 from starlette.responses import StreamingResponse

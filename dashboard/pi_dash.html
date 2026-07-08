@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>pi5 · Observatory</title>
+<title>Vives Observatory · Pi</title>
 <meta name="theme-color" content="#0b0d11">
+<link rel="icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Crimson+Pro:wght@400;600&family=Space+Grotesk:wght@300;500;700&family=DM+Serif+Display:wght@400&family=DM+Mono:wght@300;500&family=IBM+Plex+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -165,18 +166,30 @@
     text-decoration: none; border: 1px solid transparent;
     transition: color 0.15s, background 0.15s; white-space: nowrap;
   }
-  .book-nav__link:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); border-color: var(--border); }
-  .book-nav__link--pi { color: var(--accent-green); }
-  .book-nav__link--pi:hover { background: rgba(74,222,128,0.08); }
+  .book-nav__link:hover { color: var(--text); background: var(--bg-hover); border-color: var(--border); }
+  .book-nav__link--pi { color: var(--success); }
+  .book-nav__link--pi:hover { background: var(--bg-hover); }
   .book-nav__div { color: var(--border); font-size: 0.7rem; }
   @media (max-width: 700px) {
-    .topbar { flex-wrap: wrap; row-gap: 8px; padding: 12px 16px; }
+    /* The wrapped bar is ~188px tall — sticky, it would eat a quarter of a
+       phone screen forever. Static: scroll up when you need it. */
+    .topbar { position: static; flex-wrap: wrap; row-gap: 8px; padding: 12px 16px; }
     .book-nav { width: 100%; order: 3; margin-right: 0; }
     .chips { flex-wrap: wrap; row-gap: 6px; }
+    /* Phones lead with the birds: Live video first, numbers after */
+    .shell { display: flex; flex-direction: column; }
+    .live-panel { order: -1; }
+    /* The empty-state pill clears the Sound/Full row on narrow screens */
+    .live-empty { padding-bottom: 46px; }
+    /* Touch targets */
+    .theme-btn { width: 34px; height: 34px; }
+    .heard-play { width: 34px; height: 34px; }
+    .info-icon { width: 26px; height: 26px; }
+    .live-ctrl, .overlay-toggle { padding: 7px 12px; }
   }
-  body[data-theme="observatory"] .topbar,
-  body[data-theme="dusk"] .topbar { background: rgba(11,13,17,0.85); }
-  body[data-theme="dusk"] .topbar { background: rgba(255,255,255,0.55); }
+  body[data-theme="observatory"] .topbar { background: rgba(11,13,17,0.85); }
+  /* dusk: near-opaque so the sticky bar stays legible when it overlaps the dark video */
+  body[data-theme="dusk"] .topbar { background: rgba(255,248,240,0.92); }
   .brand {
     font-family: var(--font-serif);
     font-weight: 700; font-size: 22px;
@@ -194,6 +207,7 @@
     color: var(--text-muted); font-size: 11px; font-weight: 500;
     letter-spacing: 0.04em;
     font-family: var(--font-mono);
+    white-space: nowrap; /* chips are atomic tokens — wrap as whole chips, never internally */
   }
   body[data-theme="minimalist"] .chip { border-radius: 0; border-width: 2px; }
   .chip.live { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
@@ -206,8 +220,10 @@
   #demo-mode-toggle {
     display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer;
+    background: var(--bg-elev); border-style: dashed; /* reads as a control, not a status chip */
   }
-  #demo-mode-toggle:hover { background: rgba(255,255,255,0.10); }
+  #demo-mode-toggle:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--text); }
+  #demo-mode-toggle.armed { border-color: var(--accent); border-style: solid; color: var(--accent); background: var(--accent-glow); animation: blink 0.8s ease infinite; }
   #demo-mode-toggle:disabled { opacity: 0.6; cursor: progress; }
   #demo-mode-toggle.demo-on {
     background: var(--accent-glow);
@@ -356,10 +372,20 @@
   }
   .live-label.hidden { display: none; }
   .live-empty {
+    /* Sits ON the video (always dark), so it wears fixed on-video chrome
+       colors like the corner buttons — theme colors vanish here. Bottom-
+       center: the middle of the frame is where the birds (and the bright
+       IR-lit feeder) are. */
     position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-muted); font-family: var(--font-mono); font-size: 13px;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 14px;
+    font-family: var(--font-mono); font-size: 12px;
     pointer-events: none;
+  }
+  .live-empty span {
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    padding: 6px 14px; border-radius: 999px;
   }
   .live-empty.hidden { display: none; }
   .sync-diag {
@@ -374,8 +400,13 @@
     z-index: 2;
   }
   .sync-diag.visible { display: block; }
-  .overlay-toggle {
+  /* Top-right toggle cluster: a flex row, so buttons can change label
+     width ("Labels" ↔ "Labels off") without overlapping each other. */
+  .overlay-toggles {
     position: absolute; top: 8px; right: 8px;
+    display: flex; gap: 6px; z-index: 2;
+  }
+  .overlay-toggle {
     background: rgba(0, 0, 0, 0.55);
     color: rgba(255, 255, 255, 0.85);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -383,12 +414,12 @@
     padding: 4px 10px;
     font-family: var(--font-mono); font-size: 11px;
     cursor: pointer;
-    z-index: 2;
   }
-  .overlay-toggle.off { opacity: 0.4; text-decoration: line-through; }
-  /* Second toggle in the same corner cluster — sits left of Labels. */
-  #latency-toggle { right: 76px; }
-  #latency-toggle.off { opacity: 0.75; text-decoration: none; } /* "Realtime" is a state, not "off" */
+  .overlay-toggle:hover, .live-ctrl:hover { background: rgba(0, 0, 0, 0.78); border-color: rgba(255, 255, 255, 0.45); }
+  .overlay-toggle:focus-visible, .live-ctrl:focus-visible { outline: 2px solid rgba(255,255,255,0.7); outline-offset: 1px; }
+  /* Off is a legible state, not a ghost: dashed border, dimmer text, full opacity. */
+  .overlay-toggle.off { color: rgba(255, 255, 255, 0.55); border-style: dashed; }
+  #latency-toggle.off { color: rgba(255, 255, 255, 0.85); border-style: solid; } /* "Realtime" is a state, not "off" */
   /* Live-view controls (sound + fullscreen), bottom-right so they clear the
      top-right Labels toggle. Visually mirrors .overlay-toggle. */
   .live-ctrls {
@@ -422,6 +453,7 @@
     text-decoration: none;
     color: var(--text);
     transition: transform .15s, border-color .15s;
+    scroll-margin-top: 72px; /* keyboard selection scrolls clear of the sticky topbar */
   }
   .recent-card:hover { transform: translateY(-1px); border-color: var(--accent); }
   /* Square thumbnails with object-fit: contain — the server returns a
@@ -435,14 +467,18 @@
   }
   .recent-thumb { display: block; background: var(--bg-elev); }
   .recent-meta { padding: 6px 8px 4px; }
-  .recent-sp { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent-sp { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .recent-sp:hover { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 3px; }
   .recent-ts { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
-  /* Verdict buttons (Pi-native review) */
+  /* Verdict buttons (Pi-native review) — a real gap between ✓ and ✗ so a
+     thumb can't mark the wrong verdict by a pixel */
   .recent-verdict {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    display: flex; gap: 8px;
     border-top: 1px solid var(--border);
-    background: var(--border);
+    padding: 5px 8px 7px;
   }
+  .kbd-hint { color: var(--text-dim); font-size: 10px; font-family: var(--font-mono); }
+  @media (max-width: 700px) { .kbd-hint { display: none; } }
   /* keyboard review (2026-07-07 port): selection ring + species picker */
   .recent-card.kbd-selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
   .recent-card.verdict-other { opacity: .55; }
@@ -464,16 +500,20 @@
   .pr-picker .opt:hover, .pr-picker .opt.hl { background: var(--bg-hover); }
   .pr-picker .opt.special { color: var(--danger); }
   .recent-btn {
+    flex: 1;
     background: var(--bg-card);
     color: var(--text-muted);
-    border: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
     padding: 6px 0;
+    min-height: 32px;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
     font-family: var(--font-mono);
   }
+  .recent-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .recent-btn:hover { color: var(--text); background: var(--bg-hover); }
   .recent-btn.yes:hover, .recent-btn.yes.active { background: rgba(76, 175, 80, 0.18); color: #6dd07a; }
   .recent-btn.no:hover, .recent-btn.no.active { background: rgba(244, 67, 54, 0.18); color: #e57373; }
@@ -693,6 +733,23 @@
     .stats-ribbon { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stat-card .val { font-size: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
+
+  /* Explore panel links */
+  .qlinks { display: grid; gap: 10px; font-size: 14px; }
+  .qlink {
+    display: block; padding: 10px 14px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .qlink:hover, .qlink:focus-visible { background: var(--bg-hover); border-color: var(--border-strong); }
+  .qlink-sub { display: block; color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+  .workbench { margin-top: 14px; }
+  .workbench summary { cursor: pointer; color: var(--text-dim); font-size: 12px; font-family: var(--font-mono); }
+  .workbench summary:hover { color: var(--text-muted); }
+
+  /* Model Lab system line — the engineering numbers, where engineers look */
+  .lab-system { margin-top: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
   .stat-card {
     padding: 14px 16px;
     background: var(--bg-card); border: 1px solid var(--border);
@@ -847,22 +904,25 @@
 
 <div class="shell">
 
+  <!-- Bird-first ribbon: what the yard actually did (engineering numbers
+       live in the Model Lab's system line). Fed by /api/today-summary;
+       overnight it shows the newest day with data, labeled honestly. -->
   <div class="stats-ribbon">
     <div class="stat-card">
-      <div class="label">Classifier</div>
-      <div class="val" id="stat-cls">aiy_onnx</div>
+      <div class="label" id="rib-species-label">Species today</div>
+      <div class="val" id="rib-species">—</div>
     </div>
     <div class="stat-card">
-      <div class="label">Detector FPS</div>
-      <div class="val" id="stat-fps">—</div>
+      <div class="label" id="rib-sightings-label">Sightings today</div>
+      <div class="val" id="rib-sightings">—</div>
     </div>
     <div class="stat-card">
-      <div class="label">Active tracks</div>
-      <div class="val" id="stat-tracks">0</div>
+      <div class="label">Last seen</div>
+      <div class="val" id="rib-lastseen">—</div>
     </div>
     <div class="stat-card">
-      <div class="label">Tunnel</div>
-      <div class="val" id="stat-tunnel">pi5.vivessato.com</div>
+      <div class="label" id="rib-heard-label">Heard today</div>
+      <div class="val" id="rib-heard">—</div>
     </div>
   </div>
 
@@ -873,7 +933,7 @@
         <span class="live-dot" id="live-dot"></span>
         <span id="live-status">connecting…</span>
         <span style="color: var(--text-dim)">·</span>
-        <span>Hailo YOLOv8s · AIY</span>
+        <span id="live-meta-cam" title="Hailo YOLOv8s detector · AIY Birds classifier">Feeder cam</span>
       </div>
     </div>
     <div class="live-stage" id="live-stage">
@@ -884,11 +944,14 @@
            playout on the camera's 90 kHz clock). See setupLiveView(). -->
       <video-stream id="live-video" class="live-video" mode="webrtc,mse"></video-stream>
       <div class="live-labels" id="live-labels"></div>
-      <div class="live-empty" id="live-empty">No birds in frame.</div>
+      <div class="live-empty" id="live-empty"><span>Watching for birds…</span></div>
       <div class="sync-diag" id="sync-diag"></div>
-      <button class="overlay-toggle" id="overlay-toggle" type="button">Labels</button>
-      <button class="overlay-toggle" id="latency-toggle" type="button"
-              title="Smooth: video delayed ~0.8s so labels ride each frame exactly. Realtime: minimum delay, labels may trail fast birds.">Smooth</button>
+      <div class="overlay-toggles">
+        <button class="overlay-toggle" id="latency-toggle" type="button"
+                title="Smooth: video delayed ~0.8s so labels ride each frame exactly. Realtime: minimum delay, labels may trail fast birds.">Smooth</button>
+        <button class="overlay-toggle" id="overlay-toggle" type="button"
+                title="Show or hide the species labels drawn over the video">Labels</button>
+      </div>
       <div class="live-ctrls" id="live-ctrls">
         <button class="live-ctrl" id="live-unmute" type="button" title="Toggle sound">🔇 Sound</button>
         <button class="live-ctrl" id="live-fullscreen" type="button" title="Fullscreen">⛶ Full</button>
@@ -901,20 +964,21 @@
     <div>
       <div class="panel">
         <h2>Recent classifications</h2>
-        <div class="sub">Click ✓ or ✗ on each card to mark the species — accuracy tracked per classifier.</div>
+        <div class="sub">Tap ✓ if the name is right, ✗ if it's wrong — every answer sharpens the brain. Tap a species name for its field notes.</div>
         <div class="recent-stats" id="recent-stats" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; min-height: 16px;">Loading review stats…</div>
         <div class="recent-grid" id="recent-grid">
           <div style="padding: 18px; color: var(--text-muted); text-align: center; font-family: var(--font-mono); font-size: 12px;">Loading…</div>
         </div>
         <div class="recent-pager" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
           <span id="recent-count">Showing 0</span>
+          <span class="kbd-hint">⌨ ← → select · Y correct · N wrong · T trash · Z undo · Esc done</span>
           <button id="recent-more" type="button" style="background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 18px; font-family: inherit; font-size: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;">Load older →</button>
         </div>
       </div>
 
       <div class="panel">
         <h2>Audio</h2>
-        <div class="sub">BirdNET on the feeder mic — today's rhythm, and the last few voices. <a href="/audio" style="color: var(--accent);">full audio browser →</a></div>
+        <div class="sub">What the feeder mic heard — <span id="audio-day-word">today</span>'s rhythm, and the last few voices. <a href="/audio" style="color: var(--accent);">every call, with clips →</a></div>
         <div class="audio-chart" id="audio-chart">
           <div class="heard-strip" id="heard-strip"></div>
           <div class="heard-ticks"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div>
@@ -927,7 +991,7 @@
     <div>
       <div class="panel">
         <h2>Model Lab</h2>
-        <div class="sub">Each classifies the YOLOv8s-detected bird crop. The active one drives live labels.</div>
+        <div class="sub">The brains that name each bird — the active one powers the live labels. Tap ⓘ for the full story.</div>
         <div class="switch-banner" id="switch-banner">
           <span id="switch-msg">Restarting pipeline</span><span class="dots"></span>
         </div>
@@ -939,21 +1003,29 @@
 
         <div class="test-area" id="test-area">
           <div style="font-weight: 600; margin-bottom: 4px;">Test the active classifier</div>
-          <div>Drop a JPEG, or click to pick.</div>
+          <div>Drop a bird photo here, or tap to pick one.</div>
           <input type="file" id="test-file" accept="image/*">
         </div>
         <div class="predictions" id="predictions"></div>
+        <div class="lab-system" id="lab-system" title="live engineering numbers">—</div>
       </div>
 
       <div class="panel">
-        <h2>Quick links</h2>
-        <div class="sub">Other dashboard surfaces.</div>
-        <div style="display: grid; gap: 10px; font-family: var(--font-mono); font-size: 13px;">
-          <a href="/work" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">📋 /work — the revamp log</a>
-          <a href="/ideas" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">💡 /ideas — UX proposals</a>
-          <a href="/review-ideas" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">🎮 /review-ideas — gamified review mockup</a>
-          <a href="/api/pipeline/health" style="padding: 10px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);">❤️ /api/pipeline/health — raw stats</a>
+        <h2>Explore</h2>
+        <div class="sub">More of the observatory.</div>
+        <div class="qlinks">
+          <a class="qlink" href="/audio">🎧 Today's Chorus <span class="qlink-sub">every call the mic heard, with clips</span></a>
+          <a class="qlink" href="/book/The%20Backyard%20Observatory%20%E2%80%94%20Pi.html">📖 The Pi Book <span class="qlink-sub">how the whole observatory works</span></a>
+          <a class="qlink" href="/ideas">💡 Ideas gallery <span class="qlink-sub">design proposals, live mockups</span></a>
         </div>
+        <details class="workbench">
+          <summary>Workbench — engineering pages</summary>
+          <div class="qlinks" style="margin-top: 10px;">
+            <a class="qlink" href="/work">📋 Revamp log</a>
+            <a class="qlink" href="/review-ideas">🎮 Review-game mockup</a>
+            <a class="qlink" href="/api/pipeline/health">❤️ Pipeline health (raw JSON)</a>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -972,13 +1044,22 @@
 <div class="toast-layer" id="toasts"></div>
 
 <div class="foot">
-  <span>Vives Observatory · Pi 5 + Hailo-8L · served from pi5.vivessato.com</span>
-  <span id="foot-build">Built 2026-04-24 overnight</span>
+  <span>Vives Observatory · Pi 5 + Hailo-8L · pi5.vivessato.com</span>
+  <span id="foot-build"></span>
 </div>
 
 <script>
 (function(){
   'use strict';
+
+  // go2rtc's video-stream.js races its own MSE teardown on reload and throws
+  // a benign "SourceBuffer has been removed" — swallow exactly that one so
+  // the console stays clean enough that real errors stand out.
+  window.addEventListener('error', (e) => {
+    if (String(e.message || '').includes("'buffered' property from 'SourceBuffer'")) {
+      e.preventDefault();
+    }
+  });
 
   // ── Theme picker ──────────────────────────────────────────────────
   const picker = document.querySelectorAll('.theme-btn');
@@ -1035,10 +1116,29 @@
     });
   }
 
+  // "7:53 PM", "yesterday 7:53 PM", or "Jul 5 7:53 PM" — friendly 12-hour,
+  // with a day cue so cards viewed after midnight can't masquerade as today's.
+  function fmtCardTime(iso) {
+    const m = String(iso || '').match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
+    if (!m) return String(iso || '').slice(11, 16);
+    let h = parseInt(m[2], 10);
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    const t = `${h}:${m[3]} ${ap}`;
+    const pad = (n) => String(n).padStart(2, '0');
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    if (m[1] === today) return t;
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    const yest = `${y.getFullYear()}-${pad(y.getMonth() + 1)}-${pad(y.getDate())}`;
+    if (m[1] === yest) return `yesterday ${t}`;
+    const d = new Date(m[1] + 'T12:00:00');
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ` ${t}`;
+  }
+
   function recentCardHTML(it) {
     const sp = it.species || '—';
     const conf = Math.round((it.confidence || 0) * 100);
-    const ts = (it.source_timestamp || '').slice(11, 19); // HH:MM:SS
+    const ts = fmtCardTime(it.source_timestamp);
     const verdict = it.verdict || '';
     const yesActive = verdict === 'yes' ? ' active' : '';
     const noActive  = verdict === 'no'  ? ' active' : '';
@@ -1050,7 +1150,7 @@
           <img src="/bird-api/image-crop/${fileEnc}" loading="lazy" alt="${sp}">
         </a>
         <div class="recent-meta">
-          <div class="recent-sp">${sp}</div>
+          <div class="recent-sp" title="field notes on this species">${sp}</div>
           <div class="recent-ts">${ts} · ${conf}%</div>
         </div>
         <div class="recent-verdict">
@@ -1072,6 +1172,13 @@
     'Mourning Dove', 'Chipping Sparrow', 'Song Sparrow', 'Red-bellied Woodpecker',
   ];
   let kbSel = -1;
+  let kbSelFile = null;   // selection is REMEMBERED by file, not index — the
+                          // 10s auto-refresh prepends new cards and re-renders,
+                          // so an index would silently drift to another bird
+  let speciesPool = [...YARD_SPECIES];  // grows with every species the feed shows
+  function addToSpeciesPool(names) {
+    for (const n of names || []) if (n && !speciesPool.includes(n)) speciesPool.push(n);
+  }
   let lastHistoryId = null;
   const prPicker = document.createElement('div');
   prPicker.className = 'pr-picker';
@@ -1087,9 +1194,19 @@
     const cards = kbCards();
     if (!cards.length) return;
     kbSel = Math.max(0, Math.min(i, cards.length - 1));
+    kbSelFile = cards[kbSel].getAttribute('data-file');
     cards.forEach((c, j) => c.classList.toggle('kbd-selected', j === kbSel));
     cards[kbSel].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
+  function kbDeselect() {
+    kbSel = -1; kbSelFile = null;
+    kbCards().forEach(c => c.classList.remove('kbd-selected'));
+  }
+  // Click anywhere outside the strip clears the selection so verdict keys
+  // can't stay invisibly armed.
+  document.addEventListener('click', (e) => {
+    if (kbSelFile && !e.target.closest('.recent-card') && !e.target.closest('.pr-picker')) kbDeselect();
+  });
   async function kbVerdict(file, verdict, correctSpecies) {
     try {
       const resp = await fetch(`/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`, {
@@ -1104,7 +1221,8 @@
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const d = await resp.json();
       lastHistoryId = d.history_id;
-      const card = kbCards()[kbSel];
+      // Mark the card that owns this FILE (never trust an index here).
+      const card = kbCards().find(c => c.getAttribute('data-file') === file);
       if (card) {
         card.classList.remove('verdict-yes', 'verdict-no', 'verdict-other');
         card.classList.add('reviewed',
@@ -1112,7 +1230,9 @@
       }
       loadReviewStats();
       kbSelect(kbSel + 1);
-    } catch (e) { /* transient — card stays unmarked */ }
+    } catch (e) {
+      toast('That review didn\'t save — try again', 'bad');
+    }
   }
   function openPicker(file) {
     pickerFile = file;
@@ -1128,9 +1248,13 @@
   function closePicker() { prPicker.classList.remove('open'); pickerFile = null; }
   function renderPickerOpts(q) {
     const ql = q.toLowerCase();
-    const opts = YARD_SPECIES.filter(s => s.toLowerCase().includes(ql)).slice(0, 8);
+    const opts = speciesPool.filter(s => s.toLowerCase().includes(ql)).sort().slice(0, 8);
+    const freeText = ql && !opts.length
+      ? `<div class="opt free" data-sp="${q.trim()}">＋ record “${q.trim()}”</div>`
+      : '';
     prPickerOpts.innerHTML =
       opts.map((s, i) => `<div class="opt${i === 0 ? ' hl' : ''}" data-sp="${s}">${s}</div>`).join('')
+      + freeText
       + '<div class="opt special" data-sp="__nab__">🚫 Not a bird</div>'
       + '<div class="opt special" data-sp="__trash__">🗑 Trash frame</div>';
     prPickerOpts.querySelectorAll('.opt').forEach(o => o.addEventListener('mousedown', (e) => {
@@ -1143,15 +1267,41 @@
     if (!file) return;
     if (sp === '__nab__') kbVerdict(file, 'not_a_bird');
     else if (sp === '__trash__') kbVerdict(file, 'trash');
-    else kbVerdict(file, 'no', sp);
+    else {
+      // Free-typed species: tidy the capitalization, remember it for next time.
+      const name = speciesPool.includes(sp)
+        ? sp
+        : sp.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+      addToSpeciesPool([name]);
+      kbVerdict(file, 'no', name);
+    }
   }
   prPickerInput.addEventListener('input', () => renderPickerOpts(prPickerInput.value));
   prPickerInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Escape') closePicker();
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // Move the highlight through real options (specials reachable too — but
+      // only ever by deliberate arrow/click, never as an implicit default).
+      const opts = [...prPickerOpts.querySelectorAll('.opt')];
+      if (!opts.length) return;
+      const cur = opts.findIndex(o => o.classList.contains('hl'));
+      const nxt = e.key === 'ArrowDown'
+        ? Math.min(cur + 1, opts.length - 1)
+        : Math.max(cur - 1, 0);
+      opts.forEach((o, i) => o.classList.toggle('hl', i === nxt));
+      e.preventDefault();
+    }
     else if (e.key === 'Enter') {
-      const hl = prPickerOpts.querySelector('.opt.hl') || prPickerOpts.querySelector('.opt');
+      // Enter never falls through to '🚫 Not a bird' — that once corrupted
+      // review data. Highlighted option, else exact species, else free text.
+      const hl = prPickerOpts.querySelector('.opt.hl')
+        || prPickerOpts.querySelector('.opt:not(.special)');
       if (hl) pickOption(hl.dataset.sp);
+      else {
+        const typed = prPickerInput.value.trim();
+        if (typed) pickOption(typed);
+      }
     }
   });
   document.addEventListener('keydown', (e) => {
@@ -1162,14 +1312,19 @@
     const strip = recentGrid.getBoundingClientRect();
     const stripVisible = strip.top < window.innerHeight && strip.bottom > 0;
     if (!stripVisible) return;
-    const file = kbSel >= 0 && cards[kbSel] ? cards[kbSel].getAttribute('data-file') : null;
+    // Verdict keys act ONLY on a visibly selected card, read from the DOM —
+    // never a remembered index that a refresh may have shifted to another bird.
+    const selCard = recentGrid.querySelector('.recent-card.kbd-selected');
+    const file = selCard ? selCard.getAttribute('data-file') : null;
     switch (e.key) {
       case 'ArrowRight': kbSelect(kbSel + 1); e.preventDefault(); break;
       case 'ArrowLeft':  kbSelect(kbSel - 1); e.preventDefault(); break;
+      case 'Escape':     if (file) { kbDeselect(); e.preventDefault(); } break;
       case 'y': case 'Y': if (file) { kbVerdict(file, 'yes'); e.preventDefault(); } break;
       case 'n': case 'N': if (file) { openPicker(file); e.preventDefault(); } break;
       case 't': case 'T': if (file) { kbVerdict(file, 'trash'); e.preventDefault(); } break;
       case ' ':           if (file) { kbVerdict(file, 'skip'); e.preventDefault(); } break;
+        // no selection → Space keeps its browser meaning (scroll)
       case 'z': case 'Z':
         if (lastHistoryId != null) {
           fetch(`/api/pi-review/undo/${lastHistoryId}`, { method: 'POST' })
@@ -1193,19 +1348,34 @@
         return;
       }
       recentGrid.innerHTML = d.items.map(recentCardHTML).join('');
+      addToSpeciesPool(d.items.map(it => it.species));
+      // Re-apply the keyboard selection to the SAME bird (by file) after the
+      // re-render — new cards prepend, so indexes shift under the user.
+      if (kbSelFile) {
+        const idx = d.items.findIndex(it => it.file === kbSelFile);
+        if (idx >= 0) {
+          kbSel = idx;
+          kbCards().forEach((c, j) => c.classList.toggle('kbd-selected', j === idx));
+        } else { kbDeselect(); }
+      }
       if (recentCount) {
         const n = d.items.length;
         const reviewed = d.items.filter(it => it.verdict).length;
-        recentCount.textContent = `Showing ${n} · ${reviewed} reviewed`;
+        recentCount.textContent = `Showing ${n} · ${reviewed} of these reviewed`;
       }
       // If we requested visibleLimit but got fewer, we've hit the end —
       // hide the "Load older" button.
       if (recentMoreBtn) {
         recentMoreBtn.style.display = (d.items.length < visibleLimit) ? 'none' : '';
       }
-      // Wire verdict buttons
+      // Wire verdict buttons + species field-notes cards
       recentGrid.querySelectorAll('.recent-card').forEach((card) => {
         const file = card.getAttribute('data-file');
+        const spEl = card.querySelector('.recent-sp');
+        if (spEl) spEl.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          showSpeciesCard(spEl.textContent.trim());
+        });
         card.querySelectorAll('.recent-btn').forEach((btn) => {
           btn.addEventListener('click', async (e) => {
             e.preventDefault();
@@ -1257,11 +1427,15 @@
         return;
       }
       const overall = Math.round((d.overall_accuracy || 0) * 100);
-      const parts = [`${d.total_reviewed} reviewed · ${overall}% correct overall`];
-      for (const m of (d.by_model || [])) {
-        if (m.total === 0) continue;
-        const acc = Math.round((m.accuracy || 0) * 100);
-        parts.push(`${m.model_source}: ${acc}% (${m.yes}/${m.total})`);
+      const parts = [`${d.total_reviewed} reviewed all-time · ${overall}% correct`];
+      // Per-model breakdown only when there's more than one model to compare —
+      // with a single brain it just repeats the overall number in jargon.
+      const models = (d.by_model || []).filter(m => m.total > 0);
+      if (models.length > 1) {
+        for (const m of models) {
+          const acc = Math.round((m.accuracy || 0) * 100);
+          parts.push(`${modelDisplayNames[m.model_source] || m.model_source}: ${acc}% (${m.yes}/${m.total})`);
+        }
       }
       recentStats.textContent = parts.join(' · ');
     } catch (e) { /* silent — non-critical */ }
@@ -1273,17 +1447,23 @@
   const testFile = document.getElementById('test-file');
   const predictions = document.getElementById('predictions');
   const chipModel = document.getElementById('chip-model');
-  const statCls = document.getElementById('stat-cls');
+  const liveMetaCam = document.getElementById('live-meta-cam');
 
   let currentModel = null;
+  let currentModelDisplay = '—';
+  const modelDisplayNames = {};   // raw id → product name, for every UI surface
 
   async function loadModels() {
     try {
       const r = await fetch('/api/models/list');
       const d = await r.json();
       currentModel = d.current;
-      chipModel.textContent = 'model: ' + (d.current || '—');
-      statCls.textContent = d.current || '—';
+      for (const c of (d.candidates || [])) modelDisplayNames[c.name] = c.display_name || c.name;
+      const active = (d.candidates || []).find(c => c.active);
+      currentModelDisplay = (active && (active.display_name || active.name)) || d.current || '—';
+      chipModel.textContent = 'brain: ' + currentModelDisplay;
+      chipModel.title = 'active classifier: ' + (d.current || '—');
+      if (liveMetaCam) liveMetaCam.title = 'Hailo YOLOv8s detector · ' + currentModelDisplay + ' classifier';
       modelList.innerHTML = '';
       for (const c of d.candidates) {
         const row = document.createElement('div');
@@ -1313,7 +1493,7 @@
         row.innerHTML = `
           <span class="dot"></span>
           <div>
-            <div class="name">${c.name}</div>
+            <div class="name">${c.display_name || c.name}</div>
             <div class="desc">${desc}</div>
           </div>
           ${badge}
@@ -1432,7 +1612,8 @@
     if (e.dataTransfer.files[0]) classifyFile(e.dataTransfer.files[0]);
   });
 
-  // ── Stats poll ────────────────────────────────────────────────────
+  // ── Stats poll — engineering numbers go to the Model Lab system line ──
+  let lastFrames = null, lastFramesAt = 0;
   async function pollStats() {
     try {
       const r = await fetch('/api/pipeline/health');
@@ -1440,13 +1621,68 @@
       const feeder = (d.pipeline && d.pipeline.feeder) || {};
       const det = feeder.detector || {};
       const tr = feeder.tracker || {};
-      const fps = det.yolo_ms_avg ? (1000 / det.yolo_ms_avg).toFixed(1) : '—';
-      document.getElementById('stat-fps').textContent = fps;
-      document.getElementById('stat-tracks').textContent = tr.active_tracks || 0;
+      const cap = feeder.capture || d.capture || {};
+      // Real measured throughput (frames delta / time delta), not the NPU's
+      // theoretical 1000/inference_ms — that overstated by ~3x.
+      const frames = cap.frames_processed;
+      const nowMs = Date.now();
+      let fps = '—';
+      if (typeof frames === 'number') {
+        if (lastFrames !== null && nowMs > lastFramesAt && frames >= lastFrames) {
+          fps = ((frames - lastFrames) / ((nowMs - lastFramesAt) / 1000)).toFixed(1);
+        } else if (d.uptime_s) {
+          fps = (frames / d.uptime_s).toFixed(1);
+        }
+        lastFrames = frames; lastFramesAt = nowMs;
+      } else if (det.yolo_ms_avg) {
+        fps = (1000 / det.yolo_ms_avg).toFixed(1) + ' peak';
+      }
       const up = d.uptime_s || 0;
       const hrs = Math.floor(up / 3600);
       const min = Math.floor((up % 3600) / 60);
-      document.getElementById('chip-uptime').textContent = `uptime: ${hrs}h ${min}m`;
+      document.getElementById('chip-uptime').textContent = `watching ${hrs}h ${min}m`;
+      document.getElementById('chip-uptime').title = 'pipeline process uptime (the Pi itself has been up longer)';
+      // Night: capture pauses by design (solar schedule) — say so instead of
+      // reporting a scary-looking 0.0 fps from frozen counters.
+      const night = !!d.night;
+      const sys = document.getElementById('lab-system');
+      if (sys) sys.textContent = night
+        ? `${currentModel || '—'} · resting until dawn (capture paused) · pipeline up ${hrs}h ${min}m`
+        : `${currentModel || '—'} · ${fps} fps measured · ${tr.active_tracks || 0} tracks · pipeline up ${hrs}h ${min}m`;
+      const emptySpan = document.querySelector('.live-empty span');
+      if (emptySpan) emptySpan.textContent = night
+        ? 'Asleep until dawn — detection resumes with the birds'
+        : 'Watching for birds…';
+    } catch (e) {}
+  }
+
+  // ── Bird-first ribbon — /api/today-summary ───────────────────────
+  function ribTime(iso) {
+    if (!iso) return '—';
+    const m = String(iso).match(/T?(\d{2}):(\d{2})/);
+    if (!m) return '—';
+    let h = parseInt(m[1], 10);
+    const ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m[2]} ${ap}`;
+  }
+  async function pollToday() {
+    try {
+      const r = await fetch('/api/today-summary');
+      const d = await r.json();
+      const blk = d.newest || d.today;
+      const isToday = blk.date === d.server_date;
+      const word = isToday ? 'today' : 'yesterday';
+      document.getElementById('rib-species-label').textContent = `Species ${word}`;
+      document.getElementById('rib-sightings-label').textContent = `Sightings ${word}`;
+      document.getElementById('rib-heard-label').textContent = `Heard ${word}`;
+      document.getElementById('rib-species').textContent = blk.species;
+      document.getElementById('rib-sightings').textContent = blk.sightings.toLocaleString();
+      document.getElementById('rib-lastseen').textContent = ribTime(blk.last_seen);
+      document.getElementById('rib-heard').textContent =
+        blk.heard_calls ? `${blk.heard_calls} calls` : '—';
+      const heardCard = document.getElementById('rib-heard');
+      heardCard.title = blk.heard_species ? `${blk.heard_species} species by ear` : '';
     } catch (e) {}
   }
 
@@ -1458,9 +1694,10 @@
   const infoModalClose = document.getElementById('info-modal-close');
 
   function showInfoModal(c) {
-    infoModalTitle.textContent = c.name;
+    infoModalTitle.textContent = c.display_name || c.name;
     const subBits = [c.description];
     if (c.notes) subBits.push(c.notes);
+    subBits.push(c.name); // the raw id lives here, for the curious
     infoModalSubtitle.textContent = subBits.join(' · ');
     // Render info as paragraphs, plain text, blank lines = paragraph breaks.
     infoModalBody.innerHTML = '';
@@ -1476,6 +1713,38 @@
   function hideInfoModal() {
     infoModal.classList.remove('open');
     infoModal.setAttribute('aria-hidden', 'true');
+  }
+
+  // ── Species field notes — the wiki card (Mission C) ────────────────
+  // Click a species name anywhere on the Recent strip → photo + hand-curated
+  // facts in the same modal the Model Lab uses.
+  let speciesFactsCache = null;
+  async function showSpeciesCard(sp) {
+    if (!sp || sp === '—') return;
+    if (!speciesFactsCache) {
+      try { speciesFactsCache = await (await fetch('/api/species-facts')).json(); }
+      catch (e) { speciesFactsCache = {}; }
+    }
+    const facts = speciesFactsCache[sp];
+    infoModalTitle.textContent = sp;
+    infoModalSubtitle.textContent = Array.isArray(facts) ? 'from the field notes' : '';
+    infoModalBody.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = '/bird-api/species-image/' + encodeURIComponent(sp);
+    img.alt = sp;
+    img.style.cssText = 'width:100%;max-height:260px;object-fit:cover;border-radius:8px;margin-bottom:12px;display:block;';
+    img.onerror = () => img.remove();
+    infoModalBody.appendChild(img);
+    const lines = Array.isArray(facts) && facts.length
+      ? facts
+      : ['No field notes for this one yet — a rare guest!'];
+    for (const f of lines) {
+      const el = document.createElement('p');
+      el.textContent = f;
+      infoModalBody.appendChild(el);
+    }
+    infoModal.classList.add('open');
+    infoModal.setAttribute('aria-hidden', 'false');
   }
   infoModalClose.addEventListener('click', hideInfoModal);
   infoModal.addEventListener('click', (e) => {
@@ -2133,14 +2402,20 @@
       }
 
       emptyEl.classList.toggle('hidden', alive > 0);
-      if (nowMs - lastEventTs > 4000 && lastEventTs > 0) {
-        statusEl.textContent = 'paused (no recent events)';
+      // A quiet feeder is the NORMAL state, not a fault: the pipeline only
+      // emits events while tracks are active, so "no recent events" just
+      // means no birds. Keep the status 'live'; transport loss is reported
+      // by the SSE onerror path, which owns the warning copy.
+      if (nowMs - lastEventTs > 4000 && lastEventTs > 0 &&
+          statusEl.textContent !== 'live') {
+        statusEl.textContent = 'live';
       }
       if (est.state !== 'LOCKED' && lastEventTs > 0 && !uncalWarned) {
-        statusEl.textContent = 'sync: calibrating…';
+        statusEl.textContent = 'syncing…';
         uncalWarned = true;
       } else if (est.state === 'LOCKED' && uncalWarned) {
         uncalWarned = false;
+        statusEl.textContent = 'live';
       }
     }
 
@@ -2483,6 +2758,21 @@
 
   if (demoBtn) {
     demoBtn.addEventListener('click', async () => {
+      // Two-tap arm: this control restarts the pipeline (~10s) and swaps the
+      // video for every open client — a stray tap must not be enough
+      // (house rule since the Green Heron trash incident).
+      if (!demoBtn.classList.contains('armed')) {
+        demoBtn.classList.add('armed');
+        demoLabel.textContent = 'sure?';
+        demoBtn._disarm = setTimeout(() => {
+          demoBtn.classList.remove('armed');
+          demoLabel.textContent = 'demo';
+        }, 3000);
+        return;
+      }
+      clearTimeout(demoBtn._disarm);
+      demoBtn.classList.remove('armed');
+      demoLabel.textContent = 'demo';
       const wasEnabled = demoBtn.classList.contains('demo-on');
       demoBtn.disabled = true;
       // Button label stays "demo"; show the transition on the mode chip.
@@ -2520,9 +2810,19 @@
   // ── Init ──────────────────────────────────────────────────────────
   loadModels();
   pollStats();
+  pollToday();
+  setInterval(pollToday, 60000);
   loadRecent();
   loadReviewStats();
   setupLiveView();
+
+  // Footer stamp: document.lastModified reflects the served file's mtime,
+  // i.e. the last deploy — no hardcoded date to go stale.
+  try {
+    const lm = new Date(document.lastModified);
+    if (!isNaN(lm)) document.getElementById('foot-build').textContent =
+      'Updated ' + lm.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+  } catch (e) {}
 
   // ── Recently Heard (BirdNET on the feeder mic) ──────────────────────
   // Today's 24h rhythm strip (single-hue sequential: accent × opacity) +
@@ -2542,42 +2842,65 @@
       playingBtn = null;
     });
 
-    function todayStr() {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
+    // Server-provided truth for the strip: full-day histogram + the Pi's own
+    // date/hour/timezone. The strip used to bucket the capped `recent` list
+    // (200 rows) and silently dropped whole mornings.
+    let hoursData = null, serverDate = null, serverHour = null, tzOffset = null;
+
     function agoLabel(ts) {
-      // ts = "YYYY-MM-DD HH:MM:SS" localtime
-      const t = new Date(ts.replace(' ', 'T'));
-      if (isNaN(t)) return '';
-      const m = Math.max(0, Math.round((Date.now() - t.getTime()) / 60000));
+      // ts = "YYYY-MM-DD HH:MM:SS" in PI-local time. Convert to a real epoch
+      // via the server's tz offset so viewers in other timezones read true
+      // "Xh ago" values, then diff against the viewer's clock.
+      const m5 = String(ts).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+      if (!m5) return '';
+      let epoch;
+      if (tzOffset !== null) {
+        epoch = Date.UTC(+m5[1], +m5[2] - 1, +m5[3], +m5[4], +m5[5], +(m5[6] || 0))
+              + tzOffset * 60000;
+      } else {
+        const t = new Date(ts.replace(' ', 'T'));
+        if (isNaN(t)) return '';
+        epoch = t.getTime();
+      }
+      const m = Math.max(0, Math.round((Date.now() - epoch) / 60000));
       if (m < 1) return 'now';
       if (m < 60) return m + 'm ago';
       const h = Math.floor(m / 60);
       return h < 24 ? h + 'h ago' : Math.floor(h / 24) + 'd ago';
     }
 
+    function fmt12(h) {
+      const ap = h >= 12 ? ' PM' : ' AM';
+      return (h % 12 || 12) + ap;
+    }
+
     function renderStrip() {
-      // Bucket by the DATA's own day (the newest detection's date string) —
-      // never the browser clock. A remote/headless viewer in another timezone
-      // would otherwise compute a "today" the Pi's rows never match and see a
-      // dead strip (pass-2 bug, found by eyeball).
-      const day = heard.length ? (heard[0].time || '').slice(0, 10) : todayStr();
-      const byHour = new Array(24).fill(0);
-      for (const d of heard) {
-        const ts = d.time || '';
-        if (!ts.startsWith(day)) continue;
-        const h = parseInt(ts.slice(11, 13), 10);
-        if (h >= 0 && h < 24) byHour[h] += 1;
+      if (!hoursData || !hoursData.date) { stripEl.innerHTML = ''; return; }
+      const byHour = hoursData.counts || new Array(24).fill(0);
+      const isToday = hoursData.date === serverDate;
+      // Name the day honestly: "today", "yesterday", or the date itself.
+      const dayWordEl = document.getElementById('audio-day-word');
+      if (dayWordEl) {
+        let word = 'today';
+        if (!isToday) {
+          const d = new Date(hoursData.date + 'T12:00:00');
+          const yest = new Date(); yest.setDate(yest.getDate() - 1);
+          const pad = (n) => String(n).padStart(2, '0');
+          const yestStr = `${yest.getFullYear()}-${pad(yest.getMonth() + 1)}-${pad(yest.getDate())}`;
+          word = hoursData.date === yestStr
+            ? 'yesterday'
+            : d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+        }
+        dayWordEl.textContent = word;
       }
       const max = Math.max(1, ...byHour);
-      const nowH = heard.length
-        ? parseInt((heard[0].time || '').slice(11, 13), 10)   // latest-activity hour
-        : new Date().getHours();
       stripEl.innerHTML = byHour.map((n, h) => {
         const op = n === 0 ? 0.08 : 0.25 + 0.7 * (n / max);
-        const label = `${h}:00 — ${n} call${n === 1 ? '' : 's'}`;
-        return `<div class="heard-cell${h === nowH ? ' now' : ''}" style="opacity:${op.toFixed(2)}" title="${label}"></div>`;
+        const label = `${fmt12(h)} — ${n} call${n === 1 ? '' : 's'}`;
+        // The "now" ring marks the ACTUAL current hour, and only on a strip
+        // that is actually showing today.
+        const isNow = isToday && h === serverHour;
+        return `<div class="heard-cell${isNow ? ' now' : ''}" style="opacity:${op.toFixed(2)}" title="${label}"></div>`;
       }).join('');
     }
 
@@ -2625,6 +2948,10 @@
         const d = await r.json();
         heard.length = 0;
         for (const it of (d.recent || [])) heard.push(it);
+        hoursData = d.hours || null;
+        serverDate = d.server_date || null;
+        serverHour = (typeof d.server_hour === 'number') ? d.server_hour : null;
+        tzOffset = (typeof d.tz_offset === 'number') ? d.tz_offset : null;
         render();
       } catch (e) { /* analyzer may be starting; keep quiet */ }
     }
@@ -2648,7 +2975,19 @@
               changed = true;
             }
           }
-          if (changed) { heard.length = Math.min(heard.length, 200); render(); }
+          if (changed) {
+            heard.length = Math.min(heard.length, 200);
+            // Keep the strip live too: count fresh calls into their hour, or
+            // re-pull the summary when a new day has started.
+            const newest = heard[0] && heard[0].time || '';
+            if (hoursData && newest.startsWith(hoursData.date)) {
+              const h = parseInt(newest.slice(11, 13), 10);
+              if (h >= 0 && h < 24 && hoursData.counts) hoursData.counts[h] += 1;
+            } else {
+              refresh();
+            }
+            render();
+          }
         } catch (err) { /* tolerate */ }
       };
     } catch (e) { /* SSE unavailable — poll still works */ }

@@ -171,13 +171,32 @@
   @media (max-width: 600px) {
     body { padding: 16px; }
     .header h1 { font-size: 1.5rem; }
+    .header img[alt] { height: 52px !important; width: 52px !important; } /* mascots yield to the title on phones */
     .card-photo { width: 42px; height: 42px; }
     .card-clips { padding-left: 68px; }
+    .card-species { font-size: 0.9rem; }
+    .card-sub span, .card-species + div span { white-space: nowrap; } /* no orphaned "PM" lines */
   }
+  .back-link {
+    display: inline-block; color: var(--text-dim); font-size: 0.8rem;
+    text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase;
+    margin-bottom: 4px; transition: color 0.15s;
+  }
+  .back-link:hover, .back-link:focus-visible { color: var(--gold); }
+  /* Keyboard + touch accessibility */
+  .sort-btn:focus-visible, .card-play:focus-visible, .clip-play:focus-visible,
+  .clip-trash:focus-visible, .card-main:focus-visible, select:focus-visible {
+    outline: 2px solid var(--gold); outline-offset: 2px;
+  }
+  @media (hover: none) {
+    .clip-trash { opacity: 0.55; } /* no hover on touch — the control must be visible */
+  }
+  .clips-more { font-size: 0.72rem; color: var(--text-dim); padding: 8px 0 2px; font-style: italic; }
 </style>
 </head>
 <body>
 <div class="container">
+  <a href="/" class="back-link">← Dashboard</a>
   <div class="header">
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;">
       <a href="/game" target="_top" title="Name That Call" aria-label="Name That Call"
@@ -231,21 +250,28 @@
   var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+  // LOCAL date string — never toISOString(), which is UTC and relabeled the
+  // ongoing day "Yesterday" every evening from 8 PM to midnight (UTC-4).
+  function localDateStr(d) {
+    return d.getFullYear() + '-'
+      + String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+  }
   function formatDateLabel(dateStr) {
     if (dateStr === 'all') return 'All Time';
     var d = new Date(dateStr + 'T12:00:00');
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var todayStr = localDateStr(new Date());
     var y = new Date(); y.setDate(y.getDate() - 1);
     if (dateStr === todayStr) return 'Today, ' + months[d.getMonth()] + ' ' + d.getDate();
-    if (dateStr === y.toISOString().slice(0, 10)) return 'Yesterday, ' + months[d.getMonth()] + ' ' + d.getDate();
+    if (dateStr === localDateStr(y)) return 'Yesterday, ' + months[d.getMonth()] + ' ' + d.getDate();
     return dayNames[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate();
   }
   function formatDateOption(dateStr) {
     var d = new Date(dateStr + 'T12:00:00');
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var todayStr = localDateStr(new Date());
     var y = new Date(); y.setDate(y.getDate() - 1);
     if (dateStr === todayStr) return 'Today';
-    if (dateStr === y.toISOString().slice(0, 10)) return 'Yesterday';
+    if (dateStr === localDateStr(y)) return 'Yesterday';
     return shortMonths[d.getMonth()] + ' ' + d.getDate();
   }
   function formatTime(timeStr) {
@@ -290,6 +316,7 @@
             srcSel.appendChild(o);
           });
           if (names.length > 1) srcSel.style.display = '';
+          window.__multiMic = names.length > 1;  // clip rows show a mic badge only when it distinguishes anything
         })
         .catch(function() { /* keep the filter hidden */ });
       reload();
@@ -312,7 +339,10 @@
     } else {
       var dayData = (summary && summary.by_date) ? summary.by_date[dateVal] : null;
       speciesList = dayData ? dayData.species.map(function(s) {
-        return { species: s.common_name, count: s.count, avgConf: s.avg_confidence, lastSeen: '' };
+        // last_seen is the species' ACTUAL latest detection that day (server-
+        // provided) — previously this fell back to the best clip's time, which
+        // mislabeled "Last heard" by hours and corrupted the Most Recent sort.
+        return { species: s.common_name, count: s.count, avgConf: s.avg_confidence, lastSeen: s.last_seen || '' };
       }) : [];
     }
 
@@ -322,16 +352,18 @@
     }
 
     document.getElementById('stat-species').textContent = speciesList.length;
-    document.getElementById('stat-detections').textContent =
-      speciesList.reduce(function(sum, s) { return sum + s.count; }, 0).toLocaleString();
+    var detTotal = speciesList.reduce(function(sum, s) { return sum + s.count; }, 0);
+    document.getElementById('stat-detections').textContent = detTotal.toLocaleString();
+    document.getElementById('stat-detections').nextElementSibling.textContent =
+      detTotal === 1 ? 'Detection' : 'Detections';
 
-    // Step 2: Get best clip per species.
-    // For "all time" mode, use "since" last 7 days — old clips may be deleted from disk.
+    // Step 2: Get best clip per species. All-time really means all time —
+    // the endpoint already filters to clips that still exist on disk
+    // (has_clip=1), so old species keep their play buttons as long as their
+    // audio survives.
     var clipParams;
     if (dateVal === 'all') {
-      var weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      clipParams = 'since=' + weekAgo.toISOString().slice(0, 10);
+      clipParams = 'since=2020-01-01';
     } else {
       clipParams = 'date=' + dateVal;
     }
@@ -391,15 +423,17 @@
       return;
     }
     list.innerHTML = sorted.map(function(sp, idx) {
-      var confPct = Math.round(sp.bestConf * 100);
+      var confPct = Math.min(99, Math.round(sp.bestConf * 100)); // never claim 100% certainty
       var confCls = confPct >= 80 ? 'high' : confPct >= 50 ? 'med' : 'low';
       var imgUrl = '/bird-api/species-image/' + encodeURIComponent(sp.species);
       var timeStr = sp.lastSeen ? formatTime(sp.lastSeen.split(' ').pop()) : '';
       var playBtn = sp.bestClip
-        ? '<button class="card-play" id="main-' + idx + '" onclick="event.stopPropagation();playSpeciesQueue(' + idx + ')">&#9654;</button>'
+        ? '<button class="card-play" id="main-' + idx + '" aria-label="Play ' + sp.species + ' clips" onclick="event.stopPropagation();playSpeciesQueue(' + idx + ')">&#9654;</button>'
         : '';
       return '<div class="species-card" style="animation-delay:' + (idx * 0.03) + 's">' +
-        '<div class="card-main" onclick="toggleCard(' + idx + ', this)">' +
+        '<div class="card-main" role="button" tabindex="0" aria-label="' + sp.species + ' — open clips"' +
+          ' onclick="toggleCard(' + idx + ', this)"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
           '<img class="card-photo" src="' + imgUrl + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">' +
           playBtn +
           '<div class="card-info"><div class="card-species">' + sp.species + '<div class="card-viz" id="viz-' + idx + '"></div></div>' +
@@ -432,7 +466,7 @@
     var sp = sorted[idx];
     if (!sp) return;
     if (sp.clipsLoaded) {
-      renderClips(idx, sp.clips);
+      renderClips(idx, sp.clips, sp.count);
       return;
     }
 
@@ -446,14 +480,14 @@
         sp.clips = (data.detections || []).filter(function(d) { return d.has_clip; })
           .sort(function(a, b) { return b.confidence - a.confidence; });
         sp.clipsLoaded = true;
-        renderClips(idx, sp.clips);
+        renderClips(idx, sp.clips, sp.count);
       })
       .catch(function() {
         clipsDiv.innerHTML = '<div class="loading-clips">Could not load clips</div>';
       });
   };
 
-  function renderClips(idx, clips) {
+  function renderClips(idx, clips, totalDetections) {
     var div = document.getElementById('clips-' + idx);
     if (!div) return;
     if (clips.length === 0) {
@@ -461,16 +495,22 @@
       return;
     }
     div.innerHTML = clips.map(function(c, ci) {
-      var cPct = Math.round(c.confidence * 100);
+      var cPct = Math.min(99, Math.round(c.confidence * 100));
       var confCls = cPct >= 80 ? 'high' : cPct >= 50 ? 'med' : 'low';
+      // Mic badge only when more than one mic exists — a "feeder" tag on
+      // every row of a one-mic system is noise.
+      var srcBadge = window.__multiMic ? '<span class="clip-source">' + (c.source || '') + '</span>' : '';
       return '<div class="clip-row" id="cliprow-' + idx + '-' + ci + '">' +
-        '<button class="clip-play" id="clip-' + idx + '-' + ci + '" onclick="event.stopPropagation();playClip(\'' + c.clip_name.replace(/'/g, "\\'") + '\',\'clip-' + idx + '-' + ci + '\')">&#9654;</button>' +
+        '<button class="clip-play" id="clip-' + idx + '-' + ci + '" aria-label="Play clip from ' + formatTime(c.time) + '" onclick="event.stopPropagation();playClip(\'' + c.clip_name.replace(/'/g, "\\'") + '\',\'clip-' + idx + '-' + ci + '\')">&#9654;</button>' +
         '<span class="clip-time">' + formatTime(c.time) + '</span>' +
         '<span class="clip-conf">' + cPct + '%</span>' +
-        '<span class="clip-source">' + (c.source || 'ground') + '</span>' +
-        '<button class="clip-trash" id="trash-' + idx + '-' + ci + '" onclick="event.stopPropagation();trashAudioClip(' + c.id + ',\'trash-' + idx + '-' + ci + '\',\'cliprow-' + idx + '-' + ci + '\')" title="Remove bad clip">&#x1F5D1;</button>' +
+        srcBadge +
+        '<button class="clip-trash" id="trash-' + idx + '-' + ci + '" aria-label="Remove this clip" onclick="event.stopPropagation();trashAudioClip(' + c.id + ',\'trash-' + idx + '-' + ci + '\',\'cliprow-' + idx + '-' + ci + '\')" title="Remove bad clip">&#x1F5D1;</button>' +
       '</div>';
-    }).join('');
+    }).join('')
+    + ((totalDetections && totalDetections > clips.length)
+        ? '<div class="clips-more">Showing the best ' + clips.length + ' of ' + totalDetections + ' — the rest live in the archive.</div>'
+        : '');
   }
 
   // ── Crossfade Audio Engine ──
@@ -800,9 +840,12 @@
     initViz();
     if (_vizCtx && _vizCtx.state === 'suspended') _vizCtx.resume();
     var btn = document.getElementById(btnId);
-    // Stop any queue playback
+    // Toggle: pressing the red (playing) button STOPS the clip. The check must
+    // run before stopAll(), which nulls playingClip — the old order made a
+    // playing clip unstoppable (it always restarted).
+    var wasPlaying = (playingClip === clipName);
     stopAll();
-    if (playingClip === clipName) return;
+    if (wasPlaying) return;
 
     document.querySelectorAll('.clip-play.playing').forEach(function(b) { b.classList.remove('playing'); });
     playerA.src = '/bird-api/birdnet-clip-enhanced/' + clipName;

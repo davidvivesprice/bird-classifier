@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b0d11">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0b0d11;
@@ -55,12 +55,19 @@
 
   /* Layout */
   .shell { display: grid; grid-template-columns: 240px 1fr; gap: 48px; max-width: 1240px; margin: 0 auto; padding: 48px; }
-  @media (max-width: 900px) { .shell { grid-template-columns: 1fr; padding: 24px; } .sidenav { position: static; } }
+  .shell > main { min-width: 0; }
 
   .sidenav {
     position: sticky; top: 100px; align-self: start;
     border-left: 1px solid var(--border); padding-left: 20px;
     font-size: 13px;
+  }
+  /* Phone layout — this block must come AFTER the .sidenav rule above,
+     or the position:static override loses by source order. */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; padding: 24px; }
+    .topbar { padding: 14px 24px; flex-wrap: wrap; gap: 8px; }
+    .sidenav { position: static; background: var(--bg); }
   }
   .sidenav .label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
   .sidenav ol { list-style: none; counter-reset: navnum; }
@@ -75,7 +82,7 @@
   /* Hero */
   .hero { margin-bottom: 56px; }
   .hero h1 {
-    font-family: 'Playfair Display', serif; font-weight: 800; font-size: 68px;
+    font-family: 'Playfair Display', serif; font-weight: 800; font-size: clamp(34px, 13vw, 68px);
     line-height: 1.0; letter-spacing: -0.02em; margin-bottom: 16px;
   }
   .hero h1 em {
@@ -119,6 +126,10 @@
   .badge.small { border-color: rgba(88,196,138,0.5); color: var(--emerald); }
   .badge.medium { border-color: rgba(226,179,88,0.5); color: var(--gold); }
   .badge.large { border-color: rgba(208,90,90,0.5); color: var(--cardinal); }
+  @media (max-width: 720px) {
+    .idea-head { grid-template-columns: 60px 1fr; }
+    .idea-badges { grid-column: 2; flex-wrap: wrap; row-gap: 6px; }
+  }
 
   .idea-tagline { font-family: 'Playfair Display', serif; font-style: italic; font-size: 18px; color: var(--text-muted); margin-bottom: 24px; }
   .idea-prose { font-size: 16px; line-height: 1.65; color: var(--text); max-width: 680px; margin-bottom: 28px; }
@@ -134,6 +145,11 @@
     content: "MOCKUP"; position: absolute; top: 12px; right: 16px;
     font-size: 9px; letter-spacing: 0.16em; color: var(--text-dim);
   }
+  /* Wide mockups (fixed grid tracks) scroll inside their own box on
+     narrow screens instead of blowing out the page. */
+  .mockup-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .mockup-scroll > .rhythm, .mockup-scroll > .phenology { min-width: 620px; }
+  .mockup-scroll > .venn { min-width: 520px; }
 
   /* ---- MOCKUP 1: STORY STRIP ---- */
   .story-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -977,9 +993,9 @@
   <main>
 
     <header class="hero">
-      <h1>Eight<br><em>small observatories</em><br>we could become.</h1>
-      <p class="sub">Proposals from today's review of the system. Each one is a specific, buildable idea — not a rewrite. Mockups below are rendered with real typography and motion, not screenshots.</p>
-      <p class="meta">April 17 2026 <span class="dot">·</span> 8 proposals <span class="dot">·</span> Reviewed against the mission</p>
+      <h1>The ideas gallery —<br><em>small observatories</em><br>we could become.</h1>
+      <p class="sub">Proposals from ongoing reviews of the system, collected as they land. Each one is a specific, buildable idea — not a rewrite. Mockups below are rendered with real typography and motion, not screenshots.</p>
+      <p class="meta">April – July 2026 <span class="dot">·</span> <span id="proposal-count">20</span> proposals <span class="dot">·</span> Reviewed against the mission</p>
     </header>
 
     <!-- ============ IDEA 1: STORY STRIP ============ -->
@@ -1275,6 +1291,7 @@
         <p>A single horizontal block that answers "when does which bird show up?" in one glance. Each row is a species; each cell is an hour of the day, colored by that species' visit density at that hour over the last 30 days. Sorted by peak hour — early birds float to the top, dusk feeders to the bottom. Dawn and dusk bands softly tinted. This is the simplest possible visualization that turns a query result into a piece of music.</p>
       </div>
       <div class="mockup-frame">
+        <div class="mockup-scroll">
         <div class="rhythm">
           <div class="rhythm-scale">
             <span class="anchor">Hour of day</span>
@@ -1328,6 +1345,7 @@
           <div class="rhythm-night"></div>
           <div class="rhythm-night-label"><span>dusk</span><span>dawn &nbsp;&nbsp; · &nbsp;&nbsp; day &nbsp;&nbsp; · &nbsp;&nbsp; dusk</span><span>night</span></div>
         </div>
+        </div>
       </div>
       <p class="note">One SQL aggregation: <code>SELECT hour, species, COUNT(*) FROM classifications GROUP BY hour, species</code>. The rest is CSS grid. Updates nightly.</p>
     </section>
@@ -1344,6 +1362,7 @@
         <p>A year as 52 weekly columns, species as rows. Dots where the bird was present that week, bright gold for peak weeks. Year-round residents run as continuous ribbons. Seasonal migrants appear as bands that shrink and grow. Rare visitors show up as lonely specks. This visualization gets <em>more</em> beautiful every year you run the system — multi-year overlays show which winters had the goldfinches and which springs had the warblers. Our 142K row database is already the skeleton.</p>
       </div>
       <div class="mockup-frame">
+        <div class="mockup-scroll">
         <div class="phenology">
           <div class="pheno-months"><span>2026</span><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span></div>
           <div class="pheno-row">
@@ -1437,6 +1456,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
       <p class="note">Gold = peak weeks. Green = present. Dim green = just a few sightings that week. Gaps = not seen. Second year of data doubles as an overlay; third year starts to reveal true rhythms.</p>
     </section>
@@ -1490,6 +1510,7 @@
         <p>The observatory has two sensory systems — cameras and BirdNET audio — and most dashboards would treat one of them as primary. This view makes the gap between them the subject. A Venn diagram of heard-only, seen-only, and both. Heard-only species are usually canopy birds that never land: Wood Thrush, Veery, Great Crested Flycatcher. Seen-only species are often quiet at the feeder: Juncos, Titmice. Both is the confidently-present core. The shape of the Venn tells you what kind of yard you have.</p>
       </div>
       <div class="mockup-frame">
+        <div class="mockup-scroll">
         <div class="venn">
           <div class="venn-stage">
             <div class="venn-label heard">Heard · BirdNET</div>
@@ -1511,6 +1532,7 @@
             <div class="venn-count both"><b>27</b>both</div>
             <div class="venn-count seen-only"><b>8</b>seen only</div>
           </div>
+        </div>
         </div>
       </div>
       <p class="note">The "heard only" column is where the truly wild yard lives — the birds that travel through without ever visiting. Tapping a name in heard-only could offer a "go listen to the clip at the moment of detection" link straight into BirdNET's audio.</p>
@@ -1725,7 +1747,7 @@
 .dt-card .who .cf { font-size: 12px; color: var(--text-dim); }
 .dt-card .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .dt-card .chip { font-size: 11px; color: var(--text-muted); background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
-.dt-keys { display: flex; gap: 10px; margin-top: 14px; justify-content: center; font-size: 12px; color: var(--text-dim); }
+.dt-keys { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; justify-content: center; font-size: 12px; color: var(--text-dim); }
 .dt-keys .k { background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 6px; padding: 2px 9px; font-family: monospace; color: var(--text); }
 .dt-undo { position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%) translateY(8px); background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 16px; font-size: 12px; opacity: 0; transition: all .3s ease; white-space: nowrap; }
 .dt-undo.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -2207,6 +2229,15 @@
 </div>
 
 <script>
+// Keep the hero proposal count honest — count the idea sections at render
+// so it can never go stale again.
+(function () {
+  var el = document.getElementById('proposal-count');
+  if (el) el.textContent = document.querySelectorAll('section.idea').length;
+})();
+</script>
+
+<script>
 (function() {
   const whisper = document.getElementById('fact-whisper');
   const spEl    = document.getElementById('fact-species');
@@ -2220,10 +2251,13 @@
   const INITIAL_DELAY = 3500;   // ms before the first whisper appears on load
   const ROTATE_DELAY  = 22000;  // ms between auto-rotations
   const STORAGE_KEY   = 'observatory.facts.enabled';
+  const DISMISS_KEY   = 'observatory.facts.dismissed'; // sessionStorage — ✕ hides for this session
 
   let facts = [];      // flat list of {species, fact}
   let idx   = 0;
   let enabled = (localStorage.getItem(STORAGE_KEY) !== 'false');
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem(DISMISS_KEY) === 'true'; } catch (e) {}
   let rotateTimer = null;
   let shownCount = 0;
 
@@ -2236,7 +2270,7 @@
   }
 
   function show() {
-    if (!enabled) return;
+    if (!enabled || dismissed) return;
     whisper.classList.add('visible');
     shownCount++;
   }
@@ -2260,7 +2294,7 @@
 
   function scheduleNext() {
     if (rotateTimer) clearTimeout(rotateTimer);
-    if (!enabled) return;
+    if (!enabled || dismissed) return;
     rotateTimer = setTimeout(() => { next(); scheduleNext(); }, ROTATE_DELAY);
   }
 
@@ -2278,6 +2312,11 @@
   toggle.addEventListener('click', () => {
     enabled = !enabled;
     localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      // re-enabling clears a session dismissal
+      dismissed = false;
+      try { sessionStorage.removeItem(DISMISS_KEY); } catch (e) {}
+    }
     applyEnabled();
     if (enabled && facts.length) {
       // give a single fact immediately when re-enabled
@@ -2286,12 +2325,11 @@
   });
 
   closeBtn.addEventListener('click', () => {
+    // ✕ dismisses for the whole session (the 🪶 toggle brings facts back)
     hide();
-    // Brief cooldown after manual dismiss — 45s — then resume rotating
-    if (rotateTimer) clearTimeout(rotateTimer);
-    if (enabled) {
-      rotateTimer = setTimeout(() => { next(); scheduleNext(); }, 45000);
-    }
+    dismissed = true;
+    try { sessionStorage.setItem(DISMISS_KEY, 'true'); } catch (e) {}
+    if (rotateTimer) { clearTimeout(rotateTimer); rotateTimer = null; }
   });
 
   nextBtn.addEventListener('click', () => {

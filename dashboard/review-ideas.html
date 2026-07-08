@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b0d11">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0b0d11;
@@ -35,6 +35,9 @@
     height: 100%; overflow: hidden;
     user-select: none;
   }
+  /* Column layout so the stage takes exactly the space the topbar and
+     mode pills leave over — no hardcoded header height, no overflow. */
+  body { display: flex; flex-direction: column; }
   body::before {
     content: ""; position: fixed; inset: 0; z-index: -1;
     background: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(226,179,88,0.06), transparent 60%);
@@ -49,12 +52,25 @@
     background: rgba(11,13,17,0.82);
     backdrop-filter: blur(12px);
     position: relative; z-index: 10;
+    flex-shrink: 0;
   }
+  .topbar .left { display: flex; align-items: center; gap: 16px; }
   .topbar .brand {
     font-family: 'Playfair Display', serif; font-weight: 700; font-size: 17px;
     letter-spacing: -0.01em;
   }
   .topbar .brand span { color: var(--gold); }
+  .topbar .backlink {
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.04em;
+    text-transform: uppercase; font-weight: 500; text-decoration: none;
+    transition: color 0.15s ease;
+  }
+  .topbar .backlink:hover { color: var(--gold); }
+  @media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+    .session-stats { flex-wrap: wrap; gap: 12px; }
+    .modes { flex-wrap: wrap; padding: 10px 16px; }
+  }
 
   .session-stats { display: flex; gap: 18px; align-items: center; font-size: 13px; }
   .stat { display: flex; align-items: baseline; gap: 6px; color: var(--text-muted); }
@@ -71,6 +87,7 @@
   .modes {
     display: flex; gap: 8px; padding: 12px 28px; border-bottom: 1px solid var(--border);
     background: rgba(20,24,32,0.4);
+    flex-shrink: 0;
   }
   .mode-pill {
     padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,0.04);
@@ -86,7 +103,7 @@
 
   /* ── Main card ─────────────────────────────────────── */
   .stage {
-    position: relative; height: calc(100vh - 112px);
+    position: relative; flex: 1; min-height: 0;
     display: flex; align-items: center; justify-content: center;
     perspective: 1200px;
   }
@@ -285,12 +302,41 @@
   .picker-result:hover, .picker-result.hover {
     background: var(--gold-glow); color: var(--gold);
   }
+
+  /* ── Keyboard help overlay (?) ──────────────────────── */
+  .help-layer {
+    position: fixed; inset: 0; z-index: 60;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(11,13,17,0.7); backdrop-filter: blur(8px);
+  }
+  .help-layer.show { display: flex; animation: fade-in 0.2s ease; }
+  .help-panel {
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    border-radius: 14px; padding: 24px 28px; min-width: 340px; max-width: calc(100vw - 32px);
+  }
+  .help-panel h3 {
+    font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .help-row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 28px;
+    padding: 8px 0; border-top: 1px dashed var(--border);
+    font-size: 13px; color: var(--text-muted);
+  }
+  .help-row .keys { display: flex; gap: 5px; flex-shrink: 0; }
+  .help-hint {
+    margin-top: 14px; font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-dim); text-align: center;
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="brand">Review · <span>gamified mockup</span></div>
+  <div class="left">
+    <a class="backlink" href="/">← dashboard</a>
+    <div class="brand">Review · <span>gamified mockup</span></div>
+  </div>
   <div class="session-stats">
     <div class="stat">Session <span class="val" id="stat-session">0</span><span style="color:var(--text-dim)">/50</span></div>
     <div class="stat">Streak <span class="val fire" id="stat-streak">0</span><span id="stat-fire" style="opacity:0">🔥</span></div>
@@ -359,6 +405,19 @@
     <h3>What's the actual species?</h3>
     <input id="picker-input" type="text" placeholder="Start typing…" autofocus/>
     <div class="picker-results" id="picker-results"></div>
+  </div>
+</div>
+
+<div class="help-layer" id="help">
+  <div class="help-panel">
+    <h3>Keyboard shortcuts</h3>
+    <div class="help-row"><span>Correct — the AI got it right</span><span class="keys"><span class="kbd">Y</span><span class="kbd">Space</span></span></div>
+    <div class="help-row"><span>Wrong — pick the real species</span><span class="keys"><span class="kbd">N</span></span></div>
+    <div class="help-row"><span>Trash — not a bird</span><span class="keys"><span class="kbd">T</span></span></div>
+    <div class="help-row"><span>Skip this one</span><span class="keys"><span class="kbd">S</span></span></div>
+    <div class="help-row"><span>Undo last verdict</span><span class="keys"><span class="kbd">Ctrl/⌘</span><span class="kbd">Z</span></span></div>
+    <div class="help-row"><span>Toggle this help</span><span class="keys"><span class="kbd">?</span></span></div>
+    <div class="help-hint">Esc or click anywhere to close</div>
   </div>
 </div>
 
@@ -614,11 +673,22 @@
     if (e.key === 'Escape') closePicker();
   });
 
+  // ── Help overlay (?) ──────────────────────────────────
+  const help = $('#help');
+  function openHelp(){ help.classList.add('show'); }
+  function closeHelp(){ help.classList.remove('show'); }
+  help.addEventListener('click', closeHelp);
+
   // ── Keyboard shortcuts ────────────────────────────────
   document.addEventListener('keydown', (e) => {
+    if (help.classList.contains('show')) {
+      if (e.key === 'Escape' || e.key === '?') { closeHelp(); e.preventDefault(); }
+      return;
+    }
     if (picker.classList.contains('show')) return;
-    if (animating) return;
     if (e.target.tagName === 'INPUT') return;
+    if (e.key === '?') { openHelp(); e.preventDefault(); return; }
+    if (animating) return;
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'z') { undo(); e.preventDefault(); return; }
     if (k === 'y' || k === ' ') { handleVerdict('correct', ''); e.preventDefault(); }
