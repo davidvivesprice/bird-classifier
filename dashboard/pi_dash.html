@@ -169,6 +169,11 @@
   .book-nav__link--pi { color: var(--accent-green); }
   .book-nav__link--pi:hover { background: rgba(74,222,128,0.08); }
   .book-nav__div { color: var(--border); font-size: 0.7rem; }
+  @media (max-width: 700px) {
+    .topbar { flex-wrap: wrap; row-gap: 8px; padding: 12px 16px; }
+    .book-nav { width: 100%; order: 3; margin-right: 0; }
+    .chips { flex-wrap: wrap; row-gap: 6px; }
+  }
   body[data-theme="observatory"] .topbar,
   body[data-theme="dusk"] .topbar { background: rgba(11,13,17,0.85); }
   body[data-theme="dusk"] .topbar { background: rgba(255,255,255,0.55); }
@@ -684,7 +689,10 @@
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 10px; margin-bottom: 20px;
   }
-  @media (max-width: 600px) { .stats-ribbon { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) {
+    .stats-ribbon { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-card .val { font-size: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
   .stat-card {
     padding: 14px 16px;
     background: var(--bg-card); border: 1px solid var(--border);
@@ -699,6 +707,53 @@
     line-height: 1; margin-top: 6px;
   }
   body[data-theme="minimalist"] .stat-card .val { font-family: var(--font-mono); font-size: 22px; font-weight: 500; }
+
+  /* Recently Heard panel (audio port, pass-1 rebuild 2026-07-08) */
+  .heard-strip {
+    display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px;
+    height: 30px; margin-bottom: 4px;
+  }
+  .heard-cell {
+    border-radius: 2px; background: var(--accent);
+    transition: transform .15s ease;
+  }
+  .heard-cell:hover { transform: scaleY(1.2); }
+  .heard-cell.now { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .heard-ticks {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+    margin-bottom: 12px; padding: 0 1px;
+  }
+  .heard-rows { display: flex; flex-direction: column; }
+  .heard-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 2px; border-top: 1px dashed var(--border);
+  }
+  .heard-row:first-child { border-top: none; }
+  .heard-play {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    border: 1px solid var(--border-strong); background: var(--bg-hover);
+    cursor: pointer; position: relative; padding: 0;
+    transition: border-color .15s ease, transform .1s ease;
+  }
+  .heard-play:hover { border-color: var(--accent); transform: scale(1.08); }
+  .heard-play::before {
+    content: ""; position: absolute; left: 10px; top: 8px;
+    border-left: 8px solid var(--text-muted);
+    border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  }
+  .heard-play.playing { border-color: var(--accent); }
+  .heard-play.playing::before {
+    left: 8px; top: 8px; border: none; width: 3px; height: 10px;
+    background: var(--accent); box-shadow: 6px 0 0 var(--accent);
+  }
+  .heard-play:disabled { opacity: .3; cursor: default; }
+  .heard-row .sp { flex: 1; font-size: 13px; color: var(--text); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .heard-row .meta { font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-dim); flex: none; }
+  .heard-empty { padding: 14px 4px; color: var(--text-muted);
+    font-size: 12px; font-family: var(--font-mono); }
 
   /* Theme picker */
   .theme-picker {
@@ -721,7 +776,8 @@
 
   /* Audio panel */
   .audio-chart {
-    height: 120px;
+    min-height: 120px;   /* grows with the heard-rows list (pass-2 fix:
+                            fixed 120px clipped/overflowed the content) */
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -858,9 +914,11 @@
 
       <div class="panel">
         <h2>Audio</h2>
-        <div class="sub">BirdNET on the feeder mic (Pi-local, 3s windows). Quiet periods leave gaps. <a href="/audio" style="color: var(--accent);">full audio browser →</a></div>
+        <div class="sub">BirdNET on the feeder mic — today's rhythm, and the last few voices. <a href="/audio" style="color: var(--accent);">full audio browser →</a></div>
         <div class="audio-chart" id="audio-chart">
-          <div id="heard-list" style="padding: 8px 12px;">listening…</div>
+          <div class="heard-strip" id="heard-strip"></div>
+          <div class="heard-ticks"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div>
+          <div class="heard-rows" id="heard-list"><div class="heard-empty">listening…</div></div>
         </div>
       </div>
     </div>
@@ -2467,32 +2525,106 @@
   setupLiveView();
 
   // ── Recently Heard (BirdNET on the feeder mic) ──────────────────────
-  // Feeds off the Pi-local analyzer's DB via the existing endpoints:
-  // /api/birdnet-summary (recent list, 60s poll) + /api/birdnet-events
-  // (SSE, live prepend). Renders inside the Audio panel's #heard-list.
+  // Today's 24h rhythm strip (single-hue sequential: accent × opacity) +
+  // the last six voices, each playable (shared <audio>, clips served by
+  // /bird-api/birdnet-clip-enhanced/ — bandpass + loudnorm; raw clips sit
+  // near -57dB and are inaudible). Data: /api/birdnet-summary (60s poll) +
+  // /api/birdnet-events (SSE live prepend).
   (function setupAudioPanel() {
     const list = document.getElementById('heard-list');
-    if (!list) return;
-    const heard = [];   // newest first: {time, common_name, confidence}
-    function render() {
+    const stripEl = document.getElementById('heard-strip');
+    if (!list || !stripEl) return;
+    const heard = [];   // newest first: {species, confidence, time, clip_name}
+    const player = new Audio();
+    let playingBtn = null;
+    player.addEventListener('ended', () => {
+      if (playingBtn) playingBtn.classList.remove('playing');
+      playingBtn = null;
+    });
+
+    function todayStr() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    function agoLabel(ts) {
+      // ts = "YYYY-MM-DD HH:MM:SS" localtime
+      const t = new Date(ts.replace(' ', 'T'));
+      if (isNaN(t)) return '';
+      const m = Math.max(0, Math.round((Date.now() - t.getTime()) / 60000));
+      if (m < 1) return 'now';
+      if (m < 60) return m + 'm ago';
+      const h = Math.floor(m / 60);
+      return h < 24 ? h + 'h ago' : Math.floor(h / 24) + 'd ago';
+    }
+
+    function renderStrip() {
+      // Bucket by the DATA's own day (the newest detection's date string) —
+      // never the browser clock. A remote/headless viewer in another timezone
+      // would otherwise compute a "today" the Pi's rows never match and see a
+      // dead strip (pass-2 bug, found by eyeball).
+      const day = heard.length ? (heard[0].time || '').slice(0, 10) : todayStr();
+      const byHour = new Array(24).fill(0);
+      for (const d of heard) {
+        const ts = d.time || '';
+        if (!ts.startsWith(day)) continue;
+        const h = parseInt(ts.slice(11, 13), 10);
+        if (h >= 0 && h < 24) byHour[h] += 1;
+      }
+      const max = Math.max(1, ...byHour);
+      const nowH = heard.length
+        ? parseInt((heard[0].time || '').slice(11, 13), 10)   // latest-activity hour
+        : new Date().getHours();
+      stripEl.innerHTML = byHour.map((n, h) => {
+        const op = n === 0 ? 0.08 : 0.25 + 0.7 * (n / max);
+        const label = `${h}:00 — ${n} call${n === 1 ? '' : 's'}`;
+        return `<div class="heard-cell${h === nowH ? ' now' : ''}" style="opacity:${op.toFixed(2)}" title="${label}"></div>`;
+      }).join('');
+    }
+
+    function renderRows() {
       if (!heard.length) {
-        list.textContent = 'listening… (no detections yet)';
+        list.innerHTML = '<div class="heard-empty">listening… (no detections yet today)</div>';
         return;
       }
-      list.innerHTML = heard.slice(0, 8).map(d =>
-        `<div style="display:flex; justify-content:space-between; gap:8px; padding:2px 0; font-family:var(--font-mono); font-size:12px;">
-           <span>${d.species || d.common_name || '?'}</span>
-           <span style="opacity:.65">${Math.round((d.confidence || 0) * 100)}% · ${d.time || ''}</span>
-         </div>`).join('');
+      list.innerHTML = heard.slice(0, 6).map((d, i) => {
+        const conf = Math.round((d.confidence || 0) * 100);
+        const canPlay = !!d.clip_name;
+        return `<div class="heard-row">
+            <button class="heard-play" data-i="${i}" ${canPlay ? '' : 'disabled'}
+                    title="${canPlay ? 'play its call' : 'no clip saved'}"></button>
+            <span class="sp">${d.species || '?'}</span>
+            <span class="meta">${agoLabel(d.time || '')} · ${conf}%</span>
+          </div>`;
+      }).join('');
+      list.querySelectorAll('.heard-play:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const d = heard[Number(btn.dataset.i)];
+          if (!d || !d.clip_name) return;
+          if (playingBtn === btn && !player.paused) {
+            player.pause();
+            btn.classList.remove('playing');
+            playingBtn = null;
+            return;
+          }
+          if (playingBtn) playingBtn.classList.remove('playing');
+          player.src = '/bird-api/birdnet-clip-enhanced/' + d.clip_name;
+          player.play().then(() => {
+            btn.classList.add('playing');
+            playingBtn = btn;
+          }).catch(() => { /* clip missing/blocked — leave button idle */ });
+        });
+      });
     }
+
+    function render() { renderStrip(); renderRows(); }
+
     async function refresh() {
       try {
         const r = await fetch('/api/birdnet-summary');
         if (!r.ok) return;
         const d = await r.json();
-        const recent = d.recent || d.recent_detections || [];
         heard.length = 0;
-        for (const it of recent.slice(0, 8)) heard.push(it);
+        for (const it of (d.recent || [])) heard.push(it);
         render();
       } catch (e) { /* analyzer may be starting; keep quiet */ }
     }
@@ -2504,11 +2636,19 @@
         try {
           const d = JSON.parse(e.data);
           const items = Array.isArray(d) ? d : (d.detections || [d]);
+          let changed = false;
           for (const it of items) {
-            if (it && (it.species || it.common_name)) heard.unshift(it);
+            if (it && (it.species || it.common_name)) {
+              heard.unshift({
+                species: it.species || it.common_name,
+                confidence: it.confidence,
+                time: it.time || '',
+                clip_name: it.clip_name || '',
+              });
+              changed = true;
+            }
           }
-          heard.length = Math.min(heard.length, 20);
-          render();
+          if (changed) { heard.length = Math.min(heard.length, 200); render(); }
         } catch (err) { /* tolerate */ }
       };
     } catch (e) { /* SSE unavailable — poll still works */ }

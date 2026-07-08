@@ -162,6 +162,8 @@
   .clip-row:hover .clip-trash { opacity: 1; }
   .clip-trash:hover { background: var(--red); color: #000; opacity: 1; }
   .clip-trash.trashed { color: var(--red); opacity: 0.5; pointer-events: none; }
+  .clip-trash.armed { background: var(--red); color: #000; opacity: 1; animation: trash-pulse 0.8s ease-in-out infinite; }
+  @keyframes trash-pulse { 50% { transform: scale(1.15); } }
 
   .loading, .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); }
   .empty .icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.3; display: block; }
@@ -201,7 +203,9 @@
   <div class="filters">
     <select id="filter-date" onchange="reload()"><option value="all">All Time</option></select>
     <select id="filter-species" onchange="reload()"><option value="">All species</option></select>
-    <select id="filter-source" onchange="reload()"><option value="">All mics</option><option value="ground">Ground</option><option value="magnolia">Magnolia</option></select>
+    <!-- mic options populated from live data; hidden when only one mic exists
+         (Pi port fix: the old hardcoded Ground/Magnolia were iMac-era mics) -->
+    <select id="filter-source" onchange="reload()" style="display:none"><option value="">All mics</option></select>
   </div>
   <div class="sort-bar">
     <button class="sort-btn active" data-sort="confidence" onclick="setSort('confidence')">Best Clips</button>
@@ -261,12 +265,33 @@
         var o = document.createElement('option'); o.value = ds; o.textContent = formatDateOption(ds);
         dateSel.appendChild(o);
       });
+      // "Today's Chorus" should open on TODAY (the newest date), not All Time.
+      if ((data.dates || []).length) dateSel.value = data.dates[0];
       var specSel = document.getElementById('filter-species');
       (data.species || []).sort(function(a, b) { return a.common_name.localeCompare(b.common_name); })
         .forEach(function(sp) {
           var o = document.createElement('option'); o.value = sp.common_name; o.textContent = sp.common_name;
           specSel.appendChild(o);
         });
+      // Mic filter: populate from the data's distinct sources; only show the
+      // control when there is actually a choice to make.
+      fetch('/bird-api/audio-detections?limit=200')
+        .then(function(r) { return r.json(); })
+        .then(function(dd) {
+          var srcs = {};
+          (dd.items || dd.detections || []).forEach(function(it) {
+            if (it.source) srcs[it.source] = true;
+          });
+          var names = Object.keys(srcs).sort();
+          var srcSel = document.getElementById('filter-source');
+          names.forEach(function(s) {
+            var o = document.createElement('option');
+            o.value = s; o.textContent = s.charAt(0).toUpperCase() + s.slice(1) + ' mic';
+            srcSel.appendChild(o);
+          });
+          if (names.length > 1) srcSel.style.display = '';
+        })
+        .catch(function() { /* keep the filter hidden */ });
       reload();
     })
     .catch(function() { reload(); });
@@ -330,8 +355,7 @@
               clipsLoaded: false,
               clips: []
             };
-          })
-          .filter(function(sp) { return sp.bestClip; }); // only show species with playable clips
+          }); // species without a saved clip still render (no play button) — keeps cards consistent with the header counts
         render();
       })
       .catch(function() {
@@ -746,6 +770,20 @@
     var btn = document.getElementById(trashBtnId);
     var row = document.getElementById(rowId);
     if (!btn) return;
+
+    // Two-tap confirm: trashing hides the clip everywhere with no undo, so a
+    // single stray tap must not be enough (one already cost us a Green Heron).
+    if (!btn.classList.contains('armed')) {
+      btn.classList.add('armed');
+      btn.title = 'Tap again to remove';
+      btn._disarm = setTimeout(function() {
+        btn.classList.remove('armed');
+        btn.title = 'Remove bad clip';
+      }, 3000);
+      return;
+    }
+    clearTimeout(btn._disarm);
+    btn.classList.remove('armed');
 
     fetch('/bird-api/game/trash-clip', {
       method: 'POST',
