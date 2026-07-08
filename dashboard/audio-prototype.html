@@ -188,9 +188,19 @@
   .clip-trash:focus-visible, .card-main:focus-visible, select:focus-visible {
     outline: 2px solid var(--gold); outline-offset: 2px;
   }
+  /* The card clips its children (overflow:hidden), so the card-main focus
+     ring must live INSIDE the edge or it's invisible to keyboard users */
+  .card-main:focus-visible { outline-offset: -2px; }
   @media (hover: none) {
     .clip-trash { opacity: 0.55; } /* no hover on touch — the control must be visible */
   }
+  /* 24px glyph, ~40px effective touch target — visual size unchanged */
+  .clip-trash { position: relative; }
+  .clip-trash::after { content: ''; position: absolute; inset: -8px; }
+  /* A red PLAY triangle says "restart"; show a stop square while playing */
+  .clip-play.playing, .card-play.playing { font-size: 0; }
+  .clip-play.playing::before { content: '■'; font-size: 11px; }
+  .card-play.playing::before { content: '■'; font-size: 16px; }
   .clips-more { font-size: 0.72rem; color: var(--text-dim); padding: 8px 0 2px; font-style: italic; }
 </style>
 </head>
@@ -426,7 +436,17 @@
       var confPct = Math.min(99, Math.round(sp.bestConf * 100)); // never claim 100% certainty
       var confCls = confPct >= 80 ? 'high' : confPct >= 50 ? 'med' : 'low';
       var imgUrl = '/bird-api/species-image/' + encodeURIComponent(sp.species);
-      var timeStr = sp.lastSeen ? formatTime(sp.lastSeen.split(' ').pop()) : '';
+      // In All Time view a bare clock time is ambiguous across days — prefix
+      // the short date ("Jul 7, 3:44 PM").
+      var timeStr = '';
+      if (sp.lastSeen) {
+        timeStr = formatTime(sp.lastSeen.split(' ').pop());
+        var dateVal2 = document.getElementById('filter-date').value;
+        var mDate = sp.lastSeen.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (dateVal2 === 'all' && mDate) {
+          timeStr = shortMonths[parseInt(mDate[2], 10) - 1] + ' ' + parseInt(mDate[3], 10) + ', ' + timeStr;
+        }
+      }
       var playBtn = sp.bestClip
         ? '<button class="card-play" id="main-' + idx + '" aria-label="Play ' + sp.species + ' clips" onclick="event.stopPropagation();playSpeciesQueue(' + idx + ')">&#9654;</button>'
         : '';
@@ -623,7 +643,16 @@
       }, 150);
     }
     if (countEl) {
-      countEl.textContent = position + ' of ' + total;
+      // "best" because the queue is the top-confidence slice, not all N detections
+      countEl.textContent = position + ' of ' + total + ' best';
+    }
+    // If the clip list is expanded, spotlight the row that's playing —
+    // queue order === clip-row order (both are the confidence-sorted slice).
+    document.querySelectorAll('.clip-play.playing').forEach(function(b) { b.classList.remove('playing'); });
+    var clipsDiv = document.getElementById('clips-' + cardIdx);
+    if (clipsDiv && clipsDiv.classList.contains('open')) {
+      var rowBtn = document.getElementById('clip-' + cardIdx + '-' + (position - 1));
+      if (rowBtn) rowBtn.classList.add('playing');
     }
   }
 
