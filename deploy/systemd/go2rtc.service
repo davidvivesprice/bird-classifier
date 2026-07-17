@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=bird-alert@%N.service
 Description=go2rtc — RTSP -> WebRTC/MSE/HLS
 # NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target

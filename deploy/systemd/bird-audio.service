@@ -19,6 +19,7 @@
 #   symlink the vendored BirdNET V2.4 model files into
 #   venv/.../birdnetlib/models/analyzer/
 [Unit]
+OnFailure=bird-alert@%N.service
 Description=Bird audio analyzer — BirdNET on the feeder mic
 After=network-online.target go2rtc.service
 Wants=network-online.target

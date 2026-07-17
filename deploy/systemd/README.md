@@ -1,6 +1,8 @@
 # Pi systemd units (source of truth)
 
-Repo copy of everything installed on the Pi. User units live at
+Repo copy of everything installed on the Pi (ad-hoc extras on the box —
+`bird-demo-loop.service`, a `bird-audio.service.d/` nice-level drop-in —
+are not tracked here). User units live at
 `~/.config/systemd/user/` on the Pi; the canary + watchdog layer is
 SYSTEM-level (root) — see below. Updated 2026-07-17 (journald logging,
 alert unit, logrotate, timer fixes).
@@ -21,8 +23,9 @@ journalctl --user -u bird-pipeline -S today          # follow: add -f
 journalctl --user -u bird-dashboard --grep 'ERROR'
 ```
 
-The old flat files under `~/logs/` are legacy (one `.1.gz` archive of each
-was kept when they were rotated on 2026-07-17); `bird-logrotate.timer`
+The old flat files under `~/logs/` are legacy (one `.1.gz` archive of the
+pipeline, dashboard, and go2rtc logs was kept when they were rotated on
+2026-07-17; cloudflared's was still under the 20M threshold); `bird-logrotate.timer`
 keeps anything still appending there bounded.
 
 ## Timer-driven oneshots (user units)
@@ -34,12 +37,14 @@ keeps anything still appending there bounded.
 
 Timers deliberately have **no `Requires=`** — that pulled a service start in
 at every boot when `timers.target` came up, off-schedule. The
-timer→service link is implicit via the unit name.
+timer→service link is implicit via the unit name (the thermal timer names
+its service explicitly via `Unit=`).
 
 ## Failure alerting
 
-`bird-alert@.service` + `bird-alert.sh`: every important unit carries
-`OnFailure=bird-alert@%n.service`. On failure it appends to
+`bird-alert@.service` + `bird-alert.sh`: the pipeline, dashboard, and all
+timer-driven oneshots carry `OnFailure=bird-alert@%N.service` (go2rtc,
+cloudflared, and bird-audio don't yet). On failure it appends to
 `~/logs/unit-failures.log` and rewrites `~/logs/unit-failure-latest.json`
 (machine-readable — dashboard can surface it) and logs via `logger -t bird-alert`.
 
@@ -56,6 +61,7 @@ ssh vives@pi5.local "mkdir -p ~/.config/systemd/user/bird-pipeline.service.d"
 # NOTE: --exclude keeps the SYSTEM canary out of the user manager (its
 # remedies need root and would silently fail there).
 rsync -av --exclude 'service-canary.*' deploy/systemd/*.service deploy/systemd/*.timer vives@pi5.local:.config/systemd/user/
+rsync -av tools/pi5-thermal-watch.service tools/pi5-thermal-watch.timer vives@pi5.local:.config/systemd/user/
 rsync -av deploy/systemd/bird-pipeline.service.d/coredump.conf vives@pi5.local:.config/systemd/user/bird-pipeline.service.d/
 ssh vives@pi5.local "systemctl --user daemon-reload"
 ssh vives@pi5.local "systemctl --user enable --now bird-pipeline bird-dashboard go2rtc cloudflared bird-audio bird-integrity-audit.timer refresh-rtsp.timer bird-logrotate.timer pi5-thermal-watch.timer"

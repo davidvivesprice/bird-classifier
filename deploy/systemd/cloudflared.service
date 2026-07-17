@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=bird-alert@%N.service
 Description=Cloudflare Tunnel for pi5.vivessato.com
 # NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target bird-dashboard.service
