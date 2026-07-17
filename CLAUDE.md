@@ -32,7 +32,7 @@ Build a bird identification system that is **delightful to use, deadly accurate,
 Single 2017 iMac (i5-7400, 8GB RAM). CloudKey Gen 2+ manages two UniFi cameras.
 SQLite is the sole data store (classifications.db for visual, birdnet_local.db for audio, pipeline.db for v3 events).
 
-### Services (7 active + 1 cron)
+### Services (10 launchd units: 6 long-running + 4 scheduled)
 
 | Service | Port | What it does |
 |---------|------|-------------|
@@ -41,20 +41,22 @@ SQLite is the sole data store (classifications.db for visual, birdnet_local.db f
 | dashboard (uvicorn) | 8099 | Serves HTML, proxies SSE/health, REST API for classifications |
 | audio_analyzer | 8098 | BirdNET audio analysis |
 | enhanced_audio | 8096 | Enhanced audio MP3 stream |
-| bird-integrity-audit | — | Periodic data integrity check (StartInterval) |
+| bird-integrity-audit | — | Hourly data integrity check (StartInterval 3600) |
 | cloudflared | — | Tunnel: birds.vivessato.com → :8099, go2rtc.vivessato.com → :1984 |
-| rtsp-sync (cron) | — | Refreshes RTSP tokens daily at 3:10 AM |
+| rtsp-sync (launchd) | — | Refreshes RTSP tokens daily at 3:10 AM (StartCalendarInterval) |
+| bird-pipeline-watchdog (launchd) | — | Every 30 min: pipeline health check + recovery |
+| bird-log-rotate (launchd) | — | Daily at 3:30 AM: rotates bird logs |
 
 ### Detection Pipeline (v3)
 
 Camera → go2rtc (RTSP) → FrameCapture (native substream, 640×360, reads at YOLO rate ~5–7 fps) → MotionGate → BirdDetector (YOLO) → BirdTracker → SmartClassifier (yard model on Coral TPU → AIY fallback) → vote lock (≥3 votes, ≥0.35 conf, ≥60% agreement) → SSE broadcast → dashboard canvas overlay.
 
-Per-camera classifier config: feeder uses yard model (Coral) + AIY fallback, ground uses AIY only.
+Per-camera classifier config: feeder uses yard model (Coral) + AIY fallback (crash-loop breaker auto-degrades to AIY-only via DISABLE_CORAL=1); ground camera detection is currently disabled in CAMERAS_DETECT (would be AIY only).
 
 ### Video Path
 
-- **Local**: Browser → WebRTC direct to go2rtc:1984 (UDP, real-time, smooth)
-- **Remote**: Browser → MSE via wss://go2rtc.vivessato.com (TCP, buffered, auto-fallback)
+- **Local**: Browser → WebRTC via the dashboard's same-origin `/api/ws` go2rtc proxy (UDP media, real-time, smooth)
+- **Remote**: Browser → MSE via the same `/api/ws` proxy on wss://birds.vivessato.com (TCP, buffered; fallback chain webrtc,mse,hls,mp4 — go2rtc.vivessato.com is retired as a client-facing hostname)
 - Labels rendered client-side on canvas overlay, synced via wall-clock time + SSE events
 
 ## Key Rules

@@ -53,7 +53,9 @@ class RTSPStreamManager:
       3. Try preferred stream (low-res)
       4. Switch to fallback camera (high, then low)
       5. Recovery probes while on fallback
-      6. Down — retry full ladder periodically
+      6. Down — every retry re-syncs tokens (rate-limited) and reloads URLs
+         from disk before re-dialing, so a rotated RTSP token can't wedge
+         the loop forever
     """
 
     def __init__(self, service_name, preferred_stream, fallback_stream,
