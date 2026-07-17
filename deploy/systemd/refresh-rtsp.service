@@ -1,11 +1,19 @@
 [Unit]
 Description=Refresh RTSP Token and Restart go2rtc
+# NOTE: network-online.target is a stub in the *user* manager (nothing
+# populates it) — proven by boot-time 'Network is unreachable' failures.
+# The ExecStartPre below is the real wait: it probes the CloudKey for up to
+# 60s so Persistent=true catch-up runs at boot don't fail pointlessly.
 After=network-online.target
 Wants=network-online.target
+OnFailure=bird-alert@%N.service
 
 [Service]
 Type=oneshot
-EnvironmentFile=%h/.bird-observatory-env
+# "-" prefix: don't pre-start-fail on a missing env file — refresh_rtsp.py
+# exits 1 with a clear message instead, which OnFailure turns into an alert.
+EnvironmentFile=-%h/.bird-observatory-env
+ExecStartPre=/bin/sh -c 'n=0; until ping -c1 -W1 192.168.4.9 >/dev/null 2>&1; do n=$$((n+1)); if [ "$$n" -ge 30 ]; then echo "CloudKey wait timed out (60s), proceeding"; break; fi; sleep 2; done; exit 0'
 ExecStart=%h/bird-classifier/venv/bin/python3 %h/bird-classifier/tools/refresh_rtsp.py
 StandardOutput=journal
 StandardError=journal

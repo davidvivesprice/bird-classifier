@@ -1,5 +1,6 @@
 [Unit]
 Description=go2rtc — RTSP -> WebRTC/MSE/HLS
+# NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target
 
 [Service]
@@ -8,8 +9,10 @@ WorkingDirectory=%h/bird-classifier
 ExecStart=/usr/local/bin/go2rtc -config %h/bird-classifier/go2rtc.yaml
 Restart=always
 RestartSec=5
-StandardOutput=append:%h/logs/go2rtc.log
-StandardError=append:%h/logs/go2rtc.log
+# Journald is persistent + capped (SystemMaxUse=500M) — rotation solved.
+# Read with: journalctl --user -u go2rtc -S today
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

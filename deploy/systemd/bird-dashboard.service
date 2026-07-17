@@ -1,6 +1,8 @@
 [Unit]
 Description=Bird dashboard — FastAPI via uvicorn
+# NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target
+OnFailure=bird-alert@%N.service
 
 [Service]
 Type=simple
@@ -10,8 +12,10 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=%h/bird-classifier/venv/bin/uvicorn dashboard.api:app --host 0.0.0.0 --port 8099
 Restart=always
 RestartSec=5
-StandardOutput=append:%h/logs/bird-dashboard.log
-StandardError=append:%h/logs/bird-dashboard.log
+# Journald is persistent + capped (SystemMaxUse=500M) — rotation solved.
+# Read with: journalctl --user -u bird-dashboard -S today
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

@@ -187,8 +187,17 @@ class SnapshotWriter:
         self._thread.start()
         SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    def stop(self):
+    def stop(self, drain_s: float = 3.0):
+        """Stop the worker, first giving it a short window to drain queued
+        snapshots. Captures are stopped before this at shutdown, so the queue
+        only shrinks; without the drain, up to `maxsize` locked-track
+        snapshots (and their classifications.db rows) were silently lost."""
+        deadline = time.monotonic() + max(0.0, drain_s)
+        while not self._q.empty() and time.monotonic() < deadline:
+            time.sleep(0.1)
         self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
 
     def submit(self, camera: str, frame_bgr: np.ndarray, wall_time_ms: float, track,
                frame_bgr_full: Optional[np.ndarray] = None,
@@ -598,9 +607,16 @@ class SnapshotWriter:
             import classifications_db as cdb
             cdb.insert_classification(entry)
         except Exception as e:
-            # Don't leave an orphan JPG around if DB write fails.
+            # Don't leave orphan JPGs around if DB write fails — remove BOTH
+            # the raw snapshot and the annotated copy written above (an
+            # annotated file with no DB row shows up in the annotated tab but
+            # is invisible to the review queue).
             try:
                 out_path.unlink()
+            except Exception:
+                pass
+            try:
+                (ANNOTATED_ROOT / fname).unlink()
             except Exception:
                 pass
             raise

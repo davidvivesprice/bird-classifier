@@ -1,9 +1,11 @@
 [Unit]
-Description=Refresh RTSP at 3:10 AM Daily
-Requires=refresh-rtsp.service
+Description=Refresh RTSP at 3:20 AM Daily (skewed from iMac's 03:10)
+# No Requires= on purpose: Requires= pulled in a service start at every boot
+# (timers.target start), off-schedule — churning go2rtc mid-boot. The
+# timer->service trigger link is implicit via the unit name.
 
 [Timer]
-OnCalendar=*-*-* 03:10:00
+OnCalendar=*-*-* 03:20:00
 Persistent=true
 
 [Install]

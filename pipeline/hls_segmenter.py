@@ -208,6 +208,16 @@ class HlsSegmenter:
         # Persistent state (would be loaded from state.json in production)
         self._seq: int = 0
         self._discontinuity_seq: int = 0
+        # Last muxed PTS (raw ticks) of the previous CLOSED segment. Instance
+        # attribute (not a run_until_eof local) so an epoch reset across an
+        # RTSP reconnect — camera reboot, go2rtc restart — is detected and
+        # marked as a discontinuity: run_forever re-invokes run_until_eof per
+        # session, and a per-call local reset to None silently swallowed the
+        # cross-session comparison, leaving the sidecar's PTS timeline broken
+        # (SnapshotWriter could then match a lock PTS to the WRONG segment).
+        # Also persisted in state.json so the first segment after a process
+        # restart is compared against the previous run's tail.
+        self._prev_seg_last_pts: Optional[int] = None
 
         # In-memory recent segments (sliding window).
         self._segments: list[Segment] = []
@@ -227,8 +237,13 @@ class HlsSegmenter:
         # Restore persisted state from prior run if any.
         self._load_state()
 
-    def stop(self):
+    def stop(self, join_timeout_s: float = 3.0):
+        """Signal stop and wait briefly for the mux thread so the in-flight
+        segment gets closed/renamed instead of being abandoned as .part."""
         self._stop.set()
+        t = getattr(self, "_thread", None)
+        if t is not None and t.is_alive():
+            t.join(timeout=join_timeout_s)
 
     def _seg_name(self, seq: int) -> str:
         return f"{self.seg_prefix}{seq:010d}{self.seg_suffix}"
@@ -264,7 +279,6 @@ class HlsSegmenter:
         current_seg_part: Optional[Path] = None
         current_seg_first_pts: Optional[int] = None
         current_seg_last_pts: Optional[int] = None
-        prev_seg_last_pts: Optional[int] = None
 
         try:
             for packet in in_container.demux(in_stream):
@@ -278,7 +292,7 @@ class HlsSegmenter:
                     if out_container is not None:
                         out_container.close()
                         os.replace(current_seg_part, self.out_dir / current_seg_name)
-                        prev_seg_last_pts = current_seg_last_pts
+                        self._prev_seg_last_pts = current_seg_last_pts
                         self._on_segment_closed(
                             name=current_seg_name,
                             pts_start=current_seg_first_pts * in_stream.time_base,
@@ -287,13 +301,21 @@ class HlsSegmenter:
                         if max_segments is not None and self.stats["segments_written"] >= max_segments:
                             break
 
-                    # Detect discontinuity: keyframe's PTS is less than prior segment's last PTS
-                    if (prev_seg_last_pts is not None
-                            and packet.pts < prev_seg_last_pts):
+                    # Detect discontinuity: keyframe's PTS is less than the
+                    # prior segment's last PTS. _prev_seg_last_pts survives
+                    # run_until_eof calls (and restarts via state.json), so
+                    # this also catches epoch resets across RTSP reconnects.
+                    if (self._prev_seg_last_pts is not None
+                            and packet.pts < self._prev_seg_last_pts):
                         self._discontinuity_seq += 1
+                        # On the first keyframe of a NEW session there is no
+                        # current segment yet — anchor the discontinuity to
+                        # the last closed segment instead.
+                        after_name = current_seg_name or (
+                            self._segments[-1].name if self._segments else "")
                         self._discontinuities.append(Discontinuity(
-                            after=current_seg_name,
-                            old_pts_end=float(prev_seg_last_pts * in_stream.time_base),
+                            after=after_name,
+                            old_pts_end=float(self._prev_seg_last_pts * in_stream.time_base),
                             new_pts_start=float(packet.pts * in_stream.time_base),
                         ))
                         # Mark the NEW segment as a discontinuity boundary
@@ -329,6 +351,7 @@ class HlsSegmenter:
                     out_container.close()
                     if current_seg_part.exists():
                         os.replace(current_seg_part, self.out_dir / current_seg_name)
+                        self._prev_seg_last_pts = current_seg_last_pts
                         self._on_segment_closed(
                             name=current_seg_name,
                             pts_start=current_seg_first_pts * in_stream.time_base,
@@ -353,7 +376,14 @@ class HlsSegmenter:
         self._save_state()
 
     def _save_state(self) -> None:
-        state = {"seq": self._seq, "discontinuity_seq": self._discontinuity_seq}
+        state = {
+            "seq": self._seq,
+            "discontinuity_seq": self._discontinuity_seq,
+            # Raw ticks of the last closed segment's final PTS — lets the
+            # first segment of the NEXT run be discontinuity-checked against
+            # this run's tail.
+            "last_pts_end": self._prev_seg_last_pts,
+        }
         atomic_write_text(self.out_dir / "state.json", json.dumps(state))
 
     def _load_state(self) -> None:
@@ -366,6 +396,8 @@ class HlsSegmenter:
                 state = json.loads(state_path.read_text())
                 self._seq = int(state.get("seq", 0))
                 self._discontinuity_seq = int(state.get("discontinuity_seq", 0))
+                _last = state.get("last_pts_end")
+                self._prev_seg_last_pts = int(_last) if _last is not None else None
                 loaded = True
             except (json.JSONDecodeError, ValueError):
                 log.warning("[%s] state.json corrupt; falling back to disk scan",
@@ -435,6 +467,13 @@ class HlsSegmenter:
 
     def start(self) -> None:
         """Start the segmenter in a daemon thread."""
+        # Sweep stale .part leftovers from a prior unclean shutdown — the
+        # disk pruner only globs *.ts, so an abandoned .part persisted forever.
+        for p in self.out_dir.glob(f"{self.seg_prefix}*{self.seg_suffix}.part"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
         self._thread = threading.Thread(
             target=self.run_forever,
             name=f"hls-segmenter-{self.camera}",

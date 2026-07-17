@@ -1,0 +1,6 @@
+[Unit]
+Description=Failure alert for %i — writes a status file the dashboard can read
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/bird-classifier/deploy/systemd/bird-alert.sh %i

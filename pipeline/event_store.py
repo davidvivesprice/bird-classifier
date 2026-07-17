@@ -71,6 +71,14 @@ class EventStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA wal_autocheckpoint=2000")
+        # DELETEd pages were never returned to the OS (auto_vacuum=NONE), so
+        # pipeline.db grew to its high-water mark forever (observed: 4.3GB of
+        # freelist over ~0.3GB live data). INCREMENTAL + the hourly
+        # incremental_vacuum() call keeps the file near live size. NOTE: on a
+        # pre-existing DB this pragma only takes effect after the next VACUUM
+        # (scheduled separately, during a maintenance pause); until then both
+        # it and incremental_vacuum are harmless no-ops.
+        self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         self.conn.execute(SCHEMA_EVENTS)
         self.conn.execute(SCHEMA_TRACKS)
         for idx in INDEX_STATEMENTS:
@@ -209,6 +217,27 @@ class EventStore:
                 (older_than_ms,),
             )
             self.conn.commit()
+
+    def prune_tracks(self, older_than_ms: int):
+        """Bound pipeline_tracks — it grew forever (324K rows / 84 days by
+        2026-07) because prune_loop only pruned events. classifications.db
+        remains the long-term per-visit record; these rows serve replay/
+        recent-activity queries only."""
+        with self._conn_lock:
+            self.conn.execute(
+                "DELETE FROM pipeline_tracks WHERE end_time < ?",
+                (older_than_ms,),
+            )
+            self.conn.commit()
+
+    def incremental_vacuum(self, pages: int = 1000):
+        """Return up to `pages` freelist pages to the OS (no-op until the DB
+        has been VACUUMed once with auto_vacuum=INCREMENTAL set)."""
+        with self._conn_lock:
+            try:
+                self.conn.execute(f"PRAGMA incremental_vacuum({int(pages)})")
+            except Exception:
+                pass
 
     def daily_checkpoint(self):
         with self._conn_lock:

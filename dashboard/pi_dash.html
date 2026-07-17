@@ -1426,15 +1426,24 @@
                   `/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`,
                   { method: 'DELETE' }
                 );
+                // The old verdict no longer stands — Z must not replay it.
+                lastHistoryId = null;
                 card.classList.remove('reviewed', 'verdict-yes', 'verdict-no');
                 card.querySelectorAll('.recent-btn').forEach(b => b.classList.remove('active'));
               } else {
                 const resp = await fetch(`/api/pi-review/${encodeURIComponent(file)}?mode=${encodeURIComponent(reviewMode)}`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ verdict }),
+                  body: JSON.stringify({
+                    verdict,
+                    client_id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
+                  }),
                 });
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                // Keep Z-undo pointed at the LATEST verdict regardless of
+                // whether it came from keyboard or buttons.
+                const d = await resp.json();
+                if (d && d.history_id != null) lastHistoryId = d.history_id;
                 card.classList.remove('verdict-yes', 'verdict-no');
                 card.classList.add('reviewed', 'verdict-' + verdict);
                 card.querySelectorAll('.recent-btn').forEach(b => b.classList.remove('active'));

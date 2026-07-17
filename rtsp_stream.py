@@ -84,6 +84,7 @@ class RTSPStreamManager:
         self._last_heartbeat = 0
         self._connected_since = None
         self._last_error = None
+        self._down_since = None  # wall-clock start of the current terminal-down episode
 
     # ── URL Loading ──
 
@@ -294,6 +295,16 @@ class RTSPStreamManager:
 
     def _write_health(self, status):
         """Write health status to per-service JSON file."""
+        # Track how long the CURRENT down episode has lasted. The down-retry
+        # loop rewrites this file every interval, so file mtime never goes
+        # stale — the watchdog's down_minutes read was always 0 because this
+        # key was never written, making the exit(1) death policy unreachable
+        # while the retry loop lived (the exact wedge it exists to break).
+        if status == "down":
+            if self._down_since is None:
+                self._down_since = time.time()
+        else:
+            self._down_since = None
         health = {
             "service": self.service_name,
             "stream": self._current_stream,
@@ -304,6 +315,8 @@ class RTSPStreamManager:
             "failures": self._failure_count,
             "level": self._level,
             "last_error": self._last_error,
+            "down_minutes": ((time.time() - self._down_since) / 60.0)
+                            if self._down_since is not None else 0,
         }
         try:
             tmp = self.health_file + ".tmp"

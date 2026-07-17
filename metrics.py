@@ -17,6 +17,7 @@ Usage:
 """
 
 import resource
+import sys
 import threading
 import time
 from collections import deque
@@ -193,8 +194,9 @@ class MetricsRegistry:
 
     def update_resources(self):
         """Refresh rss_mb and uptime gauges from OS."""
-        # macOS ru_maxrss is in bytes
-        rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # ru_maxrss units differ by OS: bytes on macOS, kilobytes on Linux
+        ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_bytes = ru if sys.platform == "darwin" else ru * 1024
         self.gauge("rss_mb").set(round(rss_bytes / 1048576, 1))
         self.gauge("uptime_seconds").set(round(self.uptime_seconds(), 0))
 

@@ -1,7 +1,9 @@
 [Unit]
 Description=Bird Observatory Database Integrity Audit
+# NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target
 Wants=network-online.target
+OnFailure=bird-alert@%N.service
 
 [Service]
 Type=oneshot
@@ -10,6 +12,11 @@ StandardOutput=journal
 StandardError=journal
 Environment="BIRD_DB_DIR=%h/bird-snapshots"
 Environment="DB_MODE=mirror"
+# Batch job on a thermally-constrained box: stay invisible to the live
+# pipeline's CPU and NVMe traffic (history shows 90s-CPU runs on a big DB).
+Nice=15
+IOSchedulingClass=idle
+CPUSchedulingPolicy=batch
 
 [Install]
 WantedBy=default.target

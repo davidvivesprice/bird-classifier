@@ -408,7 +408,7 @@ def _trim_silence(raw_pcm, sample_rate=None, floor_db=-32.0,
 def save_clip(raw_pcm, det):
     """Save a detection's audio as a WAV clip (silence-trimmed at save time).
     Returns relative clip path."""
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     year_month = now.strftime("%Y/%m")
     clip_dir = CLIPS_DIR / year_month
     clip_dir.mkdir(parents=True, exist_ok=True)
@@ -432,20 +432,39 @@ def save_clip(raw_pcm, det):
 
 # ── Clip Cleanup ───────────────────────────────────────────────────────────
 def cleanup_old_clips():
-    """Delete clips older than CLIP_MAX_AGE_DAYS."""
+    """Delete clips older than CLIP_MAX_AGE_DAYS and clear has_clip on
+    their DB rows — the dashboard/game hard-filter on has_clip=1 and build
+    playback URLs from clip_name, so rows pointing at deleted WAVs would
+    serve dead clips forever."""
     if not CLIPS_DIR.exists():
         return
     cutoff = time.time() - CLIP_MAX_AGE_DAYS * 86400
-    removed = 0
+    removed = []
     for wav_file in CLIPS_DIR.rglob("*.wav"):
         try:
             if wav_file.stat().st_mtime < cutoff:
+                rel = str(wav_file.relative_to(CLIPS_DIR))
                 wav_file.unlink()
-                removed += 1
+                removed.append(rel)
         except OSError:
             pass
     if removed:
-        log.info("Cleaned up %d old clips", removed)
+        log.info("Cleaned up %d old clips", len(removed))
+        if _db_conn is not None:
+            try:
+                with _db_lock:
+                    for i in range(0, len(removed), 500):
+                        chunk = removed[i:i + 500]
+                        placeholders = ",".join("?" * len(chunk))
+                        _db_conn.execute(
+                            f"UPDATE notes SET has_clip = 0 "
+                            f"WHERE clip_name IN ({placeholders})",
+                            chunk,
+                        )
+                    _db_conn.commit()
+            except sqlite3.Error as e:
+                log.error("cleanup: failed to clear has_clip on %d rows: %s",
+                          len(removed), e)
     # Remove empty directories
     for dirpath in sorted(CLIPS_DIR.rglob("*"), reverse=True):
         if dirpath.is_dir():
@@ -874,10 +893,21 @@ def _start_down_watchdog():
         return
 
     def _watch():
-        import glob
+        # Only watch the health files owned by THIS run's cameras. A stale
+        # sidecar from a removed/renamed camera (e.g. a leftover
+        # analyzer-ground.json from a pre-port run) must never be able to
+        # kill a healthy process — globbing /tmp for all of them would put
+        # the service into a permanent crash loop if a decommissioned
+        # camera's last written status happened to be 'down'.
+        expected = [
+            f"/tmp/audio-stream-health-analyzer-{cam['name']}.json"
+            for cam in CAMERAS
+        ]
         while True:
             time.sleep(60)
-            for hf in glob.glob("/tmp/audio-stream-health-*.json"):
+            for hf in expected:
+                if not os.path.exists(hf):
+                    continue
                 try:
                     with open(hf) as f:
                         h = json.load(f)

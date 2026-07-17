@@ -111,20 +111,46 @@ def init_db() -> None:
         old_sql = c.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='pi_reviews'"
         ).fetchone()
+        v1_leftover = c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pi_reviews_v1'"
+        ).fetchone()
+        _COPY_V1 = (
+            "INSERT OR IGNORE INTO pi_reviews "
+            "    (file, verdict, correct_species, reviewed_at, "
+            "     source_mode, model_source) "
+            "SELECT file, verdict, '', reviewed_at, "
+            "       COALESCE(source_mode, 'live'), model_source "
+            "FROM pi_reviews_v1"
+        )
         if old_sql and "'not_a_bird'" not in (old_sql["sql"] or ""):
-            c.executescript(
-                "ALTER TABLE pi_reviews RENAME TO pi_reviews_v1;"
-                + _REVIEWS_SCHEMA_V2
-                + """
-                INSERT INTO pi_reviews
-                    (file, verdict, correct_species, reviewed_at,
-                     source_mode, model_source)
-                SELECT file, verdict, '', reviewed_at,
-                       COALESCE(source_mode, 'live'), model_source
-                FROM pi_reviews_v1;
-                DROP TABLE pi_reviews_v1;
-                """
-            )
+            # Rebuild in ONE explicit transaction. executescript autocommits
+            # between statements, so a crash after the RENAME but before the
+            # copy would strand every verdict in pi_reviews_v1 and the next
+            # startup would create an EMPTY cache. SQLite DDL is
+            # transactional, so BEGIN IMMEDIATE ... COMMIT makes the whole
+            # rebuild atomic.
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute("ALTER TABLE pi_reviews RENAME TO pi_reviews_v1")
+                c.execute(_REVIEWS_SCHEMA_V2)
+                c.execute(_COPY_V1)
+                c.execute("DROP TABLE pi_reviews_v1")
+                c.execute("COMMIT")
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
+        elif v1_leftover:
+            # A crash under the old non-atomic migration left rows stranded
+            # in pi_reviews_v1 — resume the copy now, atomically.
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute(_REVIEWS_SCHEMA_V2)
+                c.execute(_COPY_V1)
+                c.execute("DROP TABLE pi_reviews_v1")
+                c.execute("COMMIT")
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
         else:
             c.executescript(_REVIEWS_SCHEMA_V2)
         c.executescript(
@@ -187,8 +213,27 @@ def undo_review(history_id: int):
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="history row not found")
-        if row["verdict"] == "undone":
-            raise HTTPException(status_code=400, detail="cannot undo an undo")
+        if row["verdict"] in ("undone", "cleared"):
+            raise HTTPException(status_code=400, detail="cannot undo an undo/clear")
+        # Clobber guard: undo must target the file's LATEST standing verdict.
+        # Undoing an older row would silently overwrite whatever verdict came
+        # after it (e.g. keyboard-yes then button-no, then Z on the yes row).
+        # A newer verdict that was itself already undone doesn't count.
+        newer = c.execute(
+            "SELECT h.id FROM pi_review_history h "
+            "WHERE h.file = ? AND h.id > ? "
+            "  AND h.verdict NOT IN ('undone', 'cleared') "
+            "  AND NOT EXISTS (SELECT 1 FROM pi_review_history u "
+            "                  WHERE u.verdict = 'undone' AND u.prev_row_id = h.id) "
+            "ORDER BY h.id DESC LIMIT 1",
+            (row["file"], history_id),
+        ).fetchone()
+        if newer is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"a newer verdict (history id {newer['id']}) exists for "
+                       "this file — undo that one instead",
+            )
         prior = c.execute(
             "SELECT * FROM pi_review_history "
             "WHERE file = ? AND id < ? AND verdict != 'undone' "
@@ -203,7 +248,7 @@ def undo_review(history_id: int):
             (row["file"], row["source_mode"], row["model_source"],
              history_id, _now_iso()),
         )
-        if prior is not None:
+        if prior is not None and prior["verdict"] != "cleared":
             _upsert_cache(c, row["file"], prior["verdict"],
                           prior["correct_species"], prior["source_mode"],
                           prior["model_source"])
@@ -231,6 +276,7 @@ def review_queue(limit: int = 20, cursor: int | None = None, mode: str = "live")
             "SELECT file FROM pi_reviews WHERE source_mode = ?", (source_mode,))}
     items = []
     last_id = None
+    scanned = 0
     try:
         with sqlite3.connect(str(cls_path), timeout=2.0) as cc:
             cc.row_factory = sqlite3.Row
@@ -244,6 +290,7 @@ def review_queue(limit: int = 20, cursor: int | None = None, mode: str = "live")
             q += "ORDER BY id DESC LIMIT ?"
             args.append(limit * 3)          # oversample; reviewed rows filtered out
             for r in cc.execute(q, args):
+                scanned += 1
                 last_id = r["id"]
                 if r["file"] in reviewed:
                     continue
@@ -253,7 +300,12 @@ def review_queue(limit: int = 20, cursor: int | None = None, mode: str = "live")
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"classifications.db: {e}")
     _enrich_also_heard(items)
-    next_cursor = items[-1]["id"] if len(items) >= limit else last_id if items else None
+    # Keep paging whenever the scan window was exhausted, even if every
+    # scanned row was already reviewed (items empty) — otherwise a fully
+    # reviewed window dead-ends the queue while older unreviewed rows exist.
+    # None only when the SQL itself ran out of rows.
+    next_cursor = (items[-1]["id"] if len(items) >= limit
+                   else last_id if scanned >= limit * 3 else None)
     return {"items": items, "next_cursor": next_cursor, "mode": source_mode}
 
 
@@ -342,16 +394,29 @@ def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
 
 @router.delete("/{filename}")
 def clear_verdict(filename: str, mode: str = "live"):
-    """Undo — drop the verdict row entirely. The next review-state
-    fetch will treat the file as unreviewed again."""
+    """Toggle a verdict off. Appends a 'cleared' history row (the audit
+    trail stays append-only — provenance survives) and drops the cache row
+    so the file reads as unreviewed again."""
     source_mode = _normalize_mode(mode)
     with _lock, _conn() as c:
         cur = c.execute(
             "DELETE FROM pi_reviews WHERE file = ? AND source_mode = ?",
             (filename, source_mode),
         )
-        c.commit()
         deleted = cur.rowcount
+        if deleted:
+            prev = c.execute(
+                "SELECT id FROM pi_review_history WHERE file = ? "
+                "ORDER BY id DESC LIMIT 1", (filename,),
+            ).fetchone()
+            c.execute(
+                "INSERT INTO pi_review_history "
+                "(file, verdict, correct_species, source_mode, model_source, "
+                " client_id, prev_row_id, created_at) "
+                "VALUES (?, 'cleared', '', ?, NULL, NULL, ?, ?)",
+                (filename, source_mode, prev["id"] if prev else None, _now_iso()),
+            )
+        c.commit()
     return {"ok": True, "file": filename, "source_mode": source_mode, "deleted": deleted}
 
 

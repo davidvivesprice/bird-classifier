@@ -473,7 +473,7 @@
 
     if (gameMode === 'play') {
       fetch('/bird-api/game/answer',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({round_id:roundData.round_id,question_index:questionIdx,chosen_species:chosen,is_correct:isCorrect})}).catch(function(){});
+        body:JSON.stringify({player_name:playerName,round_id:roundData.round_id,question_index:questionIdx,chosen_species:chosen,is_correct:isCorrect})}).catch(function(){});
     }
 
     questionIdx++;
@@ -502,7 +502,7 @@
     var mlabel = document.getElementById('missed-label');
     if (!missed.length) { mlabel.textContent='Perfect round!'; ml.innerHTML=''; }
     else { mlabel.textContent='Species to practice:'; ml.innerHTML=missed.map(function(m){return '<div class="missed-item"><img src="/bird-api/species-image/'+encodeURIComponent(m.correct_species)+'" alt=""><div><div>'+m.correct_species+'</div><div class="you-said">You said: '+m.chosen_species+'</div></div></div>'}).join(''); }
-    if (gameMode==='play') { fetch('/bird-api/game/finish-round',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({round_id:roundData.round_id,score:correct,best_streak:bestStreak})}).catch(function(){}); }
+    if (gameMode==='play') { fetch('/bird-api/game/finish-round',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player_name:playerName,round_id:roundData.round_id,score:correct,best_streak:bestStreak})}).catch(function(){}); }
     showScreen('screen-summary');
   }
 

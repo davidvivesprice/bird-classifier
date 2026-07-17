@@ -1,0 +1,10 @@
+[Unit]
+Description=Rotate bird observatory flat logs (user-space logrotate)
+OnFailure=bird-alert@%N.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/mkdir -p %h/.local/state
+ExecStart=/usr/sbin/logrotate --state %h/.local/state/bird-logrotate.state %h/bird-classifier/deploy/systemd/bird-logrotate.conf
+Nice=15
+IOSchedulingClass=idle

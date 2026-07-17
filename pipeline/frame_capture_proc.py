@@ -68,12 +68,22 @@ RESPAWN_BACKOFF_S = 1.0
 META_F64 = 6
 # detections per slot: (MAX_DETS, 5) float32 = [x1, y1, x2, y2, confidence]
 MAX_DETS = 16
+# ctr layout (int64): [0] = write counter (child), [1] = idle flag (parent).
+CTR_I64 = 2
+# Idle-scan cadence (r4 thermal lever): when the parent reports no active
+# tracks, the child still decodes every frame (H.264 needs it) but runs
+# conversion + Hailo detection + ring publish only every Nth frame — the
+# effective scan rate drops 30fps -> ~15fps at the default stride of 2.
+# >99.9% of daylight frames are empty, so this halves the dominant heat
+# source for most of the day; the instant a detection produces an active
+# track the parent flips the flag and full rate resumes on the next frame.
+IDLE_STRIDE = max(1, int(os.environ.get("PIPELINE_IDLE_STRIDE", "2")))
 
 
 def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
                 ctr_name: str, det_name: str, width: int, height: int,
                 hef_path: Optional[str], det_confidence: float,
-                stop_ev, err_q) -> None:
+                stop_ev, err_q, idle_stride: int = 1) -> None:
     """Decode (+ optionally Hailo-detect) loop, in the child process.
     Everything libav AND everything libhailort lives here."""
     # The av_log guard is proven NOT to stop the SEGV, but it still silences
@@ -87,13 +97,19 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
         from pipeline.hailo_detector import HailoDetector
         detector = HailoDetector(hef_path=hef_path, confidence=det_confidence)
 
-    shm = shared_memory.SharedMemory(name=shm_name)
-    msh = shared_memory.SharedMemory(name=meta_name)
-    csh = shared_memory.SharedMemory(name=ctr_name)
-    dsh = shared_memory.SharedMemory(name=det_name)
+    # track=False: the parent owns (and unlinks) the segments. Without it,
+    # Python 3.13's per-process resource tracker also registers them in the
+    # child and complains/unlinks at child exit — noisy at best, racy at
+    # worst. (kwarg exists only on 3.13+; Pi runs 3.13, dev Macs may not.)
+    import sys as _sys
+    _attach = ({"track": False} if _sys.version_info >= (3, 13) else {})
+    shm = shared_memory.SharedMemory(name=shm_name, **_attach)
+    msh = shared_memory.SharedMemory(name=meta_name, **_attach)
+    csh = shared_memory.SharedMemory(name=ctr_name, **_attach)
+    dsh = shared_memory.SharedMemory(name=det_name, **_attach)
     ring = np.ndarray((RING_SLOTS, height, width, 3), dtype=np.uint8, buffer=shm.buf)
     meta = np.ndarray((RING_SLOTS, META_F64), dtype=np.float64, buffer=msh.buf)
-    ctr = np.ndarray((1,), dtype=np.int64, buffer=csh.buf)
+    ctr = np.ndarray((CTR_I64,), dtype=np.int64, buffer=csh.buf)
     dets = np.ndarray((RING_SLOTS, MAX_DETS, 5), dtype=np.float32, buffer=dsh.buf)
 
     def open_container():
@@ -109,6 +125,7 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
             options = {}
         return av.open(rtsp_url, options=options)
 
+    frame_i = 0
     while not stop_ev.is_set():
         container = None
         try:
@@ -122,6 +139,12 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
             for av_frame in container.decode(stream):
                 if stop_ev.is_set():
                     break
+                frame_i += 1
+                # Idle-scan cadence: parent sets ctr[1]=1 when no tracks are
+                # active; skip conversion+detect+publish on strided frames.
+                # Decode itself must still run every frame (P-frames).
+                if idle_stride > 1 and ctr[1] != 0 and frame_i % idle_stride:
+                    continue
                 img = av_frame.to_ndarray(format="bgr24")
                 if img.shape[1] != width or img.shape[0] != height:
                     img = cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
@@ -159,7 +182,15 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
                     container.close()
                 except Exception:
                     pass
-    shm.close(); msh.close(); csh.close()
+    # Clean teardown: drop the numpy views first (close() raises BufferError
+    # while exported views are alive), then close all FOUR segments (dsh was
+    # previously omitted). Never unlink here — the parent owns the segments.
+    del ring, meta, ctr, dets
+    for s in (shm, msh, csh, dsh):
+        try:
+            s.close()
+        except Exception:
+            pass
 
 
 class FrameCaptureProc:
@@ -205,28 +236,65 @@ class FrameCaptureProc:
         self._mp = mp.get_context("spawn")   # never fork a Hailo/onnx parent
         self._child_stop = self._mp.Event()
         self._err_q = self._mp.Queue(maxsize=64)
-        # shared ring (child writes at DETECT size — Pi single-stream path)
-        w, h = detect_width, detect_height
+        self._last_child_err_ms = 0.0
+        # shm ring is allocated per start() cycle (_alloc_ring) and unlinked
+        # in stop(). It used to be allocated ONCE here while stop() unlinked
+        # it — so the nighttime pause destroyed the segments and the dawn
+        # resume reused their dead names: the fresh child died with
+        # FileNotFoundError('/psm_...') and the parent's reader SEGV'd on its
+        # dangling view. That was the deterministic every-morning crash.
+        self._shm = self._msh = self._csh = self._dsh = None
+        self._ring = self._meta = self._ctr = self._dets = None
+        self._consumed = -1
+
+    def _alloc_ring(self):
+        """Create the four shm segments + numpy views for one start/stop
+        cycle (child writes at DETECT size — Pi single-stream path)."""
+        w, h = self.detect_width, self.detect_height
         self._shm = shared_memory.SharedMemory(
             create=True, size=RING_SLOTS * h * w * 3)
         self._msh = shared_memory.SharedMemory(
             create=True, size=RING_SLOTS * META_F64 * 8)
-        self._csh = shared_memory.SharedMemory(create=True, size=8)
+        self._csh = shared_memory.SharedMemory(create=True, size=CTR_I64 * 8)
         self._dsh = shared_memory.SharedMemory(
             create=True, size=RING_SLOTS * MAX_DETS * 5 * 4)
         self._ring = np.ndarray((RING_SLOTS, h, w, 3), dtype=np.uint8,
                                 buffer=self._shm.buf)
         self._meta = np.ndarray((RING_SLOTS, META_F64), dtype=np.float64,
                                 buffer=self._msh.buf)
-        self._ctr = np.ndarray((1,), dtype=np.int64, buffer=self._csh.buf)
+        self._ctr = np.ndarray((CTR_I64,), dtype=np.int64, buffer=self._csh.buf)
         self._dets = np.ndarray((RING_SLOTS, MAX_DETS, 5), dtype=np.float32,
                                 buffer=self._dsh.buf)
         self._ctr[0] = -1
+        self._ctr[1] = 0         # idle flag: parent-written, child-read
         self._consumed = -1
+
+    def _dispose_ring(self):
+        """Drop views, then close+unlink the segments. Views must go first:
+        SharedMemory.close() raises BufferError while exports are alive."""
+        self._ring = self._meta = self._ctr = self._dets = None
+        for attr in ("_shm", "_msh", "_csh", "_dsh"):
+            s = getattr(self, attr)
+            if s is None:
+                continue
+            setattr(self, attr, None)
+            try:
+                s.close()
+            except Exception:
+                pass
+            try:
+                s.unlink()
+            except Exception:
+                pass
 
     # ── lifecycle ────────────────────────────────────────────────────────
     def start(self):
         self._stop_event.clear()
+        self._alloc_ring()
+        # Fresh stall reference: without this, the first supervisor tick after
+        # a nighttime pause compares against the previous evening's last frame,
+        # reads a >10s "stall", and kills the child it just spawned.
+        self.stats["last_frame_ms"] = time.time() * 1000
         self._spawn_child()
         self._reader_thread = threading.Thread(
             target=self._reader_loop, name=f"capring-{self.camera_name}", daemon=True)
@@ -236,20 +304,35 @@ class FrameCaptureProc:
         self._supervisor_thread.start()
 
     def stop(self):
+        """Tear down child + threads AND this cycle's shm segments. The
+        object itself stays reusable: start() allocates a fresh ring, so the
+        nightly stop()/dawn start() cycle gets clean segments every time."""
         self._stop_event.set()
         self._child_stop.set()
         if self._child is not None and self._child.is_alive():
             self._child.join(timeout=3)
             if self._child.is_alive():
                 self._child.kill()
+                self._child.join(timeout=2)
+        self._child = None
         for t in (self._reader_thread, self._supervisor_thread):
             if t is not None:
                 t.join(timeout=3)
-        for s in (self._shm, self._msh, self._csh, self._dsh):
-            try:
-                s.close(); s.unlink()
-            except Exception:
-                pass
+        self._reader_thread = self._supervisor_thread = None
+        self._dispose_ring()
+
+    def set_idle(self, idle: bool) -> None:
+        """Parent hint from the process thread: True = no active tracks, the
+        child may drop to idle-scan cadence (every IDLE_STRIDE-th frame);
+        False = full rate. One shm int write; safe to call every frame."""
+        ctr = self._ctr
+        if ctr is None or IDLE_STRIDE <= 1:
+            return
+        val = 1 if idle else 0
+        if int(ctr[1]) != val:
+            ctr[1] = val
+            log.debug("[%s] idle-scan %s (stride=%d)", self.camera_name,
+                      "on" if idle else "off", IDLE_STRIDE)
 
     def _spawn_child(self):
         self._child_stop = self._mp.Event()
@@ -258,7 +341,7 @@ class FrameCaptureProc:
             args=(self.rtsp_url, self._shm.name, self._msh.name, self._csh.name,
                   self._dsh.name, self.detect_width, self.detect_height,
                   self.hef_path, self.det_confidence,
-                  self._child_stop, self._err_q),
+                  self._child_stop, self._err_q, IDLE_STRIDE),
             daemon=True,
             name=f"decode-{self.camera_name}",
         )
@@ -317,10 +400,16 @@ class FrameCaptureProc:
     def _supervise(self):
         while not self._stop_event.is_set():
             time.sleep(SUPERVISE_TICK_S)
+            # stop() may have run during the tick sleep — bail before the
+            # dead-child check or every dusk pause logs a phantom "child died
+            # — respawning" for the child stop() itself just tore down.
+            if self._stop_event.is_set():
+                return
             try:
                 while True:
                     msg = self._err_q.get_nowait()
                     self.stats["decode_errors"] += 1
+                    self._last_child_err_ms = time.time() * 1000
                     log.warning("[%s] %s", self.camera_name, msg)
             except Exception:
                 pass
@@ -328,7 +417,16 @@ class FrameCaptureProc:
             last = self.stats.get("last_frame_ms")
             stalled = (last is not None
                        and (time.time() * 1000 - last) / 1000.0 > CHILD_STALL_S)
-            if dead or stalled:
+            # "RTSP down" vs "decode wedged": a live child whose open/decode
+            # loop is failing reports errors through err_q and already retries
+            # av.open every 1s — SIGKILLing it just re-inits the Hailo VDevice
+            # (~2-4s) every ~11s for zero benefit during a camera/go2rtc
+            # outage. Only stall-kill a child that has gone SILENT (no frames
+            # AND no error reports) — that's the truly wedged case.
+            child_retrying = (not dead and
+                              (time.time() * 1000 - self._last_child_err_ms)
+                              / 1000.0 <= CHILD_STALL_S)
+            if dead or (stalled and not child_retrying):
                 why = "died" if dead else f"stalled >{CHILD_STALL_S:.0f}s"
                 code = self._child.exitcode if self._child is not None else None
                 log.warning("[%s] decode child %s (exitcode=%s) — respawning",
@@ -343,6 +441,11 @@ class FrameCaptureProc:
                 if self._stop_event.is_set():
                     return
                 time.sleep(RESPAWN_BACKOFF_S)
+                # Re-check AFTER the backoff: a concurrent stop() may have
+                # unlinked the segments during the sleep — spawning now would
+                # hand the child dead shm names (FileNotFoundError loop).
+                if self._stop_event.is_set() or self._shm is None:
+                    return
                 self._record_restart()
                 self.stats["child_respawns"] += 1
                 # reset stall reference so we don't instantly re-fire

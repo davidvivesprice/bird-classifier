@@ -1,5 +1,6 @@
 [Unit]
 Description=Cloudflare Tunnel for pi5.vivessato.com
+# NOTE: network-online.target is a stub in the *user* manager — best-effort only.
 After=network-online.target bird-dashboard.service
 
 [Service]
@@ -7,8 +8,10 @@ Type=simple
 ExecStart=/usr/local/bin/cloudflared tunnel run
 Restart=always
 RestartSec=5
-StandardOutput=append:%h/logs/cloudflared.log
-StandardError=append:%h/logs/cloudflared.log
+# Journald is persistent + capped (SystemMaxUse=500M) — rotation solved.
+# Read with: journalctl --user -u cloudflared -S today
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

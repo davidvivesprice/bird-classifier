@@ -60,13 +60,26 @@ CLASSIFY_EVERY = int(os.environ.get("PIPELINE_CLASSIFY_EVERY", "2"))
 CLASSIFY_COOLDOWN_FRAMES = int(os.environ.get("PIPELINE_CLASSIFY_COOLDOWN", "90"))
 LOCK_VERIFY_EVERY = int(os.environ.get("PIPELINE_LOCK_VERIFY_EVERY", "15"))
 LOCK_UNLOCK_DISAGREEMENTS = int(os.environ.get("PIPELINE_LOCK_UNLOCK_N", "4"))
-LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.45"))
+# 0.60 (2026-07-17): the old 0.45 was a NO-OP. Every verify vote must already
+# clear the raw eligibility floor 0.16 (pi_classifier), and the isotonic
+# calibration map's minimum output for any eligible raw score is 0.46 — i.e.
+# the weakest possible vote counted as a "confident" disagreement. The map
+# jumps 0.46 -> 0.77 with nothing in between, so 0.60 sits squarely in that
+# gap: only genuinely confident (>=0.77-band) disagreements now count toward
+# the 4-strike contradiction unlock.
+LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.60"))
 # A lock is also released when verification can't produce ANY vote this many
 # times in a row (sub-floor crops). Post-fix live capture 2026-07-04: a Blue
 # Jay lock rode a mostly-feeder box across the demo loop wrap for 40s — the
 # crops were unclassifiable, so disagreement-based unlock never fired. A real
 # locked bird yields votes; a ridden patch yields None forever.
-LOCK_UNVERIFIED_N = int(os.environ.get("PIPELINE_LOCK_UNVERIFIED_N", "8"))
+# 8 -> 20 (2026-07-17): with this classifier sub-floor crops are the NORM
+# (~84% no-vote base rate on 640x360 crops), so ~4s of sub-floor was hit by
+# real birds constantly — 8% of one day's locks unlocked, some flapping
+# lock/unlock within a minute. 20 verify misses ≈ ~10s of continuous
+# sub-floor while still being DETECTED, much closer to a true ridden-patch
+# signature. On release the species is kept as TENTATIVE (see below).
+LOCK_UNVERIFIED_N = int(os.environ.get("PIPELINE_LOCK_UNVERIFIED_N", "20"))
 
 
 class CameraProcessThread:
@@ -180,6 +193,18 @@ class CameraProcessThread:
         # 4. Track
         tracker_out = self.tracker.update(detections, frame.wall_time_ms)
 
+        # 4b. Idle-scan hint (r4 thermal lever): tell the capture child
+        # whether anything is active. With no active tracks it drops to
+        # every-PIPELINE_IDLE_STRIDE-th frame (~15fps at the default 2) —
+        # >99.9% of daylight frames are empty, so this halves decode-child
+        # heat for most of the day; full rate resumes the moment a detection
+        # produces a track. One shm int write, no-op on non-proc captures.
+        if self.capture is not None and hasattr(self.capture, "set_idle"):
+            try:
+                self.capture.set_idle(not tracker_out.active)
+            except Exception:
+                pass
+
         # 5. Classify tracks needing classification
         self._classify_tracks(frame, tracker_out.active)
 
@@ -207,6 +232,16 @@ class CameraProcessThread:
         if not self._dry_run:
             new_ids = {t.track_id for t in tracker_out.new}
             for track in tracker_out.active:
+                # Coasting tracks carry a bbox FROZEN at the last detection —
+                # at 30fps a full coast window (hit_counter_max=150) writes
+                # 150 identical rows per track. Persisting every 3rd coasting
+                # frame keeps the replay timeline gap-free (a row at least
+                # every ~100ms) at ~1/3 the write + prune volume. Live
+                # (non-coasting) frames and is_new rows always write.
+                if (getattr(track, "coasting", False)
+                        and track.track_id not in new_ids
+                        and self._stats["frames_processed"] % 3):
+                    continue
                 self.event_store.write_event(
                     camera=self.name,
                     frame_time_ms=frame.wall_time_ms,
@@ -343,15 +378,22 @@ class CameraProcessThread:
                     if track.no_vote_streak >= LOCK_UNVERIFIED_N:
                         log.info(
                             "[%s] track %s UNLOCKED: '%s' unverifiable "
-                            "(%d consecutive sub-floor crops)",
+                            "(%d consecutive sub-floor crops) — kept tentative",
                             self.name, track.track_id, track.species,
                             track.no_vote_streak,
                         )
                         track.is_locked = False
                         track.needs_classification = True
                         track.vote_history = []
-                        track.species = None
-                        track.species_confidence = None
+                        # KEEP species/confidence as a TENTATIVE label: this
+                        # unlock fires most often on a departing bird's last
+                        # small/blurry crops. Nulling the species here erased a
+                        # whole visit's confirmed ID from write_track_summary
+                        # (species=NULL in pipeline_tracks) and flipped the
+                        # live overlay back to "identifying…" while the bird
+                        # was still visible. Demote the lock; a contradicting
+                        # confident vote still replaces the label via the
+                        # normal voting path.
                         track.classification_attempts = 0
                         track.no_vote_streak = 0
                         track.lock_disagreements = 0

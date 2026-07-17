@@ -111,6 +111,12 @@ def shutdown_handler(signum, frame):
     running = False
 
 
+# pipeline_tracks retention: longer than events (they're tiny per-visit
+# summaries, useful for history), but bounded — the table previously grew
+# forever because prune_loop never touched it.
+TRACKS_RETENTION_DAYS = int(os.environ.get("PIPELINE_TRACKS_RETENTION_DAYS", "30"))
+
+
 def prune_loop(event_store, hls_root):
     from pipeline.hls_recorder import HlsRecorder
     while running:
@@ -118,13 +124,20 @@ def prune_loop(event_store, hls_root):
         try:
             cutoff = int((time.time() - 7 * 86400) * 1000)
             event_store.prune_events(older_than_ms=cutoff)
+            tracks_cutoff = int((time.time() - TRACKS_RETENTION_DAYS * 86400) * 1000)
+            event_store.prune_tracks(older_than_ms=tracks_cutoff)
+            # Return freed pages to the OS (effective once pipeline.db has
+            # been VACUUMed with auto_vacuum=INCREMENTAL; no-op before that).
+            event_store.incremental_vacuum(1000)
             event_store.daily_checkpoint()
             HlsRecorder.cleanup_old_chunks(hls_root, retention_days=7)
             # 2026-04-23: log line so the next regression is observable.
             # If this stops appearing hourly in the service log
             # (iMac: ~/Library/Logs/bird-pipeline.log, Pi: journalctl --user
             # -u bird-pipeline), the prune thread has died — that's the signal.
-            logging.info("[prune] events pruned + HLS cleanup done (retention 7d)")
+            logging.info(
+                "[prune] events (7d) + tracks (%dd) pruned + HLS cleanup done",
+                TRACKS_RETENTION_DAYS)
         except Exception as e:
             logging.warning("Prune loop error: %s", e)
 
@@ -376,7 +389,7 @@ def main():
             process.start()
             if recorder:
                 recorder.start()
-            camera_stacks.append((name, capture, process, recorder))
+            camera_stacks.append((name, capture, process, recorder, hls_segmenter))
             log.info("[%s] Stack started", name)
         except Exception as e:
             log.error("[%s] Failed to start: %s", name, e)
@@ -429,18 +442,18 @@ def main():
         # night (used when verifying v3 after-hours against a recorded test loop).
         night = (not night_bypass) and is_nighttime()
         if night and not paused_for_night:
-            for name, cap, _proc, _rec in camera_stacks:
+            for name, cap, _proc, _rec, _seg in camera_stacks:
                 log.info("[%s] Nighttime pause — stopping capture", name)
                 cap.stop()
             paused_for_night = True
         elif not night and paused_for_night:
-            for name, cap, _proc, _rec in camera_stacks:
+            for name, cap, _proc, _rec, _seg in camera_stacks:
                 log.info("[%s] Daytime resume — starting capture", name)
                 cap.start()
             paused_for_night = False
 
     log.info("Shutting down...")
-    for name, capture, process, recorder in camera_stacks:
+    for name, capture, process, recorder, segmenter in camera_stacks:
         try: capture.stop()
         except Exception: pass
         try: process.stop()
@@ -448,6 +461,15 @@ def main():
         if recorder:
             try: recorder.stop()
             except Exception: pass
+        if segmenter:
+            # Previously never stopped: the daemon thread died mid-mux and
+            # abandoned its .ts.part (invisible to the *.ts disk pruner).
+            try: segmenter.stop()
+            except Exception: pass
+    # Drain + stop the snapshot writer so queued locked-track snapshots (and
+    # their classifications.db rows) aren't silently lost at shutdown.
+    try: snapshot_writer.stop()
+    except Exception: pass
     try: sse_server.stop()
     except Exception: pass
     try: health_server.stop()

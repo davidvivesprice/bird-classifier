@@ -1,19 +1,31 @@
 [Unit]
 Description=Bird pipeline v3 — Hailo detection + registry classifier
+# NOTE: network-online.target is a stub in the *user* manager (nothing populates
+# it), so this ordering is best-effort only. Real resilience is the app-level
+# RTSP retry loops; go2rtc is local so no network wait is needed at start.
 After=network-online.target go2rtc.service
+OnFailure=bird-alert@%N.service
 
 [Service]
 Type=simple
 WorkingDirectory=%h/bird-classifier
-EnvironmentFile=%h/.bird-observatory-env
+# "-" prefix: a missing env file must not pre-start-fail the unit into a
+# silent 10s crash-loop (the failure would happen before ExecStart, leaving
+# nothing in the app log). refresh-rtsp's OnFailure alert covers missing creds.
+EnvironmentFile=-%h/.bird-observatory-env
 Environment=PI_MODE=1
 Environment=PIPELINE_HEALTH_PORT=8100
 Environment=PIPELINE_SSE_PORT=8105
 ExecStart=%h/bird-classifier/venv/bin/python3 -u bird_pipeline_v3.py
 Restart=always
 RestartSec=10
-StandardOutput=append:%h/logs/bird-pipeline.log
-StandardError=append:%h/logs/bird-pipeline.log
+# F4 SEGV capture: keep core dumps armed across redeploys (was a live-only
+# drop-in bird-pipeline.service.d/coredump.conf until 2026-07-17).
+LimitCORE=infinity
+# Journald is persistent + capped (SystemMaxUse=500M) — rotation solved.
+# Read with: journalctl --user -u bird-pipeline -S today
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

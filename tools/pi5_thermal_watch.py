@@ -47,6 +47,7 @@ COLUMNS = [
     "ring_pick_ok",
     "ring_pick_empty",
     "uptime_s",
+    "get_throttled",
 ]
 
 
@@ -65,6 +66,22 @@ def read_arm_clock_hz() -> int | None:
         # format: "frequency(48)=1500000000"
         return int(out.split("=", 1)[1])
     except (subprocess.SubprocessError, ValueError, OSError):
+        return None
+
+
+def read_get_throttled() -> str | None:
+    """Raw hex from `vcgencmd get_throttled` (e.g. "0xf0000").
+
+    Bit 0/1/2/3 = live under-voltage/freq-cap/throttle/soft-temp-limit;
+    bits 16-19 = the same as sticky occurred-since-boot flags. Kept as the
+    raw hex string so the CSV stays a faithful forensic record.
+    """
+    try:
+        out = subprocess.check_output(["vcgencmd", "get_throttled"],
+                                       text=True, timeout=2).strip()
+        # format: "throttled=0xf0000"
+        return out.split("=", 1)[1]
+    except (subprocess.SubprocessError, IndexError, OSError):
         return None
 
 
@@ -142,6 +159,7 @@ def main() -> int:
         "ring_pick_ok": sw.get("hires_hls_ok"),
         "ring_pick_empty": sw.get("hires_hls_miss"),
         "uptime_s": health.get("uptime_s"),
+        "get_throttled": read_get_throttled(),
     }
 
     CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +169,10 @@ def main() -> int:
         if new_file:
             w.writeheader()
         w.writerow(row)
+        # Oneshot process, one row per run: flush+fsync is free and prevents
+        # the NUL-run corruption an unclean shutdown once left mid-file.
+        f.flush()
+        os.fsync(f.fileno())
     return 0
 
 

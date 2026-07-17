@@ -6474,9 +6474,12 @@
     // Audio dot — combine enhanced audio + audio analyzer
     var ea = svc.enhanced_audio || {};
     var aa = svc.audio_analyzer || {};
-    if (ea.status === 'ok' && (aa.status === 'ok' || aa.status === 'warn')) {
+    // 'n/a' (or absent) = enhanced audio isn't deployed on this host (Pi);
+    // the dot then reflects the analyzer alone instead of a permanent error.
+    var eaAbsent = !ea.status || ea.status === 'n/a';
+    if ((ea.status === 'ok' || eaAbsent) && (aa.status === 'ok' || aa.status === 'warn')) {
       _setDot('audio', {status: aa.status === 'warn' ? 'warn' : 'ok', detail: (aa.detail || '') + (ea.stream_ready ? ' | Stream ready' : '')});
-    } else if (ea.status !== 'ok') {
+    } else if (!eaAbsent && ea.status !== 'ok') {
       _setDot('audio', ea);
     } else {
       _setDot('audio', aa);

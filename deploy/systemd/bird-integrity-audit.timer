@@ -1,9 +1,11 @@
 [Unit]
-Description=Run Bird Observatory Integrity Audit Hourly
-Requires=bird-integrity-audit.service
+Description=Run Bird Observatory Integrity Audit Daily (03:40)
+# No Requires= on purpose: Requires= pulled in a service start at every boot
+# (timers.target start), off-schedule. The timer->service trigger link is
+# implicit via the unit name; Persistent=true covers missed runs.
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*-*-* 03:40:00
 RandomizedDelaySec=300
 Persistent=true
 

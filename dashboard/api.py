@@ -227,6 +227,13 @@ _NO_GZIP_PREFIXES = (
     "/api/image", "/bird-api/image",
     "/api/snapshot", "/bird-api/snapshot",
     "/api/species-image", "/bird-api/species-image",
+    # Video/audio streaming: gzipping HLS .ts/.m4s segments and mp4/mp3
+    # streams burns real CPU per remote viewer on a thermally-constrained
+    # Pi and adds latency to segment delivery for zero size win.
+    # ("/api/hls" also covers "/api/hls-live".)
+    "/api/hls", "/bird-api/hls",
+    "/api/stream.mp4", "/bird-api/stream.mp4",
+    "/enhanced-audio/",
 )
 
 class SelectiveGZip:
@@ -477,7 +484,13 @@ def serve_hlsjs():
 
 @app.get("/docs.html")
 def serve_docs_html():
-    """Serve the docs viewer HTML."""
+    """Serve the docs viewer HTML (iMac). On the Pi the viewer's markdown
+    chapters were never deployed (every /api/docs fetch 404'd — a dead
+    surface), so redirect to the built Pi book, the real documentation."""
+    if os.environ.get("PI_MODE", "0") == "1":
+        return RedirectResponse(
+            "/book/The%20Backyard%20Observatory%20%E2%80%94%20Pi.html",
+            status_code=302)
     return FileResponse(str(DASHBOARD_DIR / "docs.html"), media_type="text/html")
 
 
@@ -537,12 +550,16 @@ def _create_review_entry(filename: str, verdict: str, correct_species: str = "",
     if verdict not in VALID_VERDICTS:
         raise HTTPException(status_code=400, detail=f"verdict must be one of {', '.join(sorted(VALID_VERDICTS))}")
     correct_species = normalize_species(correct_species) if correct_species else ""
+    try:
+        bird_index_int = int(bird_index)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="bird_index must be an integer")
     return {
         "file": safe_name,
         "verdict": verdict,
         "correct_species": correct_species if verdict == "wrong" else "",
         "missed_birds": missed_birds.lower() in ("true", "1", "yes"),
-        "bird_index": int(bird_index),
+        "bird_index": bird_index_int,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -811,7 +828,10 @@ def _check_go2rtc():
         err = str(e)
         detail = f"go2rtc unreachable ({err})"
         if "Connection refused" in err:
-            detail += ". Docker container may need restart: docker restart go2rtc"
+            if os.environ.get("PI_MODE", "0") == "1":
+                detail += ". May need restart: systemctl --user restart go2rtc"
+            else:
+                detail += ". Docker container may need restart: docker restart go2rtc"
         return {"status": "error", "detail": detail, "error": err}
 
 
@@ -835,7 +855,14 @@ def system_health():
                 "backend": "sqlite",
             },
             "pipeline_v3": _fetch_service(f"{_PIPELINE_HEALTH_URL}/api/pipeline/health", "Pipeline v3"),
-            "enhanced_audio": _fetch_service("http://localhost:8096/metrics", "Enhanced Audio"),
+            # The enhanced-audio service (port 8096) is an iMac-only
+            # deployment — probing it on the Pi produced a permanent red
+            # "error" in the health panel that trained the user to ignore it.
+            "enhanced_audio": (
+                {"status": "n/a", "detail": "Enhanced audio not deployed on this host"}
+                if os.environ.get("PI_MODE", "0") == "1"
+                else _fetch_service("http://localhost:8096/metrics", "Enhanced Audio")
+            ),
             "audio_analyzer": _check_audio_analyzer_health(),
             "go2rtc": _check_go2rtc(),
         },
@@ -1232,6 +1259,25 @@ def review_smart_queue():
     Returns species-grouped batches for fast review.
     """
     conn = cdb.get_conn(readonly=True)
+
+    # The Pi schema has no `visits` table (the event-compression model was
+    # never deployed here) — every query below JOINs it, so answer honestly
+    # with an empty queue instead of an unhandled 500.
+    has_visits = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='visits'"
+    ).fetchone() is not None
+    if not has_visits:
+        return {
+            "total_review_queue": 0,
+            "total_unreviewed_frames": 0,
+            "corrections": 0,
+            "training_samples": 0,
+            "uncertain": 0,
+            "skipped": 0,
+            "species_progress": {},
+            "queue": {"corrections": [], "training": [], "uncertain": []},
+            "visits_unavailable": True,
+        }
 
     # How many confirmed per species?
     confirmed = {}
@@ -2187,7 +2233,7 @@ def submit_review_retired(filename: str):
 
 
 @app.post("/api/review2/batch-confirm")
-async def batch_confirm2(body: dict = Body(default=None)):
+def batch_confirm2(body: dict = Body(default=None)):
     """Airtight bulk confirm. Body: {files: list, client_id?}.
 
     Writes one review_history row per file (verdict='correct') via
@@ -2221,7 +2267,7 @@ async def batch_confirm2(body: dict = Body(default=None)):
 
 
 @app.post("/api/review2/batch-reject")
-async def batch_reject2(body: dict = Body(default=None)):
+def batch_reject2(body: dict = Body(default=None)):
     """Airtight bulk reject. Body: {files: list, correct_species?, client_id?}.
 
     Writes one review_history row per file (verdict='wrong') and calls
@@ -2676,16 +2722,18 @@ def api_models_switch(body: dict = Body(...)):
 
 
 @app.post("/api/models/classify-upload")
-async def api_models_classify_upload(file: UploadFile = File(...)):
+def api_models_classify_upload(file: UploadFile = File(...)):
     """Classify an uploaded image with the Lab's current model.
     Returns {model, predictions: [{common_name, scientific_name, raw_score}]}.
-    """
+
+    Sync def on purpose: PIL decode + model inference must run in the
+    threadpool, not on the event loop."""
     from PIL import Image
     import io
     r = _get_model_registry()
     if r.current_name is None:
         raise HTTPException(status_code=400, detail="no model loaded")
-    data = await file.read()
+    data = file.file.read()
     try:
         img = Image.open(io.BytesIO(data)).convert("RGB")
     except Exception as e:
@@ -3108,18 +3156,25 @@ BIRDNET_DB_PATH = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdne
 BIRDNET_CLIPS_DIR = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"))
 _FOOD_DB = BIRDNET_DB_PATH  # food_log table lives in the same DB as birdnet notes
 
-# --- Thread-local connection pools for food_log and birdnet DBs ---
-_food_db_local = threading.local()
+# --- Thread-local connection pool shared by food_log + birdnet reads
+#     (one file, one connection per thread — see _get_food_conn) ---
 _birdnet_db_local = threading.local()
 
 
 def _get_food_conn():
-    """Thread-local pooled connection to the food/birdnet DB (same file)."""
-    if not hasattr(_food_db_local, 'conn') or _food_db_local.conn is None:
-        _food_db_local.conn = sqlite3.connect(str(_FOOD_DB), timeout=5)
-        _food_db_local.conn.execute("PRAGMA journal_mode=WAL")
-        _food_db_local.conn.row_factory = sqlite3.Row
-    return _food_db_local.conn
+    """Connection to the food/birdnet DB. food_log lives in the SAME file
+    as the birdnet notes (_FOOD_DB = BIRDNET_DB_PATH), so this reuses the
+    birdnet thread-local — two separate per-thread connections to one file
+    doubled the fd count against the leakiest DB for nothing. Unlike the
+    read-side helper, food_log writes may need to CREATE the file."""
+    conn = _get_birdnet_conn()
+    if conn is None:
+        BIRDNET_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _birdnet_db_local.conn = sqlite3.connect(str(BIRDNET_DB_PATH), timeout=5)
+        _birdnet_db_local.conn.execute("PRAGMA journal_mode=WAL")
+        _birdnet_db_local.conn.row_factory = sqlite3.Row
+        conn = _birdnet_db_local.conn
+    return conn
 
 
 def _get_birdnet_conn():
@@ -3679,31 +3734,48 @@ import random as _random
 
 _GAME_DB_PATH = Path.home() / "bird-snapshots" / "logs" / "game.db"
 
+_game_db_initialized = False
+
+
 def _game_db():
-    """Get or create the game database."""
+    """Connect to the game database. Schema (and the WAL journal mode,
+    which persists in the file) is ensured once per process, not re-run
+    on every request."""
+    global _game_db_initialized
     db = _sqlite3.connect(str(_GAME_DB_PATH))
     db.row_factory = _sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("""CREATE TABLE IF NOT EXISTS game_players (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        total_rounds INTEGER DEFAULT 0,
-        total_correct INTEGER DEFAULT 0,
-        total_answered INTEGER DEFAULT 0,
-        best_streak INTEGER DEFAULT 0
-    )""")
-    db.execute("""CREATE TABLE IF NOT EXISTS game_answers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        player_id INTEGER,
-        round_id INTEGER,
-        clip_id INTEGER,
-        correct_species TEXT,
-        chosen_species TEXT,
-        is_correct INTEGER,
-        played_at TEXT DEFAULT (datetime('now'))
-    )""")
-    db.commit()
+    if not _game_db_initialized:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("""CREATE TABLE IF NOT EXISTS game_players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            total_rounds INTEGER DEFAULT 0,
+            total_correct INTEGER DEFAULT 0,
+            total_answered INTEGER DEFAULT 0,
+            best_streak INTEGER DEFAULT 0
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS game_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER,
+            round_id INTEGER,
+            clip_id INTEGER,
+            correct_species TEXT,
+            chosen_species TEXT,
+            is_correct INTEGER,
+            played_at TEXT DEFAULT (datetime('now'))
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS game_trashed_clips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            clip_id INTEGER,
+            species TEXT,
+            clip_name TEXT,
+            trashed_by TEXT,
+            reason TEXT,
+            trashed_at TEXT DEFAULT (datetime('now'))
+        )""")
+        db.commit()
+        _game_db_initialized = True
     return db
 
 
@@ -3743,10 +3815,13 @@ def game_start(body: dict):
 
     # Ensure player exists
     gdb = _game_db()
-    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
-    gdb.commit()
-    player = gdb.execute("SELECT id FROM game_players WHERE name = ?", (player_name,)).fetchone()
-    player_id = player["id"]
+    try:
+        gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+        gdb.commit()
+        player = gdb.execute("SELECT id FROM game_players WHERE name = ?", (player_name,)).fetchone()
+        player_id = player["id"]
+    finally:
+        gdb.close()
 
     # Get eligible clips: high confidence, file exists, 3+ per species
     bdb = _birdnet_db()
@@ -3774,7 +3849,9 @@ def game_start(body: dict):
     all_species = set(eligible.keys())
 
     if len(all_species) < 4:
-        raise HTTPException(500, "Not enough species for the game")
+        # Data shortage, not a server fault — 503 so monitoring doesn't
+        # page on a user clicking Play too early in the data's life.
+        raise HTTPException(503, "Not enough species for the game yet")
 
     # Pick 10 questions — avoid repeating species back-to-back
     questions = []
@@ -3824,7 +3901,6 @@ def game_start(body: dict):
     # Create round ID
     round_id = int(_time.time() * 1000)
 
-    gdb.close()
     return {
         "round_id": round_id,
         "player_id": player_id,
@@ -3834,37 +3910,55 @@ def game_start(body: dict):
 
 @app.post("/api/game/answer")
 def game_answer(body: dict):
-    """Record a single answer."""
+    """Record a single answer, attributed to the named player.
+
+    The old implementation credited whichever player registered most
+    recently — with 2+ players ever created, answer history was
+    misattributed. No name match → nothing recorded (never guess)."""
+    player_name = (body.get("player_name") or "").strip()
     gdb = _game_db()
-    gdb.execute("""
-        INSERT INTO game_answers (player_id, round_id, correct_species, chosen_species, is_correct)
-        SELECT id, ?, ?, ?, ? FROM game_players WHERE name = (
-            SELECT name FROM game_players ORDER BY id DESC LIMIT 1
-        )
-    """, (body.get("round_id"), body.get("correct_species", ""),
-          body.get("chosen_species", ""), 1 if body.get("is_correct") else 0))
-    gdb.commit()
-    gdb.close()
-    return {"ok": True}
+    try:
+        player = None
+        if player_name:
+            player = gdb.execute(
+                "SELECT id FROM game_players WHERE name = ?", (player_name,)
+            ).fetchone()
+        if player is None:
+            return {"ok": False, "error": "unknown or missing player_name"}
+        gdb.execute("""
+            INSERT INTO game_answers (player_id, round_id, correct_species, chosen_species, is_correct)
+            VALUES (?, ?, ?, ?, ?)
+        """, (player["id"], body.get("round_id"), body.get("correct_species", ""),
+              body.get("chosen_species", ""), 1 if body.get("is_correct") else 0))
+        gdb.commit()
+        return {"ok": True}
+    finally:
+        gdb.close()
 
 
 @app.post("/api/game/finish-round")
 def game_finish_round(body: dict):
-    """Update player stats after a round."""
+    """Update the submitting player's stats after a round.
+
+    Scoped to the named player only — the old version rewrote EVERY
+    player's best_streak to this round's, corrupting the leaderboard."""
+    player_name = (body.get("player_name") or "").strip()
+    try:
+        best_streak = int(body.get("best_streak", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "best_streak must be an integer")
+
     gdb = _game_db()
-    player_name = ""
-    saved = None
-
-    # Find the player from the round's answers
-    round_id = body.get("round_id")
-    score = body.get("score", 0)
-    best_streak = body.get("best_streak", 0)
-
-    # Get player name from cookie or most recent player
-    # (The client sends player_name implicitly via the round answers)
-    # Update all players' stats from their answer history
-    for player in gdb.execute("SELECT id, name FROM game_players").fetchall():
+    try:
+        player = None
+        if player_name:
+            player = gdb.execute(
+                "SELECT id FROM game_players WHERE name = ?", (player_name,)
+            ).fetchone()
+        if player is None:
+            return {"ok": False, "error": "unknown or missing player_name"}
         pid = player["id"]
+
         stats = gdb.execute("""
             SELECT COUNT(*) as total, SUM(is_correct) as correct
             FROM game_answers WHERE player_id = ?
@@ -3888,10 +3982,10 @@ def game_finish_round(body: dict):
             UPDATE game_players SET total_rounds = ?, total_correct = ?,
                    total_answered = ?, best_streak = ? WHERE id = ?
         """, (rounds, correct, total, new_best, pid))
-
-    gdb.commit()
-    gdb.close()
-    return {"ok": True}
+        gdb.commit()
+        return {"ok": True}
+    finally:
+        gdb.close()
 
 
 @app.post("/api/game/trash-clip")
@@ -3922,21 +4016,14 @@ def game_trash_clip(body: dict):
     cur.execute("UPDATE notes SET has_clip = 0 WHERE id = ?", (clip_id,))
     bdb.commit()
 
-    # Log to game trash tracking table
+    # Log to game trash tracking table (schema ensured by _game_db)
     gdb = _game_db()
-    gdb.execute("""CREATE TABLE IF NOT EXISTS game_trashed_clips (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        clip_id INTEGER,
-        species TEXT,
-        clip_name TEXT,
-        trashed_by TEXT,
-        reason TEXT,
-        trashed_at TEXT DEFAULT (datetime('now'))
-    )""")
-    gdb.execute("INSERT INTO game_trashed_clips (clip_id, species, clip_name, trashed_by, reason) VALUES (?,?,?,?,?)",
-                (clip_id, species, clip_name, player_name, reason))
-    gdb.commit()
-    gdb.close()
+    try:
+        gdb.execute("INSERT INTO game_trashed_clips (clip_id, species, clip_name, trashed_by, reason) VALUES (?,?,?,?,?)",
+                    (clip_id, species, clip_name, player_name, reason))
+        gdb.commit()
+    finally:
+        gdb.close()
 
     logging.info("[game] Trashed clip id=%s species=%s by=%s", clip_id, species, player_name)
     return {"ok": True, "clip_id": clip_id, "species": species}
@@ -3974,6 +4061,10 @@ def game_start_learn(body: dict):
 
     # Need species with 5+ clips (for the sequence) and at least 15 species total (5 rounds x 3)
     eligible = {sp: clips for sp, clips in by_species.items() if len(clips) >= 5}
+    if not eligible:
+        # Guard BEFORE the top-up loop below: with zero eligible species the
+        # `while < 15` loop would never terminate (100% CPU, thread pinned).
+        raise HTTPException(503, "Not enough confirmed audio clips for Learn mode yet")
     species_pool = list(eligible.keys())
     _random.shuffle(species_pool)
 
@@ -4141,8 +4232,11 @@ def game_start_visual(body: dict):
         raise HTTPException(400, "Player name required")
 
     gdb = _game_db()
-    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
-    gdb.commit()
+    try:
+        gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+        gdb.commit()
+    finally:
+        gdb.close()
 
     # Get classified images — prefer reviewed/confirmed, fall back to high-confidence
     cdb_path = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
@@ -4180,7 +4274,8 @@ def game_start_visual(body: dict):
     cdb.close()
 
     if len(species_list) < 4:
-        raise HTTPException(500, "Not enough species")
+        # Data shortage, not a server fault
+        raise HTTPException(503, "Not enough reviewed images for the visual game yet")
 
     questions = []
     last_species = None
@@ -4240,6 +4335,12 @@ def game_start_visual_learn(body: dict):
     _random.shuffle(species_pool)
     cdb.close()
 
+    if not eligible:
+        # Guard BEFORE the top-up loop: with zero eligible species the
+        # `while < 15` loop spins forever — one click pinned a threadpool
+        # worker at 100% CPU on live Pi data (0 species with 5+ confirmed).
+        raise HTTPException(503, "Not enough reviewed images for visual Learn mode yet")
+
     while len(species_pool) < 15:
         species_pool += list(eligible.keys())
     _random.shuffle(species_pool)
@@ -4283,11 +4384,14 @@ def serve_game_visual():
 def game_leaderboard():
     """Return player rankings."""
     gdb = _game_db()
-    players = gdb.execute("""
-        SELECT name, best_streak, total_correct, total_answered, total_rounds
-        FROM game_players
-        ORDER BY best_streak DESC, total_correct DESC
-    """).fetchall()
+    try:
+        players = gdb.execute("""
+            SELECT name, best_streak, total_correct, total_answered, total_rounds
+            FROM game_players
+            ORDER BY best_streak DESC, total_correct DESC
+        """).fetchall()
+    finally:
+        gdb.close()
 
     result = []
     for p in players:
@@ -4300,19 +4404,33 @@ def game_leaderboard():
             "total_rounds": p["total_rounds"],
         })
 
-    gdb.close()
     return {"players": result}
 
 
 # ── Documentation Viewer ──
 
-DOCS_DIR = Path(os.path.expanduser("~/docs/bird-observatory"))
+# On the Pi the docs live under ~/docs/bird-observatory-pi (the iMac path
+# doesn't exist here — it left every /api/docs request 404ing).
+DOCS_DIR = Path(os.path.expanduser(
+    "~/docs/bird-observatory-pi" if os.environ.get("PI_MODE", "0") == "1"
+    else "~/docs/bird-observatory"))
 DOCS_HTML = Path(__file__).parent / "docs.html"
+
+if not DOCS_DIR.exists():
+    logging.warning("DOCS_DIR %s does not exist — /api/docs requests will 404", DOCS_DIR)
+
+# The markdown chapter files the docs.html viewer requests were never
+# deployed to the Pi; its real, maintained documentation is the built Pi
+# book served at /book. Redirect there instead of serving a shell whose
+# every article renders "Document not found".
+_PI_BOOK_URL = "/book/The%20Backyard%20Observatory%20%E2%80%94%20Pi.html"
 
 
 @app.get("/docs")
 def docs_page():
-    """Serve the documentation viewer HTML page."""
+    """Serve the documentation viewer (iMac) or the Pi book (Pi)."""
+    if os.environ.get("PI_MODE", "0") == "1":
+        return RedirectResponse(_PI_BOOK_URL, status_code=302)
     if not DOCS_HTML.exists():
         raise HTTPException(status_code=404, detail="Docs page not found")
     return FileResponse(str(DOCS_HTML), media_type="text/html")
@@ -4544,10 +4662,13 @@ def update_cull_config(
     cfg = load_cull_config()
     if default_max_keep is not None:
         cfg["default_max_keep"] = default_max_keep
-    if species_caps is not None:
-        cfg["species_caps"] = json.loads(species_caps)
-    if sufficient_species is not None:
-        cfg["sufficient_species"] = json.loads(sufficient_species)
+    try:
+        if species_caps is not None:
+            cfg["species_caps"] = json.loads(species_caps)
+        if sufficient_species is not None:
+            cfg["sufficient_species"] = json.loads(sufficient_species)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"invalid JSON: {e}")
     save_cull_config(cfg)
     return {"status": "ok", "config": cfg}
 
@@ -5402,22 +5523,61 @@ async def proxy_debug_latest_jpg(camera: str = "feeder"):
         return Response(status_code=502)
 
 
-@app.get("/api/pipeline/events")
-async def pipeline_events_proxy(camera: str, start: int, end: int):
-    """Query the pipeline event store for scrubbing/historical playback."""
-    from pathlib import Path
+# Persistent READ-ONLY connection to the live pipeline.db. The old
+# per-request EventStore opened a WRITE connection (DDL + flusher thread)
+# and — worse — ran a multi-second query on the 4+GB DB inside an
+# `async def`, freezing the whole event loop (SSE, WS video, health) for
+# the duration. Read-only mode never touches the writer lock.
+_pipeline_events_db = None
+_pipeline_events_lock = threading.Lock()
+
+
+def _pipeline_events_conn():
+    global _pipeline_events_db
     db_path = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
     if not db_path.exists():
+        return None
+    if _pipeline_events_db is None:
+        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True,
+                                timeout=2.0, check_same_thread=False)
+        _pipeline_events_db = conn
+    return _pipeline_events_db
+
+
+_PIPELINE_EVENTS_MAX_ROWS = 50_000            # hard row cap per request
+_PIPELINE_EVENTS_MAX_WINDOW_MS = 24 * 3600 * 1000  # clamp window to 24h
+
+
+@app.get("/api/pipeline/events")
+def pipeline_events_proxy(camera: str, start: int, end: int):
+    """Query the pipeline event store for scrubbing/historical playback.
+
+    Deliberately sync `def` — FastAPI runs it in the threadpool, so a slow
+    query on the big pipeline.db can no longer block the event loop."""
+    conn = _pipeline_events_conn()
+    if conn is None:
         return []
+    end = min(end, start + _PIPELINE_EVENTS_MAX_WINDOW_MS)
     try:
-        from pipeline.event_store import EventStore
-        store = EventStore(str(db_path))
-        try:
-            return store.query_events(camera=camera, start_ms=start, end_ms=end)
-        finally:
-            store.shutdown()
+        with _pipeline_events_lock:
+            cur = conn.execute(
+                "SELECT camera, frame_time, track_id, species, confidence, "
+                "       model_source, bbox_json, is_new "
+                "FROM pipeline_events "
+                "WHERE camera = ? AND frame_time BETWEEN ? AND ? "
+                "ORDER BY frame_time ASC LIMIT ?",
+                (camera, start, end, _PIPELINE_EVENTS_MAX_ROWS),
+            )
+            cols = [c[0] for c in cur.description]
+            rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        # Serialize HERE (still in the threadpool) — letting FastAPI encode
+        # a multi-MB list would put the serialization cost back on the loop.
+        from starlette.responses import Response as _Resp
+        return _Resp(content=json.dumps(rows), media_type="application/json")
     except Exception as e:
-        return {"error": str(e)}
+        # A real failure must be a real failure — the old handler returned
+        # HTTP 200 with {"error": ...}, invisible to clients and monitoring.
+        raise HTTPException(status_code=500, detail=f"event store query failed: {e}")
 
 
 # ── Overlay-sync sentinel (Task D1) ────────────────────────────────────────
