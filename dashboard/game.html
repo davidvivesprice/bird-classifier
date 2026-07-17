@@ -1342,9 +1342,11 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
+          player_name: playerName,
           round_id: roundData.round_id,
           question_index: questionIdx,
           chosen_species: chosen,
+          correct_species: q.correct_species,
           is_correct: isCorrect
         })
       }).catch(function() {});
@@ -1408,6 +1410,7 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
+          player_name: playerName,
           round_id: roundData.round_id,
           score: correct,
           best_streak: bestStreak

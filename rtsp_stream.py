@@ -175,10 +175,22 @@ class RTSPStreamManager:
         """Determine next escalation level based on failure count."""
         total = self._failure_count
 
-        # Stay in down state until a successful connection
+        # Terminal down state — but keep self-healing. The RTSP token this
+        # long-lived process cached can rotate (UniFi Protect regenerates the
+        # stream alias), turning every dial into AVERROR_INVALIDDATA. Level 2
+        # refreshes URLs once early in the ladder, but that single shot is easily
+        # missed (sync rate-limited, or the token rotates again during the
+        # descent). Without re-refreshing here, a process that reaches level 6
+        # re-dials the same dead token forever and never reads the file the
+        # nightly refresh cron updates — the "silent audio downtime" wedge. So on
+        # every down-retry, actively pull fresh tokens (rate-limited to
+        # REFRESH_COOLDOWN, which == DOWN_RETRY_INTERVAL) and reload from disk.
         if self._level == 6:
             self._backoff = DOWN_RETRY_INTERVAL
-            log.error("Level 6: still down, retrying in %ds", DOWN_RETRY_INTERVAL)
+            synced = self._trigger_sync()
+            self._reload_urls()
+            log.error("Level 6: still down, token resync %s, URLs reloaded from disk, retrying in %ds",
+                      "succeeded" if synced else "skipped/failed", DOWN_RETRY_INTERVAL)
             self._write_health("down")
             return
 
@@ -260,10 +272,15 @@ class RTSPStreamManager:
 
         self._last_sync_time = now
         try:
+            # Inherit our env (the LaunchAgent wraps us in run-with-env.sh, which
+            # exports UNIFI_PROTECT_API_KEY). Cap the script to a single fetch
+            # attempt: its own CloudKey-down retry budget (10 min) outlives our
+            # timeout, and the down-retry ladder re-invokes us every
+            # DOWN_RETRY_INTERVAL anyway.
             result = subprocess.run(
                 [sys.executable, self.sync_script],
-                capture_output=True, text=True, timeout=60,
-                env={**os.environ, "UNIFI_PROTECT_API_KEY": os.environ.get("UNIFI_PROTECT_API_KEY", "")},
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "RTSP_REFRESH_MAX_ATTEMPTS": "1"},
             )
             if result.returncode == 0:
                 log.info("Sync script succeeded: %s", result.stdout.strip())
@@ -272,7 +289,7 @@ class RTSPStreamManager:
                 log.warning("Sync script failed (exit %d): %s", result.returncode, result.stderr.strip())
                 return False
         except subprocess.TimeoutExpired:
-            log.error("Sync script timed out after 60s")
+            log.error("Sync script timed out after 120s")
             return False
         except Exception as e:
             log.error("Failed to run sync script: %s", e)

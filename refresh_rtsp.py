@@ -10,6 +10,7 @@ Restarts go2rtc if tokens changed.
 Run daily at 3:10 AM via LaunchAgent, or on-demand.
 """
 
+import fcntl
 import json
 import os
 import pathlib
@@ -22,6 +23,7 @@ import urllib.request
 BASE_DIR = pathlib.Path(__file__).parent
 RTSP_URLS_FILE = BASE_DIR / "rtsp_urls.json"
 GO2RTC_CONFIG = BASE_DIR / "go2rtc.yaml"
+LOCK_FILE = "/tmp/refresh-rtsp.lock"
 
 PROTECT_HOST = os.environ.get("PROTECT_HOST", "192.168.4.9")
 API_KEY = os.environ.get("UNIFI_PROTECT_API_KEY") or os.environ.get("UNIFI_API_KEY", "")
@@ -129,6 +131,10 @@ def restart_go2rtc():
     go2rtc runs as a native binary (LaunchAgent com.vives.go2rtc),
     not in Docker. Its HTTP API at :1984 accepts POST /api/restart
     to reload the config file.
+
+    A restarting go2rtc usually drops the in-flight POST connection, so a
+    connection error on the request itself is the EXPECTED success signature,
+    not a failure. Success/failure is judged by polling the API afterwards.
     """
     try:
         req = urllib.request.Request(
@@ -136,9 +142,22 @@ def restart_go2rtc():
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            log(f"Restarted go2rtc via API (status {resp.status})")
+            log(f"go2rtc restart requested (status {resp.status})")
     except Exception as e:
-        log(f"Warning: could not restart go2rtc: {e}")
+        log(f"go2rtc restart requested (connection dropped during restart: {e})")
+
+    # Verify: poll the API until it answers again.
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:1984/api", timeout=2) as resp:
+                if resp.status == 200:
+                    log("go2rtc restart verified — API responding")
+                    return
+        except Exception:
+            pass
+        time.sleep(1)
+    log("Warning: go2rtc API not responding 15s after restart request")
 
 
 # Retry config for transient CloudKey unavailability (HDD swap, reboot, network blip).
@@ -146,7 +165,11 @@ def restart_go2rtc():
 # next 3:10 AM run. Keep retrying as long as ALL cameras are failing (i.e. CloudKey
 # is fully down). Stop the moment we get even one camera back — partial success is
 # better than waiting longer.
-MAX_FETCH_ATTEMPTS = 20      # 20 × 30s = 10 minutes total budget
+# On-demand callers (RTSPStreamManager._trigger_sync) set RTSP_REFRESH_MAX_ATTEMPTS=1:
+# their subprocess timeout is shorter than the full retry budget, and their own
+# down-retry ladder re-invokes the script periodically anyway.
+MAX_FETCH_ATTEMPTS = int(os.environ.get("RTSP_REFRESH_MAX_ATTEMPTS", "20"))
+                             # 20 × 30s = 10 minutes total budget
 FETCH_BACKOFF_S = 30         # constant backoff; the failure mode is "CloudKey gone"
                               # not "transient blip", so exponential doesn't help much
 
@@ -188,6 +211,21 @@ def fetch_with_retry():
 
 
 def main():
+    # Cross-process lock: up to three audio stream managers (two analyzer
+    # threads + the enhanced-audio process) plus the nightly cron can invoke
+    # this script; concurrent runs race on the shared .tmp files and can
+    # restart go2rtc several times in a burst. First caller does the work;
+    # late arrivals wait for it to finish and exit — the refresh they wanted
+    # has just happened.
+    lock_fd = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log("Another refresh is already running — waiting for it to finish")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        log("Refresh completed by the other process — exiting")
+        return
+
     if not API_KEY:
         log("ERROR: UNIFI_PROTECT_API_KEY not set")
         sys.exit(1)

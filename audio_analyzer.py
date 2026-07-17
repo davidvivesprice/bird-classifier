@@ -657,14 +657,27 @@ def analyze_camera(analyzer, camera_name, preferred_stream, fallback_stream,
             log.error("[%s] Stream error: %s", camera_name, e)
             stream_mgr.report_failure(e)
         finally:
-            # Flush any pending detections before reconnecting
+            # Flush any pending detections before reconnecting — through the
+            # normal acceptance path so the range filter, clip saving, and
+            # dynamic thresholds still apply (each pending det carries its own
+            # _raw_pcm, so the clip can be written even though the buffer that
+            # produced it is gone).
             if confirmer and confirmer.pending_count > 0:
                 for det in confirmer.flush_all():
                     try:
-                        insert_detection(det, "", source=camera_name,
-                                         confirmations=det.get("confirmations", 1))
-                    except Exception:
-                        pass
+                        det_raw = det.pop("_raw_pcm", b"")
+                        clip_name = _accept_detection(
+                            det, det_raw, camera_name, range_filter,
+                            dyn_thresh, det.get("confirmations", 1))
+                        if clip_name is not None:
+                            total_detections += 1
+                            log.info("[%s] Detection #%d (stream-end flush): %s (%.0f%%, %d confirms) — %s",
+                                     camera_name, total_detections,
+                                     det["common_name"], det["confidence"] * 100,
+                                     det.get("confirmations", 1), clip_name)
+                    except Exception as e:
+                        log.warning("[%s] Stream-end flush failed for %s: %s",
+                                    camera_name, det.get("common_name", "?"), e)
             if container:
                 try:
                     container.close()
@@ -788,7 +801,6 @@ def main():
     test_mode = "--test" in sys.argv
 
     log.info("Bird Audio Analyzer starting")
-    log.info("  RTSP: managed (preferred=ground, fallback=birds)")
     log.info("  Location: %.2f, %.2f", LAT, LON)
     log.info("  Min confidence: %.0f%%", MIN_CONFIDENCE * 100)
     log.info("  Dynamic threshold floor: %.0f%%", DYNAMIC_THRESHOLD_MIN * 100)

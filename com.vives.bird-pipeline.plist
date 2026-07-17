@@ -2,23 +2,33 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key>
-    <string>com.vives.bird-pipeline</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/vives/bird-classifier/venv-coral/bin/python3</string>
-        <string>-u</string>
-        <string>/Users/vives/bird-classifier/bird_pipeline.py</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/Users/vives/bird-classifier</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
-    <key>StandardOutPath</key>
-    <string>/Users/vives/bird-snapshots/logs/pipeline.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/vives/bird-snapshots/logs/pipeline-stderr.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PIPELINE_DB_PATH</key>
+		<string>/Users/vives/bird-snapshots/logs/pipeline.db</string>
+		<key>PIPELINE_HEALTH_PORT</key>
+		<string>8100</string>
+		<key>PIPELINE_NIGHT_BYPASS</key>
+		<string>0</string>
+		<key>PIPELINE_SSE_PORT</key>
+		<string>8105</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.vives.bird-pipeline</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/vives/bin/bird-pipeline-run.sh</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/Users/vives/bird-snapshots/logs/pipeline-stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/vives/bird-snapshots/logs/pipeline.log</string>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/vives/bird-classifier</string>
 </dict>
 </plist>

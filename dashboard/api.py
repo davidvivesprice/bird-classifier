@@ -371,6 +371,20 @@ def invalidate_cache(*prefixes):
 VALID_VERDICTS = frozenset(("correct", "wrong", "skip", "trash", "reclassify"))
 
 
+# Species names may only contain letters, digits, spaces, hyphens,
+# apostrophes and underscores (covers every historical value incl.
+# 'not_a_bird'). Blocks '..', slashes and dot-names that would let a
+# reclassify verdict escape or pollute classified/.
+_SPECIES_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9' _-]*$")
+
+
+def _validate_species_name(name: str) -> str:
+    """Reject species names that could escape CLASSIFIED_DIR or mint junk dirs."""
+    if name and not _SPECIES_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid species name: {name!r}")
+    return name
+
+
 def _create_review_entry(filename: str, verdict: str, correct_species: str = "",
                          missed_birds: str = "false", bird_index: str = "0") -> dict:
     """Build and validate a review entry dict."""
@@ -378,23 +392,35 @@ def _create_review_entry(filename: str, verdict: str, correct_species: str = "",
     if verdict not in VALID_VERDICTS:
         raise HTTPException(status_code=400, detail=f"verdict must be one of {', '.join(sorted(VALID_VERDICTS))}")
     correct_species = normalize_species(correct_species) if correct_species else ""
+    _validate_species_name(correct_species)
+    try:
+        bird_index_int = int(bird_index)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"bird_index must be an integer, got {bird_index!r}")
     return {
         "file": safe_name,
         "verdict": verdict,
         "correct_species": correct_species if verdict == "wrong" else "",
         "missed_birds": missed_birds.lower() in ("true", "1", "yes"),
-        "bird_index": int(bird_index),
+        "bird_index": bird_index_int,
         "timestamp": datetime.now().isoformat(),
     }
 
 
 def _apply_verdict_files(filename, verdict, correct_species,
                          classified_dir=None, annotated_dir=None,
-                         trash_dir=None, skipped_dir=None):
+                         trash_dir=None, skipped_dir=None,
+                         original_species=""):
     """Move files to match verdict. Pure file logic, no DB writes.
 
-    Accepts optional dir overrides for testing.
-    Returns {"moved": bool, "from_dir": str|None, "to_dir": str|None, "error": str|None}
+    Accepts optional dir overrides for testing. `original_species` is the
+    AI's common_name from classifications — used to restore a formerly
+    trashed/skipped file when a later verdict says it's a real bird.
+
+    Idempotent: a file already sitting where the verdict wants it is
+    success, not an error, so client retries can re-run this safely.
+    Returns {"moved": bool, "from_dir": str|None, "to_dir": str|None,
+             "error": str|None, "restored": bool}
     """
     classified_dir = classified_dir or CLASSIFIED_DIR
     annotated_dir = annotated_dir or ANNOTATED_DIR
@@ -409,12 +435,43 @@ def _apply_verdict_files(filename, verdict, correct_species,
                     return candidate
         return None
 
-    def _sanitize(species):
-        return species.replace(" ", "_").replace("'", "").replace("/", "-")
+    def _find_stray(name):
+        """Locate the file in trash/ or skipped/ (a prior verdict moved it)."""
+        for d in (trash_dir, skipped_dir):
+            candidate = d / name
+            if candidate.exists():
+                return candidate
+        return None
 
-    result = {"moved": False, "from_dir": None, "to_dir": None, "error": None}
+    def _sanitize(species):
+        safe = (species.replace(" ", "_").replace("'", "")
+                .replace("/", "-").replace("\\", "-").strip("."))
+        return safe
+
+    def _restore_to(dst_dir, stray, result):
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        result["from_dir"] = stray.parent.name
+        shutil.move(str(stray), str(dst_dir / filename))
+        result["moved"] = True
+        result["restored"] = True
+        result["to_dir"] = dst_dir.name
+
+    result = {"moved": False, "from_dir": None, "to_dir": None,
+              "error": None, "restored": False}
 
     if verdict in ("correct", "reclassify"):
+        # No move needed — unless a prior trash/skip verdict displaced the
+        # file. Then this verdict is a restore (the re-review-after-trash
+        # data-loss bug: verified images used to stay in trash and get purged).
+        if _find(filename):
+            return result
+        stray = _find_stray(filename)
+        if stray is not None:
+            if original_species:
+                _restore_to(classified_dir / original_species, stray, result)
+            else:
+                result["error"] = (f"{filename} is in {stray.parent.name}/ but "
+                                   "original species unknown — not restored")
         return result
 
     src = _find(filename)
@@ -424,6 +481,13 @@ def _apply_verdict_files(filename, verdict, correct_species,
         if src:
             result["from_dir"] = src.parent.name
             shutil.move(str(src), str(trash_dir / filename))
+            result["moved"] = True
+            result["to_dir"] = "trash"
+        elif (trash_dir / filename).exists():
+            result["to_dir"] = "trash"  # already there — idempotent success
+        elif (skipped_dir / filename).exists():
+            result["from_dir"] = "skipped"
+            shutil.move(str(skipped_dir / filename), str(trash_dir / filename))
             result["moved"] = True
             result["to_dir"] = "trash"
         else:
@@ -436,14 +500,25 @@ def _apply_verdict_files(filename, verdict, correct_species,
     elif verdict == "wrong" and correct_species:
         safe_name = _sanitize(correct_species)
         dst_dir = classified_dir / safe_name
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        if src:
+        if (not safe_name or ".." in safe_name
+                or not any(ch.isalnum() for ch in safe_name)
+                or dst_dir.resolve().parent != Path(classified_dir).resolve()):
+            result["error"] = f"Unsafe species name: {correct_species!r}"
+            return result
+        if src and src.parent == dst_dir:
+            result["to_dir"] = safe_name  # already in place
+        elif src:
+            dst_dir.mkdir(parents=True, exist_ok=True)
             result["from_dir"] = src.parent.name
             shutil.move(str(src), str(dst_dir / filename))
             result["moved"] = True
             result["to_dir"] = safe_name
         else:
-            result["error"] = f"File not found in classified/: {filename}"
+            stray = _find_stray(filename)
+            if stray is not None:
+                _restore_to(dst_dir, stray, result)
+            else:
+                result["error"] = f"File not found in classified/: {filename}"
 
     elif verdict == "skip" or (verdict == "wrong" and not correct_species):
         skipped_dir.mkdir(parents=True, exist_ok=True)
@@ -452,6 +527,8 @@ def _apply_verdict_files(filename, verdict, correct_species,
             shutil.move(str(src), str(skipped_dir / filename))
             result["moved"] = True
             result["to_dir"] = "skipped"
+        elif (skipped_dir / filename).exists():
+            result["to_dir"] = "skipped"  # already there — idempotent success
         else:
             result["error"] = f"File not found in classified/: {filename}"
 
@@ -463,7 +540,18 @@ def apply_verdict(filename, verdict, correct_species=""):
 
     Called by all review endpoints.
     """
-    result = _apply_verdict_files(filename, verdict, correct_species)
+    # Original species (AI's call) — needed to restore a formerly-trashed
+    # file to its species dir when a later verdict rehabilitates it.
+    original_species = ""
+    try:
+        entry = cdb.get_entry_by_file(filename)
+        if entry:
+            original_species = entry.get("common_name") or ""
+    except Exception:
+        pass
+
+    result = _apply_verdict_files(filename, verdict, correct_species,
+                                  original_species=original_species)
 
     # NOTE: We do NOT update classifications.common_name here.
     # common_name stays as the AI's original classification — that's the honest data.
@@ -480,12 +568,26 @@ def apply_verdict(filename, verdict, correct_species=""):
             cdb.get_conn(readonly=False).commit()
         except Exception as e:
             logging.warning("Failed to mark %s as trashed: %s", filename, e)
+    elif result.get("restored"):
+        # File came back out of trash/skipped — clear the trashed marker so
+        # it reappears in species grids and queues.
+        try:
+            cdb.get_conn(readonly=False).execute(
+                "UPDATE classifications SET action = 'classified' "
+                "WHERE file = ? AND action LIKE 'trashed:%'",
+                (filename,)
+            )
+            cdb.get_conn(readonly=False).commit()
+        except Exception as e:
+            logging.warning("Failed to un-trash %s: %s", filename, e)
 
     if result["moved"]:
         logging.info("apply_verdict: %s → %s (%s → %s)",
                      filename, verdict, result["from_dir"], result["to_dir"])
     elif result["error"]:
-        logging.warning("apply_verdict: %s — %s", filename, result["error"])
+        # Loud: disk state now disagrees with the recorded verdict.
+        logging.error("apply_verdict FAILED: %s (verdict=%s) — %s",
+                      filename, verdict, result["error"])
 
     return result
 
@@ -637,12 +739,27 @@ _HEALTH_TIMEOUT = 3     # per-service timeout
 
 
 def _fetch_service(url, name):
-    """Fetch a service's /metrics or /health endpoint. Returns parsed JSON or error dict."""
+    """Fetch a service's /metrics or /health endpoint. Returns parsed JSON or error dict.
+
+    Status reflects the WORST of transport + payload: a 200 whose body says
+    overall='degraded'/'broken' must not read as green (the June 20 wedge
+    served 200s for 27 days while frozen).
+    """
     try:
         req = _urllib_request.Request(url)
         with _urllib_request.urlopen(req, timeout=_HEALTH_TIMEOUT) as resp:
             data = json.loads(resp.read())
-            return {"status": "ok", **data}
+            overall = data.get("overall")
+            if overall in ("broken", "error", "down"):
+                status = "error"
+            elif overall == "degraded":
+                status = "warn"
+            else:
+                status = "ok"
+            out = {"status": status, **data}
+            if status != "ok" and "detail" not in out:
+                out["detail"] = f"{name} reports overall={overall}"
+            return out
     except Exception as e:
         return {
             "status": "error",
@@ -723,6 +840,23 @@ def system_health():
             "go2rtc": _check_go2rtc(),
         },
     }
+
+    # Data staleness: a wedged-but-alive pipeline still answers health 200s
+    # (June 20 outage). During daylight hours, no new classifications for
+    # hours means the pipeline is NOT ok regardless of what it reports.
+    try:
+        last_ts = cdb.get_last_timestamp()
+        if last_ts:
+            age_h = (datetime.now() - datetime.fromisoformat(last_ts)).total_seconds() / 3600
+            if age_h > 2 and 7 <= datetime.now().hour < 21:
+                pv3 = result["services"]["pipeline_v3"]
+                pv3["status"] = "error" if age_h > 8 else "warn"
+                pv3["data_stale"] = True
+                pv3["last_classification"] = last_ts
+                pv3["detail"] = (f"No new classifications for {age_h:.1f}h "
+                                 f"(last: {last_ts})")
+    except Exception:
+        pass
 
     # Add disk free
     try:
@@ -935,17 +1069,15 @@ def weekly_snapshot():
 def audio_verified(date: Optional[str] = Query(None)):
     """Find visual detections corroborated by audio within +/-30 seconds.
 
-    When auto_confirm=true, automatically inserts 'correct' reviews for
-    unreviewed detections that have audio corroboration. This is safe
-    because both systems independently agree on the species.
-
-    Returns count of verified and (optionally) auto-confirmed detections.
+    Read-only: returns the count of corroborated detections plus up to 20
+    sample matches. (It does NOT write reviews — an earlier docstring
+    claimed an auto_confirm flag that was never implemented.)
     """
     today = date or datetime.now().strftime("%Y-%m-%d")
     conn = cdb.get_conn(readonly=True)
     bconn = _birdnet_db()
     if not bconn:
-        return {"verified": 0, "auto_confirmed": 0, "error": "BirdNET DB unavailable"}
+        return {"verified": 0, "error": "BirdNET DB unavailable"}
 
     # Find visual detections with matching audio within +/-30s
     # Only look at unreviewed classifications
@@ -960,7 +1092,7 @@ def audio_verified(date: Optional[str] = Query(None)):
             AND r.file IS NULL
         """, (today,)).fetchall()
     except Exception as e:
-        return {"verified": 0, "auto_confirmed": 0, "error": str(e)}
+        return {"verified": 0, "error": str(e)}
 
     verified = []
     for m in matches:
@@ -1046,10 +1178,15 @@ def bulk_reclassify(from_species: str, to_species: str):
     with correct_species=to_species. Only affects unreviewed images.
 
     This creates review entries with verdict='wrong' and correct_species set,
-    which feeds into the retraining pipeline.
+    which feeds into the retraining pipeline. Writes go through
+    rdb.insert_review so every reclassification lands in review_history
+    (the legacy raw INSERT OR IGNORE bypassed the audit trail — the exact
+    reason the old batch endpoints were retired).
     """
+    import uuid as _uuid
     from_species = normalize_species(from_species)
     to_species = normalize_species(to_species)
+    _validate_species_name(to_species)
     conn = cdb.get_conn(readonly=True)
     # Get all unreviewed files for this species
     files = conn.execute(
@@ -1062,31 +1199,40 @@ def bulk_reclassify(from_species: str, to_species: str):
     if not files:
         return {"reclassified": 0, "message": "No unreviewed images found"}
 
-    # Insert reviews
-    rw_conn = rdb.get_conn(readonly=False)
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    batch_id = _uuid.uuid4().hex[:12]
+    now_iso = datetime.now().isoformat()
     count = 0
+    move_errors = 0
     for f in files:
+        fname = f[0]
         try:
-            rw_conn.execute(
-                "INSERT OR IGNORE INTO reviews (file, verdict, correct_species, timestamp, reviewer) "
-                "VALUES (?, 'wrong', ?, ?, 'bulk-reclassify')",
-                (f[0], to_species, now_ts),
-            )
-            count += 1
-        except Exception:
-            pass
-    rw_conn.commit()
-    # Move files to match reclassification
-    for f in files:
-        apply_verdict(f[0], "wrong", to_species)
-    invalidate_cache("pending", "stats", "species", "highlights", "profile", "weekly_snapshot")
+            result = rdb.insert_review({
+                "file": fname,
+                "verdict": "wrong",
+                "correct_species": to_species,
+                "missed_birds": 0,
+                "bird_index": 0,
+                "timestamp": now_iso,
+                "reviewer": "bulk-reclassify",
+                "client_id": f"bulk-reclassify:{batch_id}:{fname}",
+            })
+            if not result.get("duplicate"):
+                count += 1
+            fr = apply_verdict(fname, "wrong", to_species)
+            if fr.get("error"):
+                move_errors += 1
+        except Exception as e:
+            logging.warning("bulk-reclassify failed for %s: %s", fname, e)
+    invalidate_cache("pending", "stats", "species", "highlights", "profile",
+                     "weekly_snapshot", "smart_queue", "count_classified")
 
     return {
         "reclassified": count,
         "from_species": from_species,
         "to_species": to_species,
-        "message": f"Marked {count} images as {to_species} (was {from_species})",
+        "file_errors": move_errors,
+        "message": f"Marked {count} images as {to_species} (was {from_species})"
+                   + (f" — {move_errors} file moves failed" if move_errors else ""),
     }
 
 
@@ -1113,7 +1259,14 @@ def review_smart_queue():
 
     Everything else is deprioritized (not deleted, just not shown).
     Returns species-grouped batches for fast review.
+
+    Cached 60s (recomputing costs ~2.6-5.6s of full-table LIKE scans);
+    review writes invalidate the 'smart_queue' cache key.
     """
+    return cached_result("smart_queue", 60, _compute_smart_queue)
+
+
+def _compute_smart_queue():
     conn = cdb.get_conn(readonly=True)
 
     # How many confirmed per species?
@@ -1898,8 +2051,29 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50,
     remaining = rdb.count_classifications(status="pending", species=sp,
                                            multibird=mb, camera=cam, bucket=bk)
 
-    # Build response items from SQL rows, with audio corroboration check
+    # Build response items from SQL rows, with audio corroboration check.
+    # Audio times are fetched ONCE per (date, species) pair on the page —
+    # the old per-row SUBSTR-arithmetic probe was an N+1 (50 rows = 50
+    # round-trips) costing ~30-40% of this endpoint's latency.
     bconn = _birdnet_db()
+    audio_times: dict = {}
+    if bconn:
+        pairs = {(r.get("source_date"), r["original_species"])
+                 for r in rows
+                 if r.get("source_date") and r["original_species"]}
+        for (d, sp) in pairs:
+            try:
+                audio_times[(d, sp)] = [
+                    t[0] for t in bconn.execute(
+                        "SELECT time FROM notes WHERE date=? AND common_name=?",
+                        (d, sp)).fetchall()
+                ]
+            except Exception:
+                audio_times[(d, sp)] = []
+
+    def _secs(hms: str) -> int:
+        return int(hms[0:2]) * 3600 + int(hms[3:5]) * 60 + int(hms[6:8])
+
     pending = []
     for r in rows:
         birds = _safe_json(r["birds_json"]) if r.get("birds_json") else []
@@ -1936,28 +2110,20 @@ def review_pending(species: str = "", offset: int = 0, limit: int = 50,
         # Check if BirdNET heard the same species within +/-30s
         ts = r.get("source_timestamp") or ""
         date_part = r.get("source_date") or ""
-        if bconn and ts and date_part and r["original_species"]:
+        if ts and date_part and r["original_species"]:
             try:
-                audio_match = bconn.execute(
-                    "SELECT 1 FROM notes WHERE date=? AND common_name=? "
-                    "AND ABS("
-                    "(CAST(SUBSTR(?,12,2) AS INTEGER)*3600+"
-                    "CAST(SUBSTR(?,15,2) AS INTEGER)*60+"
-                    "CAST(SUBSTR(?,18,2) AS INTEGER))"
-                    "-"
-                    "(CAST(SUBSTR(time,1,2) AS INTEGER)*3600+"
-                    "CAST(SUBSTR(time,4,2) AS INTEGER)*60+"
-                    "CAST(SUBSTR(time,7,2) AS INTEGER))"
-                    ") <= 30 LIMIT 1",
-                    (date_part, r["original_species"], ts, ts, ts),
-                ).fetchone()
-                if audio_match:
-                    item["also_heard"] = True
+                row_secs = _secs(ts[11:19])
+                for t in audio_times.get((date_part, r["original_species"]), []):
+                    if abs(row_secs - _secs(t)) <= 30:
+                        item["also_heard"] = True
+                        break
             except Exception:
                 pass
         pending.append(item)
 
-    total_classified = cdb.count_classified()
+    # count_classified's NOT-EXISTS scan is the known slow query (25s cold
+    # start) — cache it; review writes invalidate 'count_classified'.
+    total_classified = cached_result("count_classified", 60, cdb.count_classified)
     total_reviewed = rdb.count_reviews()
 
     # Species list: distinct species from unreviewed classifications
@@ -2097,8 +2263,10 @@ def submit_review_retired(filename: str):
 
 
 @app.post("/api/review2/batch-confirm")
-async def batch_confirm2(body: dict = Body(default=None)):
+def batch_confirm2(body: dict = Body(default=None)):
     """Airtight bulk confirm. Body: {files: list, client_id?}.
+    Sync def: the per-file DB writes + file moves run in the threadpool,
+    not on the event loop.
 
     Writes one review_history row per file (verdict='correct') via
     reviews_db.insert_review. This replaces the legacy /api/review/batch-confirm
@@ -2121,18 +2289,23 @@ async def batch_confirm2(body: dict = Body(default=None)):
             if client_id:
                 review["client_id"] = f"{client_id}:{fname}"
             rdb.insert_review(review)
+            # Restores the file from trash/skipped if a prior verdict
+            # displaced it (no-op when it's already in classified/).
+            apply_verdict(fname, "correct", "")
             count += 1
         except Exception as e:
             logging.warning("batch-confirm2 failed for %s: %s", fname, e)
     if count:
         invalidate_cache("stats:", "species:", "goals:", "highlights:",
-                         "profile:", "weekly_snapshot")
+                         "profile:", "weekly_snapshot", "smart_queue",
+                         "count_classified")
     return {"confirmed": count}
 
 
 @app.post("/api/review2/batch-reject")
-async def batch_reject2(body: dict = Body(default=None)):
+def batch_reject2(body: dict = Body(default=None)):
     """Airtight bulk reject. Body: {files: list, correct_species?, client_id?}.
+    Sync def: the per-file DB writes + file moves run in the threadpool.
 
     Writes one review_history row per file (verdict='wrong') and calls
     apply_verdict to move files into the correct species directory (or trash
@@ -2150,23 +2323,29 @@ async def batch_reject2(body: dict = Body(default=None)):
     else:
         correct = normalize_species(correct_species_raw) if correct_species_raw else ""
     count = 0
+    file_errors = []
     for fname in files:
         try:
             review = _create_review_entry(fname, "wrong", correct, "false", "0")
             review["reviewer"] = "batch-review"
             if client_id:
                 review["client_id"] = f"{client_id}:{fname}"
-            result = rdb.insert_review(review)
-            # apply_verdict only on non-duplicates to keep idempotency honest.
-            if not result.get("duplicate"):
-                apply_verdict(fname, "wrong", correct)
+            rdb.insert_review(review)
+            # apply_verdict is idempotent (already-in-place = success), so
+            # duplicate replays re-run it and retry a failed move.
+            fr = apply_verdict(fname, "wrong", correct)
+            if fr.get("error"):
+                file_errors.append({"file": fname, "error": fr["error"]})
             count += 1
         except Exception as e:
             logging.warning("batch-reject2 failed for %s: %s", fname, e)
+            file_errors.append({"file": fname, "error": str(e)})
     if count:
         invalidate_cache("stats:", "species:", "goals:", "highlights:",
-                         "profile:", "weekly_snapshot")
-    return {"rejected": count, "correct_species": correct}
+                         "profile:", "weekly_snapshot", "smart_queue",
+                         "count_classified")
+    return {"rejected": count, "correct_species": correct,
+            "file_errors": file_errors}
 
 
 @app.post("/api/review2/rerun-missed")
@@ -2214,7 +2393,8 @@ def rerun_missed2(body: dict = Body(default=None)):
 
     if moved:
         invalidate_cache("stats:", "species:", "goals:", "highlights:",
-                         "profile:", "weekly_snapshot")
+                         "profile:", "weekly_snapshot", "smart_queue",
+                         "count_classified")
     return {
         "moved": moved,
         "not_found": not_found,
@@ -2291,18 +2471,25 @@ def submit_review2(filename: str, body: dict = Body(...)):
     if client_id:
         review["client_id"] = client_id
     result = rdb.insert_review(review)
-    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:",
+                     "weekly_snapshot", "smart_queue", "count_classified")
 
-    # File move happens AFTER DB commit. If this fails, the audit catches it.
-    # A duplicate (same client_id) skips the file move — idempotent.
-    if not result.get("duplicate"):
-        apply_verdict(review["file"], verdict, review.get("correct_species", ""))
+    # File move happens AFTER DB commit. apply_verdict is idempotent
+    # (already-in-place = success), so duplicate replays re-run it too —
+    # a transiently-failed move gets retried instead of staying silent.
+    file_result = apply_verdict(review["file"], verdict, review.get("correct_species", ""))
 
     return {
         "ok": True,
         "history_id": result["history_id"],
         "prev_row_id": result.get("prev_row_id"),
         "duplicate": result["duplicate"],
+        # Surface the disk outcome — a verdict whose file move failed is NOT
+        # fully applied, and the client must be able to see that.
+        "file_moved": file_result.get("moved", False),
+        "file_from": file_result.get("from_dir"),
+        "file_to": file_result.get("to_dir"),
+        "file_error": file_result.get("error"),
     }
 
 
@@ -2604,15 +2791,45 @@ async def api_models_classify_upload(file: UploadFile = File(...)):
 
 @app.post("/api/review2/undo/{history_id}")
 def review2_undo(history_id: int, body: dict = Body(default=None)):
-    """Append an `undone` entry + restore the previous state in `reviews`.
+    """Append an `undone` entry + restore the previous state in `reviews`,
+    then move the FILE back to match the restored state (undoing a trash
+    verdict used to leave the image in trash/ awaiting purge).
     Body: {client_id?} for idempotency.
     """
     client_id = (body or {}).get("client_id") if body else None
+    # Capture the target file before the DB rewrite so we can reconcile disk.
+    target = rdb.get_conn(readonly=True).execute(
+        "SELECT file FROM review_history WHERE id = ?", (history_id,)
+    ).fetchone()
     result = rdb.undo(history_id, client_id=client_id)
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "undo failed"))
-    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:", "weekly_snapshot")
+    invalidate_cache("stats:", "species:", "goals:", "highlights:", "profile:",
+                     "weekly_snapshot", "smart_queue", "count_classified")
+    if target is not None:
+        result["file_restore"] = _reconcile_reviewed_file(target["file"])
     return result
+
+
+def _reconcile_reviewed_file(filename: str) -> dict:
+    """Bring a file's on-disk location + classifications.action back in line
+    with its CURRENT standing review state (used after undo). apply_verdict
+    is idempotent, so this is safe to call regardless of where the file is.
+    """
+    try:
+        current = rdb.get_review(filename) or {}
+    except Exception:
+        current = {}
+    verdict = current.get("verdict") or ""
+    species = current.get("correct_species") or ""
+    if verdict and verdict not in VALID_VERDICTS:
+        # 'requeued' etc. — file may legitimately live outside classified/
+        return {"moved": False, "error": None, "note": f"no file action for verdict {verdict!r}"}
+    if not verdict:
+        # Unreviewed now — the file belongs back in classified/<original species>/
+        verdict = "correct"
+        species = ""
+    return apply_verdict(filename, verdict, species)
 
 
 @app.get("/api/review/classified")
@@ -2885,9 +3102,17 @@ def _download_and_cache(name: str, safe: str):
         return None
 
 
+# Negative cache for species-image lookups: without it a species with no
+# All About Birds page re-runs the full ~50s scrape on EVERY request,
+# pinning threadpool workers.
+_species_image_misses: dict = {}
+_SPECIES_IMAGE_MISS_TTL = 6 * 3600  # retry failed downloads after 6h
+
+
 @app.get("/api/species-image/{name}")
 def species_image(name: str):
-    """Serve a locally-cached species image. Downloads from Wikimedia on first access."""
+    """Serve a locally-cached species image. Downloads from All About Birds
+    on first access; failed lookups are negative-cached for 6h."""
     safe = _sanitize_species_filename(name)
 
     # Check local cache first
@@ -2899,15 +3124,22 @@ def species_image(name: str):
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
+    # Recently failed? Don't re-scrape.
+    missed_at = _species_image_misses.get(safe)
+    if missed_at and (_time.time() - missed_at) < _SPECIES_IMAGE_MISS_TTL:
+        raise HTTPException(status_code=404, detail=f"No image available for '{name}'")
+
     # Not cached — try to download and cache on demand
     result = _download_and_cache(name, safe)
     if result:
+        _species_image_misses.pop(safe, None)
         path, media = result
         return FileResponse(
             str(path), media_type=media,
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
+    _species_image_misses[safe] = _time.time()
     raise HTTPException(status_code=404, detail=f"No image available for '{name}'")
 
 
@@ -3029,18 +3261,10 @@ BIRDNET_DB_PATH = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdne
 BIRDNET_CLIPS_DIR = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/clips"))
 _FOOD_DB = BIRDNET_DB_PATH  # food_log table lives in the same DB as birdnet notes
 
-# --- Thread-local connection pools for food_log and birdnet DBs ---
-_food_db_local = threading.local()
+# --- Thread-local connection pool shared by food_log + birdnet queries ---
+# (One conn per thread, not two: they hit the SAME file, and doubled handles
+# were a driver of the dashboard's Errno-24 fd exhaustion.)
 _birdnet_db_local = threading.local()
-
-
-def _get_food_conn():
-    """Thread-local pooled connection to the food/birdnet DB (same file)."""
-    if not hasattr(_food_db_local, 'conn') or _food_db_local.conn is None:
-        _food_db_local.conn = sqlite3.connect(str(_FOOD_DB), timeout=5)
-        _food_db_local.conn.execute("PRAGMA journal_mode=WAL")
-        _food_db_local.conn.row_factory = sqlite3.Row
-    return _food_db_local.conn
 
 
 def _get_birdnet_conn():
@@ -3054,10 +3278,22 @@ def _get_birdnet_conn():
     return _birdnet_db_local.conn
 
 
+def _get_food_conn():
+    """Food-log queries share the birdnet thread-local conn (same file)."""
+    conn = _get_birdnet_conn()
+    if conn is None:
+        # food_log writes must work even before the analyzer first creates
+        # the DB file — fall back to a direct connect that creates it.
+        _birdnet_db_local.conn = sqlite3.connect(str(_FOOD_DB), timeout=5)
+        _birdnet_db_local.conn.execute("PRAGMA journal_mode=WAL")
+        _birdnet_db_local.conn.row_factory = sqlite3.Row
+        conn = _birdnet_db_local.conn
+    return conn
+
+
 # Cache for birdnet summary (regenerated when DB changes)
 _birdnet_summary_cache = None
 _birdnet_summary_mtime = 0.0
-_birdnet_last_id = 0  # for SSE polling
 
 
 def _birdnet_db():
@@ -3187,21 +3423,23 @@ async def birdnet_events():
 
     Polls the local SQLite DB every 3 seconds for new rows and pushes them
     as SSE events. Replaces the separate birdnet_sse.py process.
-    """
-    global _birdnet_last_id
 
-    # Initialize last_id from DB if needed
-    if _birdnet_last_id == 0:
-        conn = _birdnet_db()
-        if conn:
-            cur = conn.cursor()
-            cur.execute("SELECT MAX(id) FROM notes")
-            row = cur.fetchone()
-            _birdnet_last_id = row[0] or 0
+    Each connection starts at the CURRENT MAX(id): clients get only events
+    that arrive after they connect. (The old module-global last_id was set
+    once at the first-ever connection, so every later client replayed weeks
+    of backlog — 15+ MB per page load.)
+    """
 
     async def event_stream():
-        global _birdnet_last_id
-        last_id = _birdnet_last_id
+        # Per-connection starting point: newest row right now.
+        last_id = 0
+        init_conn = _birdnet_db()
+        if init_conn:
+            try:
+                row = init_conn.execute("SELECT MAX(id) FROM notes").fetchone()
+                last_id = row[0] or 0
+            except Exception as exc:
+                logging.warning("[BirdNET SSE] init query failed: %s", exc)
         heartbeat_counter = 0
 
         yield "data: {\"type\": \"connected\"}\n\n"
@@ -3250,9 +3488,6 @@ async def birdnet_events():
                     }
                     yield f"data: {json.dumps(event)}\n\n"
                     last_id = det_id
-                    # Note: do NOT write _birdnet_last_id here — multiple SSE
-                    # clients would race on the global. Each generator tracks
-                    # its own local last_id independently.
 
                     # Invalidate summary cache on new detection
                     global _birdnet_summary_mtime
@@ -3523,10 +3758,18 @@ import random as _random
 
 _GAME_DB_PATH = Path.home() / "bird-snapshots" / "logs" / "game.db"
 
+_game_db_initialized = False
+
+
 def _game_db():
-    """Get or create the game database."""
+    """Get or create the game database. Callers must close() the returned
+    connection (use try/finally) — leaked handles were a driver of the
+    dashboard's Errno-24 fd exhaustion."""
+    global _game_db_initialized
     db = _sqlite3.connect(str(_GAME_DB_PATH))
     db.row_factory = _sqlite3.Row
+    if _game_db_initialized:
+        return db
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("""CREATE TABLE IF NOT EXISTS game_players (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3547,8 +3790,30 @@ def _game_db():
         is_correct INTEGER,
         played_at TEXT DEFAULT (datetime('now'))
     )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS game_trashed_clips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clip_id INTEGER,
+        species TEXT,
+        clip_name TEXT,
+        trashed_by TEXT,
+        reason TEXT,
+        trashed_at TEXT DEFAULT (datetime('now'))
+    )""")
     db.commit()
+    _game_db_initialized = True
     return db
+
+
+def _resolve_game_player(gdb, player_name: str):
+    """Resolve the submitting player's row. Falls back to the most recently
+    registered player ONLY for legacy clients that send no player_name."""
+    if player_name:
+        return gdb.execute(
+            "SELECT id, name FROM game_players WHERE name = ?", (player_name,)
+        ).fetchone()
+    return gdb.execute(
+        "SELECT id, name FROM game_players ORDER BY id DESC LIMIT 1"
+    ).fetchone()
 
 
 # Species that sound similar — wrong answers drawn from these groups for harder questions
@@ -3587,10 +3852,13 @@ def game_start(body: dict):
 
     # Ensure player exists
     gdb = _game_db()
-    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
-    gdb.commit()
-    player = gdb.execute("SELECT id FROM game_players WHERE name = ?", (player_name,)).fetchone()
-    player_id = player["id"]
+    try:
+        gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+        gdb.commit()
+        player = gdb.execute("SELECT id FROM game_players WHERE name = ?", (player_name,)).fetchone()
+        player_id = player["id"]
+    finally:
+        gdb.close()
 
     # Get eligible clips: high confidence, file exists, 3+ per species
     bdb = _birdnet_db()
@@ -3618,7 +3886,7 @@ def game_start(body: dict):
     all_species = set(eligible.keys())
 
     if len(all_species) < 4:
-        raise HTTPException(500, "Not enough species for the game")
+        raise HTTPException(422, "Not enough species for the game")
 
     # Pick 10 questions — avoid repeating species back-to-back
     questions = []
@@ -3668,7 +3936,6 @@ def game_start(body: dict):
     # Create round ID
     round_id = int(_time.time() * 1000)
 
-    gdb.close()
     return {
         "round_id": round_id,
         "player_id": player_id,
@@ -3678,36 +3945,41 @@ def game_start(body: dict):
 
 @app.post("/api/game/answer")
 def game_answer(body: dict):
-    """Record a single answer."""
+    """Record a single answer, credited to the SUBMITTING player
+    (body.player_name), not whoever registered last."""
+    player_name = (body.get("player_name") or "").strip()
     gdb = _game_db()
-    gdb.execute("""
-        INSERT INTO game_answers (player_id, round_id, correct_species, chosen_species, is_correct)
-        SELECT id, ?, ?, ?, ? FROM game_players WHERE name = (
-            SELECT name FROM game_players ORDER BY id DESC LIMIT 1
-        )
-    """, (body.get("round_id"), body.get("correct_species", ""),
-          body.get("chosen_species", ""), 1 if body.get("is_correct") else 0))
-    gdb.commit()
-    gdb.close()
+    try:
+        player = _resolve_game_player(gdb, player_name)
+        if not player:
+            raise HTTPException(400, f"Unknown player: {player_name!r}")
+        gdb.execute("""
+            INSERT INTO game_answers (player_id, round_id, correct_species, chosen_species, is_correct)
+            VALUES (?, ?, ?, ?, ?)
+        """, (player["id"], body.get("round_id"), body.get("correct_species", ""),
+              body.get("chosen_species", ""), 1 if body.get("is_correct") else 0))
+        gdb.commit()
+    finally:
+        gdb.close()
     return {"ok": True}
 
 
 @app.post("/api/game/finish-round")
 def game_finish_round(body: dict):
-    """Update player stats after a round."""
+    """Update the SUBMITTING player's stats after a round. (The old version
+    looped over every player and stamped this round's best_streak onto all
+    of them — one good round inflated the whole leaderboard.)"""
+    player_name = (body.get("player_name") or "").strip()
+    try:
+        best_streak = int(body.get("best_streak", 0) or 0)
+    except (TypeError, ValueError):
+        best_streak = 0
+
     gdb = _game_db()
-    player_name = ""
-    saved = None
-
-    # Find the player from the round's answers
-    round_id = body.get("round_id")
-    score = body.get("score", 0)
-    best_streak = body.get("best_streak", 0)
-
-    # Get player name from cookie or most recent player
-    # (The client sends player_name implicitly via the round answers)
-    # Update all players' stats from their answer history
-    for player in gdb.execute("SELECT id, name FROM game_players").fetchall():
+    try:
+        player = _resolve_game_player(gdb, player_name)
+        if not player:
+            raise HTTPException(400, f"Unknown player: {player_name!r}")
         pid = player["id"]
         stats = gdb.execute("""
             SELECT COUNT(*) as total, SUM(is_correct) as correct
@@ -3726,15 +3998,15 @@ def game_finish_round(body: dict):
         cur_best = gdb.execute(
             "SELECT best_streak FROM game_players WHERE id = ?", (pid,)
         ).fetchone()["best_streak"]
-        new_best = max(cur_best, best_streak)
+        new_best = max(cur_best or 0, best_streak)
 
         gdb.execute("""
             UPDATE game_players SET total_rounds = ?, total_correct = ?,
                    total_answered = ?, best_streak = ? WHERE id = ?
         """, (rounds, correct, total, new_best, pid))
-
-    gdb.commit()
-    gdb.close()
+        gdb.commit()
+    finally:
+        gdb.close()
     return {"ok": True}
 
 
@@ -3766,21 +4038,14 @@ def game_trash_clip(body: dict):
     cur.execute("UPDATE notes SET has_clip = 0 WHERE id = ?", (clip_id,))
     bdb.commit()
 
-    # Log to game trash tracking table
+    # Log to game trash tracking table (schema created in _game_db)
     gdb = _game_db()
-    gdb.execute("""CREATE TABLE IF NOT EXISTS game_trashed_clips (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        clip_id INTEGER,
-        species TEXT,
-        clip_name TEXT,
-        trashed_by TEXT,
-        reason TEXT,
-        trashed_at TEXT DEFAULT (datetime('now'))
-    )""")
-    gdb.execute("INSERT INTO game_trashed_clips (clip_id, species, clip_name, trashed_by, reason) VALUES (?,?,?,?,?)",
-                (clip_id, species, clip_name, player_name, reason))
-    gdb.commit()
-    gdb.close()
+    try:
+        gdb.execute("INSERT INTO game_trashed_clips (clip_id, species, clip_name, trashed_by, reason) VALUES (?,?,?,?,?)",
+                    (clip_id, species, clip_name, player_name, reason))
+        gdb.commit()
+    finally:
+        gdb.close()
 
     logging.info("[game] Trashed clip id=%s species=%s by=%s", clip_id, species, player_name)
     return {"ok": True, "clip_id": clip_id, "species": species}
@@ -3818,6 +4083,10 @@ def game_start_learn(body: dict):
 
     # Need species with 5+ clips (for the sequence) and at least 15 species total (5 rounds x 3)
     eligible = {sp: clips for sp, clips in by_species.items() if len(clips) >= 5}
+    if len(eligible) < 3:
+        # Guard: with eligible empty the reuse loop below never terminates
+        # (100% CPU, thread pinned forever).
+        raise HTTPException(422, "Not enough audio data for Learn mode yet")
     species_pool = list(eligible.keys())
     _random.shuffle(species_pool)
 
@@ -3985,46 +4254,51 @@ def game_start_visual(body: dict):
         raise HTTPException(400, "Player name required")
 
     gdb = _game_db()
-    gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
-    gdb.commit()
+    try:
+        gdb.execute("INSERT OR IGNORE INTO game_players (name) VALUES (?)", (player_name,))
+        gdb.commit()
+    finally:
+        gdb.close()
 
     # Get classified images — prefer reviewed/confirmed, fall back to high-confidence
     cdb_path = Path.home() / "bird-snapshots" / "logs" / "classifications.db"
     cdb = sql3.connect(str(cdb_path))
     cdb.row_factory = sql3.Row
 
-    # Get confirmed images first
-    confirmed = cdb.execute("""
-        SELECT c.file, c.common_name
-        FROM classifications c
-        JOIN reviews r ON c.file = r.file
-        WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
-    """).fetchall()
-
-    by_species = {}
-    for row in confirmed:
-        sp = row["common_name"]
-        if sp not in by_species: by_species[sp] = []
-        by_species[sp].append(row["file"])
-
-    # Fill with unreviewed high-score images for species that need more
-    if len(by_species) < 10:
-        extra = cdb.execute("""
-            SELECT file, common_name FROM classifications
-            WHERE action = 'classified' AND common_name IS NOT NULL AND raw_score > 150
+    try:
+        # Get confirmed images first
+        confirmed = cdb.execute("""
+            SELECT c.file, c.common_name
+            FROM classifications c
+            JOIN reviews r ON c.file = r.file
+            WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
         """).fetchall()
-        for row in extra:
+
+        by_species = {}
+        for row in confirmed:
             sp = row["common_name"]
             if sp not in by_species: by_species[sp] = []
-            if row["file"] not in by_species[sp]:
-                by_species[sp].append(row["file"])
+            by_species[sp].append(row["file"])
+
+        # Fill with unreviewed high-score images for species that need more
+        if len(by_species) < 10:
+            extra = cdb.execute("""
+                SELECT file, common_name FROM classifications
+                WHERE action = 'classified' AND common_name IS NOT NULL AND raw_score > 150
+            """).fetchall()
+            for row in extra:
+                sp = row["common_name"]
+                if sp not in by_species: by_species[sp] = []
+                if row["file"] not in by_species[sp]:
+                    by_species[sp].append(row["file"])
+    finally:
+        cdb.close()
 
     eligible = {sp: files for sp, files in by_species.items() if len(files) >= 3}
     species_list = list(eligible.keys())
-    cdb.close()
 
     if len(species_list) < 4:
-        raise HTTPException(500, "Not enough species")
+        raise HTTPException(422, "Not enough species")
 
     questions = []
     last_species = None
@@ -4066,12 +4340,15 @@ def game_start_visual_learn(body: dict):
     cdb = sql3.connect(str(cdb_path))
     cdb.row_factory = sql3.Row
 
-    confirmed = cdb.execute("""
-        SELECT c.file, c.common_name
-        FROM classifications c
-        JOIN reviews r ON c.file = r.file
-        WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
-    """).fetchall()
+    try:
+        confirmed = cdb.execute("""
+            SELECT c.file, c.common_name
+            FROM classifications c
+            JOIN reviews r ON c.file = r.file
+            WHERE r.verdict = 'correct' AND c.action = 'classified' AND c.common_name IS NOT NULL
+        """).fetchall()
+    finally:
+        cdb.close()
 
     by_species = {}
     for row in confirmed:
@@ -4080,9 +4357,11 @@ def game_start_visual_learn(body: dict):
         by_species[sp].append(row["file"])
 
     eligible = {sp: files for sp, files in by_species.items() if len(files) >= 5}
+    if len(eligible) < 3:
+        # Guard: with eligible empty the reuse loop below never terminates.
+        raise HTTPException(422, "Not enough reviewed images for visual Learn mode yet")
     species_pool = list(eligible.keys())
     _random.shuffle(species_pool)
-    cdb.close()
 
     while len(species_pool) < 15:
         species_pool += list(eligible.keys())
@@ -4127,11 +4406,14 @@ def serve_game_visual():
 def game_leaderboard():
     """Return player rankings."""
     gdb = _game_db()
-    players = gdb.execute("""
-        SELECT name, best_streak, total_correct, total_answered, total_rounds
-        FROM game_players
-        ORDER BY best_streak DESC, total_correct DESC
-    """).fetchall()
+    try:
+        players = gdb.execute("""
+            SELECT name, best_streak, total_correct, total_answered, total_rounds
+            FROM game_players
+            ORDER BY best_streak DESC, total_correct DESC
+        """).fetchall()
+    finally:
+        gdb.close()
 
     result = []
     for p in players:
@@ -4144,7 +4426,6 @@ def game_leaderboard():
             "total_rounds": p["total_rounds"],
         })
 
-    gdb.close()
     return {"players": result}
 
 
@@ -4391,10 +4672,13 @@ def update_cull_config(
     cfg = load_cull_config()
     if default_max_keep is not None:
         cfg["default_max_keep"] = default_max_keep
-    if species_caps is not None:
-        cfg["species_caps"] = json.loads(species_caps)
-    if sufficient_species is not None:
-        cfg["sufficient_species"] = json.loads(sufficient_species)
+    try:
+        if species_caps is not None:
+            cfg["species_caps"] = json.loads(species_caps)
+        if sufficient_species is not None:
+            cfg["sufficient_species"] = json.loads(sufficient_species)
+    except ValueError as exc:  # covers json.JSONDecodeError
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}")
     save_cull_config(cfg)
     return {"status": "ok", "config": cfg}
 
@@ -4486,9 +4770,28 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
     to_trash = files[keep:]
     TRASH_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Human-verified files are off-limits to bulk culling: a reviewer's
+    # correct/reclassify verdict outranks a space-saving sweep.
+    protected_names = set()
+    try:
+        rows = rdb.get_conn().execute(
+            "SELECT file FROM reviews WHERE file IN ({}) AND (verdict = 'correct' "
+            "OR (verdict = 'wrong' AND correct_species IS NOT NULL AND correct_species != ''))"
+            .format(",".join("?" * len(to_trash))),
+            [f.name for f in to_trash],
+        ).fetchall()
+        protected_names = {r["file"] if hasattr(r, "keys") else r[0] for r in rows}
+    except Exception as exc:
+        logging.warning("cull: review-protection lookup failed (%s) — culling without it", exc)
+
     trashed = 0
     failed = 0
+    protected = 0
+    cull_cdb = cdb.get_conn()
     for f in to_trash:
+        if f.name in protected_names:
+            protected += 1
+            continue
         dst = TRASH_DIR / f.name
         try:
             shutil.move(str(f), str(dst))
@@ -4496,18 +4799,34 @@ def cull_trash_species(species_dir: str, keep: int = 50, sort_by: str = "date"):
             ann = ANNOTATED_DIR / f.name
             if ann.exists():
                 ann.unlink()
+            # Leave an audit trail so DB and disk agree on WHY the file moved
+            # (plain 'trashed' rows are indistinguishable from review verdicts).
+            try:
+                cull_cdb.execute(
+                    "UPDATE classifications SET action = 'trashed:cull' WHERE file = ?",
+                    (f.name,),
+                )
+            except Exception as db_exc:
+                logging.warning("cull: action update failed for %s: %s", f.name, db_exc)
             trashed += 1
         except Exception as exc:
             logging.warning("Failed to trash %s: %s", f.name, exc)
             failed += 1
+    try:
+        cull_cdb.commit()
+    except Exception:
+        pass
 
     msg = f"Trashed {trashed} {safe_dir.replace('_', ' ')} files, kept {keep} {sort_label}"
+    if protected:
+        msg += f" ({protected} review-verified files protected)"
     if failed:
         msg += f" ({failed} failed)"
     return {
         "trashed": trashed,
         "kept": keep,
         "failed": failed,
+        "protected": protected,
         "message": msg,
     }
 
@@ -5179,18 +5498,40 @@ async def proxy_debug_latest_jpg(camera: str = "feeder"):
 
 
 @app.get("/api/pipeline/events")
-async def pipeline_events_proxy(camera: str, start: int, end: int):
-    """Query the pipeline event store for scrubbing/historical playback."""
-    from pathlib import Path
+def pipeline_events_proxy(camera: str, start: int, end: int):
+    """Query the pipeline event store for scrubbing/historical playback.
+
+    Sync def → runs in the threadpool, so a slow scan can't freeze the
+    event loop. Direct READ-ONLY sqlite (the old per-request EventStore
+    opened a write conn + ran DDL against the live pipeline DB). Window
+    capped at 6h and rows at 50k so a scrub request can't pull days of
+    30fps events in one call.
+    """
     db_path = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
     if not db_path.exists():
         return []
+    MAX_WINDOW_MS = 6 * 3600 * 1000
+    if end - start > MAX_WINDOW_MS:
+        start = end - MAX_WINDOW_MS
     try:
-        from pipeline.event_store import EventStore
-        store = EventStore(str(db_path))
+        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
         try:
-            return store.query_events(camera=camera, start_ms=start, end_ms=end)
+            cur = conn.execute(
+                "SELECT camera, frame_time, track_id, species, confidence, "
+                "model_source, bbox_json, is_new FROM pipeline_events "
+                "WHERE camera = ? AND frame_time BETWEEN ? AND ? "
+                "ORDER BY frame_time ASC LIMIT 50000",
+                (camera, start, end),
+            )
+            cols = [c[0] for c in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
         finally:
-            store.shutdown()
+            conn.close()
+    except _sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return []
+        raise HTTPException(status_code=500, detail=f"event query failed: {e}")
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"event query failed: {e}")

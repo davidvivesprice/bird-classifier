@@ -330,7 +330,12 @@ def main():
         _shutdown.set()
         with _ring_cond:
             _ring_cond.notify_all()
-        server.shutdown()
+        # server.shutdown() blocks until the serve_forever loop exits, but this
+        # handler runs ON the main thread, which is itself blocked inside
+        # serve_forever — calling it inline deadlocks every SIGTERM until
+        # launchd escalates to SIGKILL. Hand it to a helper thread so the
+        # handler returns and the serve loop can actually wind down.
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)

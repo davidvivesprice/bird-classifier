@@ -242,6 +242,107 @@ class TestEscalation:
         assert mgr._level == 6
         assert mgr._current_stream == "ground"
 
+    def test_level6_reloads_rotated_token(self, urls_dir):
+        """Regression (silent audio downtime): at the terminal down state, each
+        retry must reload URLs from disk so a rotated RTSP token — written by the
+        nightly refresh cron or the manager's own resync — is picked up. Without
+        this, a process that reaches level 6 re-dials the stale cached token
+        forever and never self-heals, even though a fresh token is on disk."""
+        from rtsp_stream import RETRY_MAX, LOW_RES_MAX
+        mgr = self._make_manager(urls_dir)
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
+            mgr.report_failure(Exception("token rotated"))
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
+            mgr.report_failure(Exception("token rotated"))
+        assert mgr._level == 6
+        assert mgr._current_stream == "ground"       # level 6 resets to preferred
+        assert mgr.get_next_url() == "rtsp://host/g-hi"  # stale cached URL
+
+        # Token rotates on disk (what the refresh cron / resync writes).
+        _write_urls(urls_dir / "rtsp_urls.json", {
+            "streams": {
+                "ground": {"high": "rtsp://host/g-hi-NEW", "low": "rtsp://host/g-lo"},
+                "birds": {"high": "rtsp://host/b-hi", "low": "rtsp://host/b-lo"},
+            }
+        })
+        # One more down-retry cycle must pick up the fresh token. Stub the
+        # resync so the test never depends on the rate limiter suppressing a
+        # real subprocess spawn (the reload half is what's under test here).
+        mgr._trigger_sync = lambda: False
+        mgr.report_failure(Exception("still dialing the dead token"))
+        assert mgr.get_next_url() == "rtsp://host/g-hi-NEW"
+
+    def test_level6_attempts_resync(self, urls_dir, monkeypatch):
+        """At the terminal down state, each retry must also attempt a token
+        resync (rate-limited), so the process actively pulls fresh tokens instead
+        of waiting on the once-daily cron."""
+        from rtsp_stream import RETRY_MAX, LOW_RES_MAX
+        mgr = self._make_manager(urls_dir)
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
+            mgr.report_failure(Exception("test"))
+        for _ in range(RETRY_MAX + 1 + LOW_RES_MAX + 2):
+            mgr.report_failure(Exception("test"))
+        assert mgr._level == 6
+        calls = []
+        monkeypatch.setattr(mgr, "_trigger_sync", lambda: calls.append(1) or False)
+        mgr.report_failure(Exception("still down"))
+        assert calls, "level 6 down-retry must attempt a token resync"
+
+    def test_refresh_cooldown_covers_down_retry_interval(self):
+        """The Level-6 comment's load-bearing claim: the sync rate limit must
+        not exceed the down-retry interval, or Level-6 resyncs silently skip
+        cycles and the self-heal degrades to reload-from-disk only."""
+        from rtsp_stream import REFRESH_COOLDOWN, DOWN_RETRY_INTERVAL
+        assert REFRESH_COOLDOWN <= DOWN_RETRY_INTERVAL
+
+    def test_level6_sync_runs_before_reload(self, urls_dir):
+        """Ordering matters: the resync must run BEFORE the reload so a
+        successful sync's freshly-written URLs are picked up the same cycle,
+        not one DOWN_RETRY_INTERVAL later."""
+        from rtsp_stream import RETRY_MAX, LOW_RES_MAX
+        mgr = self._make_manager(urls_dir)
+        for _ in range(2 * (RETRY_MAX + 1 + LOW_RES_MAX + 2)):
+            mgr.report_failure(Exception("test"))
+        assert mgr._level == 6
+        calls = []
+        mgr._trigger_sync = lambda: calls.append("sync") or False
+        mgr._reload_urls = lambda: calls.append("reload")
+        mgr.report_failure(Exception("still down"))
+        assert calls == ["sync", "reload"]
+
+    def test_level6_missing_sync_script_still_reloads_and_writes_down(self, urls_dir):
+        """A missing/broken sync script must not break the reload half of the
+        Level-6 self-heal, nor the 'down' health report."""
+        from rtsp_stream import RTSPStreamManager, RETRY_MAX, LOW_RES_MAX
+        urls_file = urls_dir / "rtsp_urls.json"
+        _write_urls(urls_file, {
+            "streams": {
+                "ground": {"high": "rtsp://host/g-hi", "low": "rtsp://host/g-lo"},
+                "birds": {"high": "rtsp://host/b-hi", "low": "rtsp://host/b-lo"},
+            }
+        })
+        mgr = RTSPStreamManager(
+            service_name="test",
+            preferred_stream="ground",
+            fallback_stream="birds",
+            urls_file=str(urls_file),
+            sync_script="/nonexistent",
+            health_dir=str(urls_dir),
+        )
+        for _ in range(2 * (RETRY_MAX + 1 + LOW_RES_MAX + 2)):
+            mgr.report_failure(Exception("test"))
+        assert mgr._level == 6
+        _write_urls(urls_file, {
+            "streams": {
+                "ground": {"high": "rtsp://host/g-hi-NEW", "low": "rtsp://host/g-lo"},
+                "birds": {"high": "rtsp://host/b-hi", "low": "rtsp://host/b-lo"},
+            }
+        })
+        mgr.report_failure(Exception("still down"))
+        assert mgr.get_next_url() == "rtsp://host/g-hi-NEW"
+        health = json.loads((urls_dir / "audio-stream-health-test.json").read_text())
+        assert health["status"] == "down"
+
     def test_get_next_url_follows_escalation(self, urls_dir):
         """get_next_url returns the right URL for current escalation state."""
         mgr = self._make_manager(urls_dir)

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Bird Observatory Health Monitor — self-healing watchdog.
+"""Bird Observatory Health Monitor — service check + restart.
 
-Runs every 5 minutes via LaunchAgent. Checks all services, restarts
-failed ones, and writes a status report to /tmp/bird-observatory-health.json.
+Run on-demand (scripts/deploy.sh invokes it once per deploy; no LaunchAgent
+schedules it — in-process self-heal in rtsp_stream.py is the always-on
+mechanism). Checks all services, restarts failed ones, and writes a status
+report to /tmp/bird-observatory-health.json.
 
 Self-healing actions (graduated):
 1. Service not running → launchctl kickstart
-2. Classifier queue > 2000 → restart classifier
-3. Health file stale > 10 min → restart audio service
-4. No audio detections in 30 min (daytime) → restart audio
-5. Error storm (>10 errors in 5 min) → restart + backoff
+2. Audio health file stale > 10 min → warn
+3. No audio detections in 30 min (daytime) → warn
 
 All actions logged to ~/bird-snapshots/logs/health-monitor.log
 """
@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Setup logging
@@ -38,33 +38,28 @@ logging.basicConfig(
 log = logging.getLogger("health_monitor")
 
 # Paths
-INCOMING_DIR = Path.home() / "bird-snapshots" / "incoming"
 BIRDNET_DB = Path.home() / "bird-snapshots" / "birdnet-audio" / "birdnet_local.db"
 CLIPS_DIR = Path.home() / "bird-snapshots" / "birdnet-audio" / "clips"
 HEALTH_OUTPUT = Path("/tmp/bird-observatory-health.json")
 BACKOFF_FILE = Path("/tmp/health-monitor-backoff.json")
 
 # Thresholds
-CLASSIFIER_QUEUE_WARN = 500
-CLASSIFIER_QUEUE_RESTART = 2000
 HEALTH_FILE_STALE_SEC = 600  # 10 minutes
 AUDIO_QUIET_MIN = 30  # minutes with no detections before restart
 ERROR_STORM_THRESHOLD = 10  # errors in 5 minutes
 BACKOFF_MINUTES = 15  # wait after restart before rechecking
 
-# Services
+# Services — must match the live com.vives.* LaunchAgent labels.
+# (bird-classifier/bird-capture retired with the v3 pipeline; go2rtc is a
+# native binary now, not Docker.)
 SERVICES = {
     "bird-audio": {"critical": True, "log": "audio-analyzer-stderr.log"},
     "bird-enhanced-audio": {"critical": False, "log": "enhanced-audio-stderr.log"},
-    "bird-classifier": {"critical": True, "log": "classifier-stderr.log"},
+    "bird-pipeline": {"critical": True, "log": "pipeline-stderr.log"},
     "bird-dashboard": {"critical": True, "log": "dashboard-stderr.log"},
-    # bird-livedetect retired (live_detector.py deleted, replaced by bird_pipeline_v3.py)
-    "bird-capture": {"critical": True, "log": None},
-    "bird-go2rtc": {"critical": False, "log": None, "docker": True, "container": "go2rtc"},
+    "go2rtc": {"critical": True, "log": None},
     "bird-tunnel": {"critical": False, "log": None},
 }
-
-DOCKER_CLI = "/Applications/Docker.app/Contents/Resources/bin/docker"
 
 
 def _get_uid():
@@ -93,36 +88,6 @@ def _is_service_running(name):
         return False, "not loaded"
     except Exception as e:
         return False, str(e)
-
-
-def _is_docker_running(container_name):
-    """Check if a Docker container is running."""
-    try:
-        result = subprocess.run(
-            [DOCKER_CLI, "inspect", "-f", "{{.State.Running}}", container_name],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0 and "true" in result.stdout.lower():
-            return True, "running"
-        return False, result.stdout.strip() or "not running"
-    except FileNotFoundError:
-        return False, "docker CLI not found"
-    except Exception as e:
-        return False, str(e)
-
-
-def _restart_docker(container_name):
-    """Restart a Docker container."""
-    try:
-        subprocess.run(
-            [DOCKER_CLI, "restart", container_name],
-            capture_output=True, timeout=30,
-        )
-        log.warning("RESTART (docker): %s", container_name)
-        return True
-    except Exception as e:
-        log.error("Failed to restart docker container %s: %s", container_name, e)
-        return False
 
 
 def _restart_service(name):
@@ -168,16 +133,16 @@ def _count_recent_errors(log_file, minutes=5):
     """Count ERROR lines in the last N minutes of a log file."""
     if not log_file or not Path(log_file).exists():
         return 0
-    cutoff = datetime.now().strftime("%Y-%m-%d %H:%M")
-    # Simple: count lines with ERROR in last 100 lines
+    cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
     try:
         result = subprocess.run(
-            ["tail", "-100", str(log_file)],
+            ["tail", "-1000", str(log_file)],
             capture_output=True, text=True, timeout=5,
         )
-        today = datetime.now().strftime("%Y-%m-%d")
+        # Log lines start "YYYY-MM-DD HH:MM:SS ..." — lexicographic compare
+        # of the minute-resolution prefix against the cutoff works directly.
         return sum(1 for line in result.stdout.splitlines()
-                   if "ERROR" in line and today in line)
+                   if "ERROR" in line and line[:16] >= cutoff)
     except Exception:
         return 0
 
@@ -188,10 +153,7 @@ def check_services():
     backoff = _get_backoff()
 
     for name, cfg in SERVICES.items():
-        if cfg.get("docker"):
-            running, status = _is_docker_running(cfg.get("container", name))
-        else:
-            running, status = _is_service_running(name)
+        running, status = _is_service_running(name)
         if not running:
             issues.append({
                 "service": name,
@@ -199,41 +161,9 @@ def check_services():
                 "severity": "critical" if cfg["critical"] else "warning",
             })
             if name not in backoff:
-                if cfg.get("docker"):
-                    _restart_docker(cfg.get("container", name))
-                else:
-                    _restart_service(name)
+                _restart_service(name)
                 _set_backoff(name)
                 issues[-1]["action"] = "restarted"
-
-    return issues
-
-
-def check_classifier_queue():
-    """Check if classifier is keeping up with incoming images."""
-    issues = []
-    try:
-        count = len(list(INCOMING_DIR.glob("*.jpg")))
-    except Exception:
-        count = 0
-
-    if count > CLASSIFIER_QUEUE_RESTART:
-        backoff = _get_backoff()
-        issues.append({
-            "service": "bird-classifier",
-            "issue": f"queue backlog: {count} files",
-            "severity": "critical",
-        })
-        if "bird-classifier" not in backoff:
-            _restart_service("bird-classifier")
-            _set_backoff("bird-classifier")
-            issues[-1]["action"] = "restarted"
-    elif count > CLASSIFIER_QUEUE_WARN:
-        issues.append({
-            "service": "bird-classifier",
-            "issue": f"queue growing: {count} files",
-            "severity": "warning",
-        })
 
     return issues
 
@@ -325,7 +255,6 @@ def main():
     all_issues = []
 
     all_issues.extend(check_services())
-    all_issues.extend(check_classifier_queue())
     all_issues.extend(check_audio_health())
     all_issues.extend(check_disk_space())
 
