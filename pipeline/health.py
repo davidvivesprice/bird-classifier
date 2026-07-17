@@ -55,7 +55,7 @@ class HealthState:
             * any camera capture.ffmpeg_restarts_last_hour > 10
         - degraded:
             * any camera detector.yolo_ms_p99 (when not None) > 1000
-            * any camera with (dropped_oldest / max(frames_processed, 1)) > 0.05
+            * (dropped_oldest ratio removed 2026-07-17 — by-design skips, no signal)
             * any camera classifier.lock_timeouts > 5
         - ok: none of the above
         """
@@ -85,10 +85,12 @@ class HealthState:
             if yolo_p99 is not None and yolo_p99 > 1000:
                 worst = "degraded"
 
-            frames = max(capture.get("frames_processed", 0), 1)
-            dropped = capture.get("dropped_oldest", 0)
-            if dropped / frames > 0.05:
-                worst = "degraded"
+            # NOTE: no dropped_oldest ratio check here. FrameCapture reads at
+            # YOLO rate (~5-7 fps) from a 30 fps substream, so dropped_oldest
+            # counts frames skipped BY DESIGN (~80% always) — the old 5% rule
+            # made 'degraded' the permanent steady state and killed the
+            # indicator's meaning. Real trouble shows up as frame staleness
+            # (broken check above) or yolo_p99 latency (below).
 
             if classifier.get("lock_timeouts", 0) > 5:
                 worst = "degraded"
