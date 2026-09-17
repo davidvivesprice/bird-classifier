@@ -237,7 +237,9 @@ class RTSPStreamManager:
             self._write_health("reconnecting")
 
         else:
-            if self._current_stream != self.fallback_stream:
+            # A single-camera deployment has no fallback (None): don't burn a
+            # whole retry stage dialling 'None/high' — go straight to Level 6.
+            if self.fallback_stream and self._current_stream != self.fallback_stream:
                 self._level = 4
                 self._current_stream = self.fallback_stream
                 self._current_quality = "high"
