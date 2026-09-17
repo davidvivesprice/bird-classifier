@@ -163,6 +163,7 @@ def main():
     from pipeline.motion_gate import MotionGate
     from pipeline.detector import BirdDetector
     from pipeline.tracker import BirdTracker
+    from pipeline.tracker_common import make_tracker
     from pipeline.classifier import SmartClassifier
     from pipeline.event_store import EventStore
     from pipeline.hls_recorder import HlsRecorder
@@ -305,7 +306,10 @@ def main():
                 capture_width=640, capture_height=360,
                 detect_width=640, detect_height=360,
                 hef_path=(hef_path if (PI_MODE and isolated) else None),
-                det_confidence=0.3,
+                # Forward detections down to the tracker's LOW band so the
+                # ByteTrack second stage has something to rescue with; v4
+                # only SPAWNS tracks from >= PIPELINE_TRACK_HIGH (0.30).
+                det_confidence=float(os.environ.get("PIPELINE_DET_CONF", "0.15")),
             )
             aoi = CAMERA_AOI_POLYGONS.get(name)
             motion_gate = MotionGate(aoi_polygon=aoi, frame_width=640, frame_height=360)
@@ -316,11 +320,10 @@ def main():
             # a longer coast keeps the track + ID alive across those gaps instead
             # of dying every ~3s and re-acquiring with a new ID. All three params
             # are env-tunable for A/B without a redeploy.
-            tracker = BirdTracker(
-                distance_threshold=float(os.environ.get("PIPELINE_TRACK_DIST", "2.5")),
-                hit_counter_max=int(os.environ.get("PIPELINE_TRACK_HIT_MAX", "150")),
-                initialization_delay=int(os.environ.get("PIPELINE_TRACK_INIT_DELAY", "2")),
-            )
+            # 2026-09-17: PIPELINE_TRACKER=v4 (default) — Kalman box motion,
+            # ByteTrack-style low-conf rescue, lost-track ReID. v3 (Norfair)
+            # stays selectable for A/B on the demo lab.
+            tracker = make_tracker()
             camera_trackers[name] = tracker
             if PI_MODE and isolated:
                 from pipeline.frame_capture_proc import PrecomputedDetector
@@ -328,7 +331,7 @@ def main():
                 log.info("[PI_MODE] Hailo detection ISOLATED in decode child (hef=%s)", hef_path)
             elif PI_MODE:
                 from pipeline.hailo_detector import HailoDetector
-                detector = HailoDetector(hef_path=hef_path, confidence=0.3)
+                detector = HailoDetector(hef_path=hef_path, confidence=float(os.environ.get("PIPELINE_DET_CONF", "0.15")))
                 log.info("[PI_MODE] HailoDetector in-process: %s", hef_path)
             else:
                 detector = BirdDetector(

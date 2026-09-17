@@ -38,12 +38,16 @@ elif [ "${sn:-0}" -eq 3 ]; then
 fi
 
 # ── Pipeline wedge check ──────────────────────────────────────────────────
-# Only meaningful in daytime: nighttime pause legitimately freezes capture
-# (frames_processed is flat ~21:00-05:00). Gate to 07-19 local for margin.
-hour=$((10#$(date +%H)))
+# Only meaningful while the pipeline is AWAKE: the solar nighttime pause
+# legitimately freezes capture. The gate is the health payload's own
+# "night" flag — NOT a clock window. (A fixed 07-19 window, written when
+# sunset was 20:30, restarted a healthy paused pipeline every evening from
+# mid-September on as the pause crept earlier into the window.)
 HEALTH_URL="${CANARY_HEALTH_URL:-http://localhost:8100/api/pipeline/health}"
-if [ "$hour" -ge 7 ] && [ "$hour" -le 19 ]; then
-  fp=$(curl -s --max-time 10 "$HEALTH_URL" 2>/dev/null \
+health=$(curl -s --max-time 10 "$HEALTH_URL" 2>/dev/null)
+night=$(printf '%s' "$health" | grep -o '"night": *[a-z]*' | head -1 | grep -o '[a-z]*$')
+if [ -n "$health" ] && [ "$night" != "true" ]; then
+  fp=$(printf '%s' "$health" \
        | grep -o '"frames_processed": *[0-9]*' | head -1 | grep -o '[0-9]*$')
   if [ -n "$fp" ]; then
     prev=$(cat "$S/pipe_fp" 2>/dev/null || echo "")

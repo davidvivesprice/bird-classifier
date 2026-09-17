@@ -191,7 +191,7 @@ class CameraProcessThread:
         self._stats["detections"] += len(detections)
 
         # 4. Track
-        tracker_out = self.tracker.update(detections, frame.wall_time_ms)
+        tracker_out = self.tracker.update(detections, frame.wall_time_ms, frame_bgr=frame.bgr)
 
         # 4b. Idle-scan hint (r4 thermal lever): tell the capture child
         # whether anything is active. With no active tracks it drops to
@@ -414,6 +414,9 @@ class CameraProcessThread:
                         track.is_locked = False
                         track.needs_classification = True
                         track.vote_history = [(result.species, result.confidence)]
+                        _trk = getattr(self, 'tracker', None)
+                        if _trk is not None and hasattr(_trk, 'note_vote'):
+                            _trk.note_vote(track.track_id, result.species, result.confidence or 0.0)
                         track.species = result.species
                         track.species_confidence = result.confidence
                         track.model_source = result.model_source
@@ -454,6 +457,10 @@ class CameraProcessThread:
             if result.species is not None:
                 track.no_vote_streak = 0
                 track.vote_history.append((result.species, result.confidence))
+                # v4 tracker: species votes double as the re-identification signal
+                _trk = getattr(self, 'tracker', None)
+                if _trk is not None and hasattr(_trk, 'note_vote'):
+                    _trk.note_vote(track.track_id, result.species, result.confidence or 0.0)
                 # Propagate model_source from the latest vote
                 track.model_source = result.model_source
                 # Show the current top-voted species even before lock
@@ -579,9 +586,16 @@ class CameraProcessThread:
             })
             try:
                 self.health.update(self.name, "tracker", {
+                    "impl": type(self.tracker).__name__,
                     "active_tracks": len(self.tracker.tracks),
                     "stationary_tracks": len(self.tracker.stationary_regions()),
                     "id_switches": self.tracker.id_switches,
+                    # v4 identity mechanisms (absent on v3): hidden-but-remembered
+                    # tracks, colour/space revivals, vote merges, vote splits
+                    "lost_tracks": len(getattr(self.tracker, "_lost", {})),
+                    "reid_revivals": getattr(self.tracker, "revivals", 0),
+                    "vote_merges": len(getattr(self.tracker, "merges", [])),
+                    "vote_splits": len(getattr(self.tracker, "splits", [])),
                 })
             except Exception:
                 pass

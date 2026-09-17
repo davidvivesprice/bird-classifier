@@ -4,6 +4,7 @@
 #   lab status              what's running, demo state, temp, crashes
 #   lab demo on|off         switch the pipeline+dashboard to/from the sim reel
 #   lab grade               full offline grade vs David's annotations (~3 min)
+#                           LAB_ENV="PIPELINE_TRACKER=v3" lab grade  → A/B a tracker
 #                           -> classifier scorecard + tracker quality + CENSUS
 #   lab census [file]       re-score a grade/capture events file (fast)
 #   lab watch [secs]        capture the LIVE demo for N secs (default 120) and
@@ -72,8 +73,12 @@ cmd_grade() {
     set -e
     trap 'systemctl --user start bird-pipeline.service' EXIT
     systemctl --user stop bird-pipeline.service
+    # the Hailo driver keeps the VDevice busy for a few seconds after the
+    # decode child exits — grading before it frees fails with
+    # HAILO_OUT_OF_PHYSICAL_DEVICES (error 74)
+    for i in \$(seq 1 30); do sudo -n fuser /dev/hailo0 >/dev/null 2>&1 || break; sleep 1; done
     cd $PI_DIR
-    venv/bin/python3 tools/demo_grade.py --video $REEL --annotations $ANN \
+    env ${LAB_ENV:-} venv/bin/python3 tools/demo_grade.py --video $REEL --annotations $ANN \
         --events /tmp/grade_last.jsonl 2>&1 | grep -vE 'scalar distance|WARNING|onnxruntime'
     echo
     echo '================ CENSUS (Davids bar: right number of birds) ================'

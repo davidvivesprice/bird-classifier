@@ -43,7 +43,7 @@ sys.path.insert(0, str(BASE_DIR))
 import pipeline.av_log_guard  # noqa: F401  install av_log SEGV guard before av.open
 import av  # noqa: E402
 from pipeline.frame import Frame  # noqa: E402
-from pipeline.tracker import BirdTracker  # noqa: E402
+from pipeline.tracker_common import make_tracker  # noqa: E402
 from pipeline.motion_gate import MotionGate  # noqa: E402
 from pipeline.process_thread import CameraProcessThread  # noqa: E402
 from pipeline.hailo_detector import HailoDetector  # noqa: E402
@@ -74,14 +74,10 @@ def build_process_thread():
     registry = build_default_registry(str(BASE_DIR / "models"), regional_species=regional)
     floor = float(os.environ.get("PIPELINE_CLASSIFIER_FLOOR", "0.16"))
     classifier = PiClassifier(registry, confident_threshold=floor)
-    tracker = BirdTracker(
-        distance_threshold=float(os.environ.get("PIPELINE_TRACK_DIST", "2.5")),
-        hit_counter_max=int(os.environ.get("PIPELINE_TRACK_HIT_MAX", "150")),
-        initialization_delay=int(os.environ.get("PIPELINE_TRACK_INIT_DELAY", "2")),
-    )
+    tracker = make_tracker()  # PIPELINE_TRACKER=v3|v4 selects the implementation under test
     detector = HailoDetector(
         hef_path=os.environ.get("PI_YOLO_HEF", "/usr/share/hailo-models/yolov8s_h8l.hef"),
-        confidence=float(os.environ.get("PIPELINE_DET_CONF", "0.3")),
+        confidence=float(os.environ.get("PIPELINE_DET_CONF", "0.15")),
     )
     import queue
     sse = _FakeSSE()

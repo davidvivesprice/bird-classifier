@@ -47,6 +47,7 @@ import collections
 import logging
 import multiprocessing as mp
 import os
+import sys
 import queue
 import threading
 import time
@@ -191,6 +192,13 @@ def _child_main(rtsp_url: str, shm_name: str, meta_name: str,
             s.close()
         except Exception:
             pass
+    # Skip interpreter finalization: libav/libhailort objects crash (SIGBUS/
+    # SEGV "Fatal Python error … Garbage-collecting") when the GC tears them
+    # down at exit — every nighttime pause left a core dump and a scary log.
+    # Our own state is already flushed above; nothing else needs finalizing.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 class FrameCaptureProc:

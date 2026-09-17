@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import os
-from collections import deque
-from dataclasses import dataclass, field
-from typing import Optional
 
 import norfair
 import numpy as np
 
 from pipeline.detector import Detection
+from pipeline.tracker_common import (  # shared contract + dedup knobs
+    Track, TrackerOutput, _iou, _containment, _DEDUP_IOU, _DEDUP_CONT,
+)
 
 # Tracker hardening (2026-07-01, from the tracker deep-dive vs the demo replay):
 # - MAX_JUMP_MULT: an absolute pixel-motion ceiling inside _frigate_distance.
@@ -22,7 +22,6 @@ from pipeline.detector import Detection
 #   a double-box (two detections on one bird) can't spawn a second track_id
 #   (Norfair matches exactly one detection per object). 0 disables.
 _MAX_JUMP_MULT = float(os.environ.get("PIPELINE_TRACK_MAX_JUMP_MULT", "1.5"))
-_DEDUP_IOU = float(os.environ.get("PIPELINE_TRACK_DEDUP_IOU", "0.55"))
 # 2026-07-04 label-integrity hardening (live-demo evidence, ev_* frames):
 # - MAX_JUMP_PX: ABSOLUTE pixel ceiling on per-match motion. The relative gate
 #   above is toothless for big boxes — a 520px-wide Blue Jay box allows ~780px
@@ -34,7 +33,6 @@ _DEDUP_IOU = float(os.environ.get("PIPELINE_TRACK_DEDUP_IOU", "0.55"))
 #   intersection/min-area ~1.0. Observed live: T15274/T15275 cont=1.00 pairs
 #   spawning the phantom tracks that steal locked tracks' detections.
 _MAX_JUMP_PX = float(os.environ.get("PIPELINE_TRACK_MAX_JUMP_PX", "120"))
-_DEDUP_CONT = float(os.environ.get("PIPELINE_TRACK_DEDUP_CONT", "0.65"))
 # Stationary-box re-injection (Frigate's trick): when the detector misses a
 # STILL bird, seed its last box as a synthetic detection so its track_id — and
 # thus its accumulated votes/lock/label — survives the gap instead of dying and
@@ -49,73 +47,12 @@ _DEDUP_CONT = float(os.environ.get("PIPELINE_TRACK_DEDUP_CONT", "0.65"))
 _MAX_SEED_FRAMES = int(os.environ.get("PIPELINE_TRACK_SEED_FRAMES", "0"))  # ~1.5s @30fps when on
 
 
-def _iou(a, b) -> float:
-    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
-    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
-    return inter / ua if ua > 0 else 0.0
 
 
-def _containment(a, b) -> float:
-    """Intersection over the SMALLER box's area — 1.0 when one box sits fully
-    inside the other, regardless of the size ratio (which is what keeps IoU
-    low for head-in-body dups)."""
-    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
-    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-    min_area = min((a[2] - a[0]) * (a[3] - a[1]),
-                   (b[2] - b[0]) * (b[3] - b[1]))
-    return inter / min_area if min_area > 0 else 0.0
 
 
-@dataclass
-class Track:
-    track_id: int
-    created_at_ms: float
-    last_updated_ms: float
-    bbox: list = field(default_factory=lambda: [0, 0, 0, 0])
-    confidence: float = 0.0
-    species: Optional[str] = None
-    species_confidence: Optional[float] = None
-    model_source: Optional[str] = None
-    trust_level: str = "normal"
-    needs_classification: bool = True
-    classification_attempts: int = 0
-    frame_count: int = 0
-    motion_history: deque = field(default_factory=lambda: deque(maxlen=10))
-    vote_history: list = field(default_factory=list)
-    is_locked: bool = False
-    snapshot_saved: bool = False  # set True once we've written JPG + DB row for this track
-    seed_count: int = 0  # consecutive frames this track has been kept alive by seeding
-    # True on frames where the track survives only via Kalman coast (no detection
-    # matched this frame). The reported bbox is then FROZEN at the last detection
-    # (see update(): bbox comes from last_detection), so consumers should render
-    # coasting tracks as stale/held rather than as a live fix on the bird.
-    coasting: bool = False
-    # Classification pacing + post-lock verification state (2026-07-04):
-    # frame_count value at the last classify call (cadence + cooldown anchor);
-    # consecutive classify calls that produced no vote (sub-floor crops);
-    # consecutive verified votes disagreeing with a locked species.
-    last_classify_fc: int = -1_000_000
-    no_vote_streak: int = 0
-    lock_disagreements: int = 0
-
-    @property
-    def is_stationary(self) -> bool:
-        if len(self.motion_history) < 10:
-            return False
-        xs = [p[0] for p in self.motion_history]
-        ys = [p[1] for p in self.motion_history]
-        return (max(xs) - min(xs)) < 10 and (max(ys) - min(ys)) < 10
 
 
-@dataclass
-class TrackerOutput:
-    active: list
-    new: list
-    expired: list
-    frame_time_ms: float
 
 
 def _frigate_distance(detection: norfair.Detection,
@@ -188,7 +125,7 @@ class BirdTracker:
         self.tracks: dict = {}
         self.id_switches: int = 0
 
-    def update(self, detections: list, frame_time_ms: float) -> TrackerOutput:
+    def update(self, detections: list, frame_time_ms: float, frame_bgr=None) -> TrackerOutput:
         # Dedup the detection list before tracking. A double-box (two detections
         # on one bird) would otherwise spawn a second track_id, since Norfair
         # matches exactly one detection per object. Greedy: keep the highest-
