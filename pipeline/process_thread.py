@@ -80,6 +80,8 @@ LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.
 # sub-floor while still being DETECTED, much closer to a true ridden-patch
 # signature. On release the species is kept as TENTATIVE (see below).
 LOCK_UNVERIFIED_N = int(os.environ.get("PIPELINE_LOCK_UNVERIFIED_N", "20"))
+# TTA views for decisive (3rd) and verify votes; 1 disables (2026-09-17, +0.4-0.8 pt recall measured)
+_TTA_VIEWS = int(os.environ.get("PIPELINE_TTA_VIEWS", "4"))
 
 
 class CameraProcessThread:
@@ -363,9 +365,13 @@ class CameraProcessThread:
                     continue
                 track.last_classify_fc = track.frame_count
                 try:
+                    # Verify votes decide unlocks — worth the 4-view TTA
+                    # (~30 ms every 15 hit-frames per locked track).
                     result = self.classifier.classify(
-                        crop_pil, frame.wall_time_ms, self.name
+                        crop_pil, frame.wall_time_ms, self.name, views=_TTA_VIEWS
                     )
+                except TypeError:
+                    result = self.classifier.classify(crop_pil, frame.wall_time_ms, self.name)
                 except Exception as e:
                     log.warning("[%s] verify error: %s", self.name, e)
                     continue
@@ -373,8 +379,10 @@ class CameraProcessThread:
                     continue
                 if result.species is None:
                     # Sub-floor crop. One is noise; a sustained run means the
-                    # locked box no longer contains a classifiable bird.
-                    track.no_vote_streak += 1
+                    # locked box no longer contains a classifiable bird. An
+                    # explicit no-bird verdict (AIY 'background'/off-list mass)
+                    # is far stronger evidence than a weak regional score.
+                    track.no_vote_streak += 3 if getattr(result, "no_bird", False) else 1
                     if track.no_vote_streak >= LOCK_UNVERIFIED_N:
                         log.info(
                             "[%s] track %s UNLOCKED: '%s' unverifiable "
@@ -399,6 +407,14 @@ class CameraProcessThread:
                         track.lock_disagreements = 0
                     continue
                 track.no_vote_streak = 0
+                # Every verify result feeds the tracker's species signature —
+                # agreeing or not. This is what lets a colour-revived track
+                # that is really a DIFFERENT bird split off within a second
+                # (the titmouse label rode a jay for 5 s when only the final
+                # contradiction reached the tracker).
+                _trk = getattr(self, 'tracker', None)
+                if _trk is not None and hasattr(_trk, 'note_vote'):
+                    _trk.note_vote(track.track_id, result.species, result.confidence or 0.0)
                 if result.species == track.species:
                     track.lock_disagreements = 0
                 elif (result.confidence or 0) >= LOCK_VERIFY_MIN_CONF:
@@ -441,10 +457,16 @@ class CameraProcessThread:
 
             track.last_classify_fc = track.frame_count
             track.classification_attempts += 1
+            # The vote that can complete a lock (3rd) gets TTA; the cheap
+            # first two are single-shot.
+            decisive = len(track.vote_history) >= 2
             try:
                 result = self.classifier.classify(
-                    crop_pil, frame.wall_time_ms, self.name
+                    crop_pil, frame.wall_time_ms, self.name,
+                    views=(_TTA_VIEWS if decisive else 1)
                 )
+            except TypeError:
+                result = self.classifier.classify(crop_pil, frame.wall_time_ms, self.name)
             except Exception as e:
                 log.warning("[%s] classify error: %s", self.name, e)
                 continue
@@ -524,8 +546,9 @@ class CameraProcessThread:
                 # Classifier returned None (sub-floor crop) — no vote. After a
                 # full burst of these, take the plurality (if any votes exist)
                 # and enter cooldown; the cadence gate retries after
-                # CLASSIFY_COOLDOWN_FRAMES.
-                track.no_vote_streak += 1
+                # CLASSIFY_COOLDOWN_FRAMES. An explicit no-bird verdict counts
+                # triple: the box is empty, not merely blurry.
+                track.no_vote_streak += 3 if getattr(result, "no_bird", False) else 1
                 if (track.no_vote_streak >= MAX_CLASSIFICATION_ATTEMPTS
                         and track.vote_history):
                     species_counts = Counter(s for s, c in track.vote_history)

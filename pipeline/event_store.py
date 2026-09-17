@@ -152,8 +152,21 @@ class EventStore:
                 if abs(a[0] - b[0]) > 5 or abs(a[1] - b[1]) > 5
             )
             motion_pct = moves / max(1, len(hist) - 1)
+        # The visit record gets the MAJORITY label over every vote the track
+        # collected (confidence-weighted), not whichever label happened to be
+        # current at expiry. "Correctness over speed": the live overlay locks
+        # fast on 3 votes; the record can afford to use all of them.
+        species = track.species
+        votes = getattr(track, "vote_history", None) or []
+        if len(votes) >= 3:
+            weight: dict = {}
+            for sp, conf in votes:
+                if sp:
+                    weight[sp] = weight.get(sp, 0.0) + float(conf or 0.0)
+            if weight:
+                species = max(weight.items(), key=lambda kv: kv[1])[0]
         row = (
-            camera, track.species,
+            camera, species,
             int(track.created_at_ms), int(track.last_updated_ms),
             float(track.confidence or 0), int(num_frames),
             track.model_source, None, float(motion_pct),

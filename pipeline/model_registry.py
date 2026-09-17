@@ -142,6 +142,13 @@ class _AiyAdapter:
         # Use filtered if regional_species is set, else raw. Same shape.
         return filtered if filtered else raw
 
+    def classify_full(self, crop_pil):
+        """(regional_filtered, unfiltered) — the unfiltered top-1 carries the
+        'background' / off-list mass that tells an EMPTY box from a bird the
+        regional filter merely disagrees with."""
+        filtered, raw = self.impl.classify(crop_pil)
+        return (filtered if filtered else raw), raw
+
 
 def load_aiy_onnx(path: str, regional_species=None):
     """Load AIY Birds V1 as an onnxruntime classifier.

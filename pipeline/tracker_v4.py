@@ -320,10 +320,31 @@ class BirdTrackerV4:
             if tid not in matched_track:
                 self._miss(tid)
 
-        # Unmatched high-conf: ReID vs lost, else spawn tentative
+        # Unmatched high-conf: (1) a coasting track's frozen box overlapping the
+        # detection is the same bird re-detected after a hop the motion gate
+        # rejected — re-seat that track instead of spawning a twin beside it
+        # (measured: the twin was the whole 2% duplicate-box rate); (2) ReID
+        # vs lost; (3) spawn tentative.
         new_tracks: list = []
         for c in unmatched_high:
             d = high[c]
+            reseated = None
+            for tid in self.tracks:
+                if tid in matched_track:
+                    continue
+                st = self._st[tid]
+                if st.misses > 0 and _iou(st.last_box, d.box) > 0.3:
+                    reseated = tid
+                    break
+            if reseated is not None:
+                z = _box_to_z(d.box)
+                st = self._st[reseated]
+                st.kf.reset(z)
+                st.pred = z.copy()
+                st.misses = 0
+                matched_track[reseated] = d
+                self._hit(reseated, d, frame_time_ms, frame_bgr)
+                continue
             revived = self._try_reid(d, frame_time_ms, frame_bgr)
             if revived is not None:
                 continue
@@ -425,6 +446,12 @@ class BirdTrackerV4:
         st = self._st[tid]
         st.misses += 1
         st.streak = 0
+        # Damp velocity while unobserved (OC-SORT spirit): the dominant loss
+        # on this camera is the detector going blind for seconds on a PERCHED
+        # bird — a runaway constant-velocity prediction would carry the gate
+        # away from where the bird still sits. Decay ≈0.85/frame: a mover
+        # keeps momentum for ~10 frames, a percher's jitter velocity vanishes.
+        st.kf.x[4:6] *= 0.85
         if tid in self._tent:
             # Tentative tracks tolerate a few misses: the detector fires only
             # every 3-6 frames on a small bird, so demanding CONSECUTIVE hits

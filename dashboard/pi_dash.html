@@ -1420,6 +1420,16 @@
             const verdict = btn.getAttribute('data-verdict');
             // If this verdict is already active, toggle it off (DELETE).
             const alreadyActive = btn.classList.contains('active');
+            // ✗ must say WHAT it was: 190 "wrong" verdicts were recorded with
+            // no correct_species, which made per-species recall and confusion
+            // pairs unmeasurable. Route ✗ through the species picker (same
+            // path as the N key); the picker still offers "Not a bird"/"Trash".
+            if (verdict === 'no' && !alreadyActive) {
+              const idx = kbCards().indexOf(card);
+              if (idx >= 0) kbSelect(idx);
+              openPicker(file);
+              return;
+            }
             try {
               if (alreadyActive) {
                 await fetch(
