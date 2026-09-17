@@ -69,6 +69,10 @@ _ring_cond = threading.Condition(_ring_lock)  # notify clients of new data
 _stream_ready = threading.Event()  # set once first chunk is in the buffer
 
 
+class _SwitchToPrimary(Exception):
+    """Unwinds the decode loops so the reader reconnects on the primary."""
+
+
 def _rtsp_reader():
     """Background thread: decode RTSP audio, apply bandpass, push to ring buffer."""
     global _ring_seq
@@ -143,6 +147,17 @@ def _rtsp_reader():
                             if chunks_produced % 60 == 0:
                                 log.info("Processed %d chunks (%.0fs)", chunks_produced, chunks_produced * CHUNK_SECONDS)
 
+                            # Recovery probes while on the fallback mic —
+                            # without this the fallback is sticky until the
+                            # next full outage (11 h on the wrong mic, 2026-09-17).
+                            if stream_mgr.should_probe():
+                                if stream_mgr.probe_primary() and stream_mgr.should_switch_to_primary():
+                                    log.info("Primary stream recovered, switching back")
+                                    stream_mgr.switch_to_primary()
+                                    raise _SwitchToPrimary()
+
+        except _SwitchToPrimary:
+            pass  # not a failure: reconnect immediately on the preferred stream
         except av.error.ExitError:
             log.warning("RTSP stream ended")
             stream_mgr.report_failure(Exception("Stream ended"))
