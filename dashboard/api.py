@@ -444,8 +444,11 @@ def _apply_verdict_files(filename, verdict, correct_species,
         return None
 
     def _sanitize(species):
-        safe = (species.replace(" ", "_").replace("'", "")
-                .replace("/", "-").replace("\\", "-").strip("."))
+        # Directory names keep the species' spaces and apostrophes — the
+        # snapshot writer's layout ("Black-capped Chickadee", "Lincoln's
+        # Sparrow"). The old underscore form split 34,404 images across
+        # 51 shadow directories until the 2026-09-17 merge.
+        safe = species.replace("/", "-").replace("\\", "-").strip(".")
         return safe
 
     def _restore_to(dst_dir, stray, result):
