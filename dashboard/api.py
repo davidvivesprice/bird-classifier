@@ -3387,6 +3387,44 @@ def _compute_birdnet_summary(now: float):
         raise
 
 
+# Operational alerts a human should see. bird-alert.sh (OnFailure=) and the
+# root service-canary both append one line per event to the same log:
+#   <iso-ts> UNIT_FAILED <unit>
+#   <iso-ts> ALERT <name> <message…>
+_ALERT_LOG = Path.home() / "logs" / "unit-failures.log"
+
+
+@app.get("/api/alerts")
+def alerts(days: int = Query(7, ge=1, le=90)):
+    import datetime as _dt
+    now = _dt.datetime.now().astimezone()
+    cutoff = now - _dt.timedelta(days=days)
+    day_ago = now - _dt.timedelta(hours=24)
+    try:
+        lines = _ALERT_LOG.read_text().splitlines()[-500:]
+    except OSError:
+        lines = []
+    items = []
+    for line in lines:
+        parts = line.split(" ", 3)
+        if len(parts) < 3:
+            continue
+        try:
+            at = _dt.datetime.fromisoformat(parts[0])
+        except ValueError:
+            continue
+        if at.tzinfo is None:
+            at = at.astimezone()
+        if at < cutoff:
+            continue
+        items.append({"at": parts[0], "kind": parts[1], "name": parts[2],
+                      "message": parts[3] if len(parts) > 3 else "",
+                      "_recent": at > day_ago})
+    items.reverse()
+    count_24h = sum(1 for i in items if i.pop("_recent"))
+    return {"count": len(items), "count_24h": count_24h, "items": items[:100]}
+
+
 @app.get("/api/today-summary")
 def today_summary():
     """Bird-first numbers for the dashboard ribbon: what the yard actually did.

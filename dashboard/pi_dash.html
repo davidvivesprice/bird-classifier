@@ -199,6 +199,8 @@
   /* demo state of the mode chip: distinct from live — no blink, playback marker */
   .chip.demo { background: var(--bg-hover); border-color: var(--text-dim); color: var(--text-muted); }
   .chip.demo::before { content: "▷ "; }
+  .chip.alert { background: rgba(208,90,90,0.14); border-color: var(--danger); color: var(--danger); text-decoration: none; }
+  .chip.alert:hover { background: rgba(208,90,90,0.26); }
   @keyframes blink { 50% { opacity: 0.35; } }
 
   #demo-mode-toggle {
@@ -921,6 +923,7 @@
     <span class="chip" id="chip-model">model: —</span>
     <span class="chip" id="chip-detect">detector: Hailo-8L</span>
     <span class="chip" id="chip-uptime">uptime: —</span>
+    <a class="chip alert" id="chip-alerts" href="/api/alerts" target="_blank" rel="noopener" hidden>⚠ alerts</a>
     <button id="demo-mode-toggle" class="chip" type="button" title="Toggle demo mode (recorded video)">
       <span class="dot" id="demo-mode-dot"></span>
       <span id="demo-mode-label">demo</span>
@@ -3070,6 +3073,26 @@
     } catch (e) { /* SSE unavailable — poll still works */ }
   })();
   setInterval(pollStats, 5000);
+
+  // Operational alerts (canary: iMac unreachable, feeder silent; unit
+  // failures). Hidden unless something happened in the last 24 h.
+  async function pollAlerts() {
+    try {
+      const r = await fetch('/api/alerts?days=7');
+      if (!r.ok) return;
+      const d = await r.json();
+      const el = document.getElementById('chip-alerts');
+      const n = d.count_24h || 0;
+      if (!n) { el.hidden = true; return; }
+      const top = d.items[0] || {};
+      el.textContent = `⚠ ${n} alert${n > 1 ? 's' : ''} · ${top.name || ''}`;
+      el.title = d.items.slice(0, 6).map(i =>
+        `${(i.at || '').slice(0, 16).replace('T', ' ')}  ${i.name}${i.message ? ' — ' + i.message : ''}`).join('\n');
+      el.hidden = false;
+    } catch (e) { /* keep quiet */ }
+  }
+  pollAlerts();
+  setInterval(pollAlerts, 60000);
   setInterval(loadRecent, 10000);
   setInterval(loadReviewStats, 30000);
 })();

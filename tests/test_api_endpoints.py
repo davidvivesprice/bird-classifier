@@ -292,3 +292,30 @@ def test_birdnet_summary_flood_serves_cache_when_present(monkeypatch):
     r = client.get("/api/birdnet-summary", headers={"cf-connecting-ip": "203.0.113.99"})
     assert r.status_code == 200 and calls["n"] == api._SUMMARY_RATE_N + 1
     _summary_guard_reset(api)
+
+
+def test_alerts_endpoint_reads_failure_log(monkeypatch, tmp_path):
+    import dashboard.api as api
+    from fastapi.testclient import TestClient
+    from datetime import datetime, timedelta
+    now = datetime.now().astimezone()
+    iso = lambda dt: dt.isoformat(timespec="seconds")
+    log = tmp_path / "unit-failures.log"
+    log.write_text(
+        f"{iso(now - timedelta(days=30))} UNIT_FAILED bird-audio\n"
+        f"{iso(now - timedelta(hours=30))} UNIT_FAILED bird-dashboard\n"
+        f"{iso(now - timedelta(hours=2))} ALERT feeder-silent 60000 frames but only 3 detections in the last 4 daytime hours\n"
+        "garbage line\n")
+    monkeypatch.setattr(api, "_ALERT_LOG", log)
+    d = TestClient(api.app).get("/api/alerts").json()
+    assert d["count"] == 2 and d["count_24h"] == 1
+    assert d["items"][0]["kind"] == "ALERT" and d["items"][0]["name"] == "feeder-silent"
+    assert d["items"][0]["message"].startswith("60000 frames")
+    assert d["items"][1] == {"at": d["items"][1]["at"], "kind": "UNIT_FAILED", "name": "bird-dashboard", "message": ""}
+
+
+def test_alerts_endpoint_without_log_is_empty(monkeypatch, tmp_path):
+    import dashboard.api as api
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(api, "_ALERT_LOG", tmp_path / "missing.log")
+    assert TestClient(api.app).get("/api/alerts").json() == {"count": 0, "count_24h": 0, "items": []}
