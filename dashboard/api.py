@@ -3150,6 +3150,7 @@ def extract_timestamp_from_filename(filename):
 
 import asyncio
 import sqlite3
+import collections
 import threading
 
 BIRDNET_DB_PATH = Path(os.path.expanduser("~/bird-snapshots/birdnet-audio/birdnet_local.db"))
@@ -3205,19 +3206,73 @@ def _birdnet_tz_offset():
     return (_time.altzone if _time.daylight and lt.tm_isdst else _time.timezone) // 60
 
 
+# Flood guard for the summary endpoint. On 2026-09-15 one tunnel client
+# issued 5,646 GET /api/birdnet-summary in 17 min (a refetch-on-failure
+# loop) and the dashboard was SIGKILLed twice. The page needs it once a
+# minute; anything past _SUMMARY_RATE_N per _SUMMARY_RATE_WIN seconds from
+# one client gets the in-memory copy (or 429 when there is none yet), and
+# concurrent misses share a single DB computation.
+_SUMMARY_RATE_N = 12
+_SUMMARY_RATE_WIN = 60.0
+_summary_hits: dict = {}
+_summary_lock = threading.Lock()
+
+
+def _client_ip(request) -> str:
+    for h in ("cf-connecting-ip", "x-forwarded-for"):
+        v = request.headers.get(h)
+        if v:
+            return v.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _summary_rate_limited(ip: str, now: float) -> bool:
+    dq = _summary_hits.get(ip)
+    if dq is None:
+        if len(_summary_hits) > 500:
+            _summary_hits.clear()
+        dq = _summary_hits[ip] = collections.deque()
+    while dq and now - dq[0] > _SUMMARY_RATE_WIN:
+        dq.popleft()
+    if len(dq) >= _SUMMARY_RATE_N:
+        return True
+    dq.append(now)
+    return False
+
+
 @app.get("/api/birdnet-summary")
-def birdnet_summary():
+def birdnet_summary(request: StarletteRequest):
     """BirdNET audio detection summary — replaces static summary.json.
 
     Returns species counts (all-time + per-date), recent detections, and metadata.
     """
     global _birdnet_summary_cache, _birdnet_summary_mtime
 
-    # Cache for 30 seconds
     now = _time.time()
+    if _summary_rate_limited(_client_ip(request), now):
+        if _birdnet_summary_cache:
+            return _birdnet_summary_cache
+        raise HTTPException(status_code=429, detail="birdnet-summary: slow down",
+                            headers={"Retry-After": "30"})
+
+    # Cache for 30 seconds
     if _birdnet_summary_cache and (now - _birdnet_summary_mtime) < 30:
         return _birdnet_summary_cache
 
+    with _summary_lock:
+        # single-flight: a miss that queued behind another miss finds it fresh
+        if _birdnet_summary_cache and (_time.time() - _birdnet_summary_mtime) < 30:
+            return _birdnet_summary_cache
+        try:
+            return _compute_birdnet_summary(now)
+        except Exception:
+            if _birdnet_summary_cache:
+                return _birdnet_summary_cache  # stale beats a failed fetch loop
+            raise
+
+
+def _compute_birdnet_summary(now: float):
+    global _birdnet_summary_cache, _birdnet_summary_mtime
     conn = _birdnet_db()
     if not conn:
         return {"total_detections": 0, "species_count": 0, "species": [],
@@ -3328,7 +3383,6 @@ def birdnet_summary():
         _birdnet_summary_cache = result
         _birdnet_summary_mtime = now
         return result
-
     except Exception:
         raise
 

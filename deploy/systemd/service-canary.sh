@@ -69,3 +69,60 @@ if [ -n "$health" ] && [ "$night" != "true" ]; then
   # Health endpoint unreachable/no counter: process death is systemd
   # Restart=always territory — the canary only hunts live-but-frozen.
 fi
+
+# ── Alerts (no restarts — make a silent failure visible) ─────────────────
+# Written where bird-alert.sh already records unit failures so one log
+# holds everything a human needs to look at.
+ALOG=/home/vives/logs/unit-failures.log
+alert() {  # alert <name> <message>
+  ts=$(date -Is)
+  logger -t service-canary "ALERT $1: $2"
+  echo "$ts ALERT $1 $2" >> "$ALOG"
+  printf '{"alert": "%s", "message": "%s", "at": "%s"}\n' "$1" "$2" "$ts" \
+    > /home/vives/logs/canary-alert-latest.json
+  chown vives:vives "$ALOG" /home/vives/logs/canary-alert-latest.json 2>/dev/null
+}
+
+# ── iMac liveness (from outside the Mac) ─────────────────────────────────
+# Aug 7 → Sep 16 2026 the iMac's launchd itself hung: KeepAlive, the
+# in-session watchdog and log rotation all died together and nothing on
+# the Mac could notice. 15 consecutive misses (~30 min) → alert; re-alert
+# every 6 h while it stays down; one line when it comes back.
+IMAC_URL="${CANARY_IMAC_URL:-http://192.168.4.200:8099/api/health}"
+ih=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$IMAC_URL" 2>/dev/null)
+if [ "$ih" = "200" ]; then
+  was=$(cat "$S/imac" 2>/dev/null || echo 0)
+  [ "$was" -ge 15 ] && alert imac-liveness "iMac dashboard reachable again after $was missed checks"
+  ok imac
+else
+  im=$(fail imac)
+  if [ "$im" -ge 15 ] && [ $(( (im - 15) % 180 )) -eq 0 ]; then
+    alert imac-liveness "iMac dashboard unreachable for $im checks (~$((im*2)) min, http=$ih) — check power/launchd"
+  fi
+fi
+
+# ── Feeder silent: frames flowing, no detections ────────────────────────
+# Aug 7 → Sep 10 2026 the Pi ran all day at 15 fps and produced 1-65
+# classifications/day (normal 400-1600) with no alarm. Daytime only.
+# Sample (epoch, frames_processed, detections_total) every check; if over
+# the trailing 4 h frames advanced by >50k but detections by <1000 →
+# alert once per day. Counter resets (pipeline restart) skip the check.
+if [ -n "$health" ] && [ "$night" != "true" ]; then
+  det=$(printf '%s' "$health" | grep -o '"detections_total": *[0-9]*' | head -1 | grep -o '[0-9]*$')
+  fpn=$(printf '%s' "$health" | grep -o '"frames_processed": *[0-9]*' | head -1 | grep -o '[0-9]*$')
+  if [ -n "$det" ] && [ -n "$fpn" ]; then
+    nowe=$(date +%s)
+    echo "$nowe $fpn $det" >> "$S/det_hist"
+    tail -n 200 "$S/det_hist" > "$S/det_hist.tmp" && mv "$S/det_hist.tmp" "$S/det_hist"
+    old=$(awk -v cut=$((nowe - 14400)) '$1 <= cut {l=$0} END {print l}' "$S/det_hist")
+    if [ -n "$old" ]; then
+      set -- $old; ofp=$2; odet=$3
+      today=$(date +%F)
+      if [ $((fpn - ofp)) -gt 50000 ] && [ $((det - odet)) -ge 0 ] && [ $((det - odet)) -lt 1000 ] \
+         && [ "$(cat "$S/silent_day" 2>/dev/null)" != "$today" ]; then
+        echo "$today" > "$S/silent_day"
+        alert feeder-silent "$((fpn - ofp)) frames but only $((det - odet)) detections in the last 4 daytime hours — empty feeder, camera aim, or detector?"
+      fi
+    fi
+  fi
+fi

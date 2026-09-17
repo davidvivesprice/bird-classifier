@@ -6,7 +6,7 @@
 > Each chapter below has one binary "chip" — green or not. We work **one
 > chapter at a time** and keep everything else quiet.
 
-_Last updated: 2026-07-03 · Owner: David · Active surface: Raspberry Pi 5_
+_Last updated: 2026-09-17 · Owner: David · Active surface: Raspberry Pi 5_
 
 ---
 
@@ -17,7 +17,7 @@ keystone and needs nothing else to stand up.
 
 | # | Chapter | One-line chip (is it green?) | Status |
 |---|---------|------------------------------|--------|
-| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🟡 mostly green *(2026-07-03: timing PROVEN by the rig — +5 ms absolute offset, 3.2 px median box error, multi-bird, birth/death on the video clock; label-ride defect FIXED 2026-07-04 (F1–F5 package); remaining: appearance ReID polish + iPad-over-tunnel manual check)* |
+| **1** | **Live identification** | A bird arrives; a correct, well-timed label sticks to it through every hop with no flicker, handles 2+ birds, leaves shortly after — **proven by automated offset measurement, not by eye.** | 🟡 mostly green *(2026-07-03: timing PROVEN by the rig — +5 ms absolute offset, 3.2 px median box error, multi-bird, birth/death on the video clock; label-ride defect FIXED 2026-07-04 (F1–F5 package); identity persistence SHIPPED 2026-09-17 — tracker v4, may10 reel 26→9 ids for 9 visits, per-visit correct species 2/9→6/9; remaining: identify-then-render display path (in design) + iPad-over-tunnel manual check)* |
 | **2** | **Clean, accurate data** | Pull N recent detections: each is genuinely the claimed bird (or honestly "unknown"), with a high-quality crop, tight bounding box, and correct metadata. | 🔴 not landed *(flagship classifier designed + data manifest built — `docs/working/specs/2026-06-29-flagship-classifier-design.md`; David cleaning data before training)* |
 | **3** | **Presentation** | The data is delightful to look at. (Raw numbers are fine until 1 & 2 are green.) | ⚪ deferred |
 
@@ -155,12 +155,17 @@ there a code/sync bug? **Answer it by removing variables, cheapest first:**
   mirror is the current path.)
 - **Presentation** — Chapter 3.
 
-### A fork we'll hit (decide later, don't solve now)
+### The fork — DECIDED 2026-09-17: deliberate delay, identify-then-render
 "It knows what bird it is *before* it comes in" implies a small **built-in
 display delay** — you can't label what you haven't seen and classified yet.
-Truly-live (label catches up to the bird) vs. slightly-delayed (label
-pre-formed as the bird arrives) is a real trade. Broadcast solves it with
-delay (see prior art). We choose when we get there.
+David chose (2026-09-17): *"the buffer doesn't matter… it's more important
+that it's correct than that it's fast… once we have the window that it takes
+to get a verified identification, we can then render the bounding boxes over
+the buffered live feed."* So: only verified labels are shown, labels are
+written retroactively onto the frames still in the client buffer when a lock
+/ merge / split happens, and the display runs a modest delay sized from the
+measured lock-latency distribution. Design in progress (see the 2026-09-17
+mission report); the 2026-05-11 spatial-subtitle memo is its basis.
 
 ---
 
@@ -304,5 +309,9 @@ Read this before touching anything; it encodes hard-won constraints.
    integrity package F1–F5: containment dedup, absolute jump cap,
    classification pacing, post-lock re-verify, unverifiable-lock release).
    Measured on the live demo: teleports 9→0, dup frames 2.6%→0.4%,
-   label coverage 48%→73–82%, wrap-ride 40 s→~5.5 s. Remaining polish:
-   appearance ReID for cross-gap identity (Claudette's plan).
+   label coverage 48%→73–82%, wrap-ride 40 s→~5.5 s.
+6. ✅ **Identity persistence** *(2026-09-17)*: `pipeline/tracker_v4.py`
+   (Kalman box gated on the prediction + ByteTrack two-stage + colour/size
+   ReID + classifier-vote merge/split) replaced Norfair. On the may10 reel
+   through the real pipeline: 26→9 ids for 9 visits, id switches 5→0,
+   per-visit correct species 2/9→6/9, phantoms 2→0, dup boxes 1 %.

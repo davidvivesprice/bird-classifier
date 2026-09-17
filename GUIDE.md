@@ -4,7 +4,7 @@ This is the Pi-side repo. It runs the bird observatory on a Raspberry Pi 5 with 
 
 ## The book
 
-The reference book lives at **`~/docs/bird-observatory-pi/`** — chapters 00 through 10 plus a chapter-index README. Start there:
+The reference book lives at **`~/docs/bird-observatory-pi/`** — chapters 00 through 12 plus a chapter-index README. Start there:
 
 - [`~/docs/bird-observatory-pi/README.md`](file:///Users/vives/docs/bird-observatory-pi/README.md) — chapter index
 - [`~/docs/bird-observatory-pi/00-overview.md`](file:///Users/vives/docs/bird-observatory-pi/00-overview.md) — what the Pi observatory is, mission, where the code lives
@@ -19,7 +19,7 @@ What lives **inside this repo** under `docs/`:
 - [`docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md`](docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md) — the live-overlay video-clock sync design (timing audit + certified numbers)
 - [`docs/working/progress/2026-07-03-native-crash-isolation.md`](docs/working/progress/2026-07-03-native-crash-isolation.md) — the two-crasher SEGV story + the decode/detect child-process cage
 - [`docs/working/progress/2026-04-25-pi5-handoff.md`](docs/working/progress/2026-04-25-pi5-handoff.md) — the Pi bring-up handoff (newer progress notes sit alongside it in `progress/`)
-- [`docs/working/progress/2026-04-25-pi-repo-split.md`](docs/working/progress/2026-04-25-pi-repo-split.md) — why the iMac and Pi repos split
+- [`docs/historical/2026-04-25-pi-repo-split.md`](docs/historical/2026-04-25-pi-repo-split.md) — why the iMac and Pi repos split
 - [`docs/working/progress/cross-claude-comms.md`](docs/working/progress/cross-claude-comms.md) — cross-Claude message bus (historical; one coder owns both sides now)
 - [`docs/historical/`](docs/historical/) — 60+ banner'd retired plans / specs / progress / reviews
 

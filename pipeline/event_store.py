@@ -248,7 +248,11 @@ class EventStore:
         has been VACUUMed once with auto_vacuum=INCREMENTAL set)."""
         with self._conn_lock:
             try:
-                self.conn.execute(f"PRAGMA incremental_vacuum({int(pages)})")
+                # incremental_vacuum yields one result row per freed page;
+                # sqlite3.execute() only steps once, so the cursor must be
+                # drained or exactly one page is freed per call.
+                self.conn.execute(
+                    f"PRAGMA incremental_vacuum({int(pages)})").fetchall()
             except Exception:
                 pass
 

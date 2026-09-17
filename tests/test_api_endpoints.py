@@ -239,3 +239,56 @@ def _mock_cdb_conn():
     cursor.fetchall.return_value = []
     conn.execute = MagicMock(return_value=cursor)
     return conn
+
+
+# ── /api/birdnet-summary flood guard (2026-09-17) ─────────────────────────
+# One tunnel client issued 5,646 summary requests in 17 min on 2026-09-15 and
+# the dashboard was SIGKILLed twice. Past the per-client budget the endpoint
+# must answer from memory (or 429 when nothing is cached) and never touch the DB.
+
+def _summary_guard_reset(api):
+    api._birdnet_summary_cache = None
+    api._birdnet_summary_mtime = 0
+    api._summary_hits.clear()
+
+
+def test_birdnet_summary_flood_returns_429_without_cache(monkeypatch):
+    import dashboard.api as api
+    from fastapi.testclient import TestClient
+    _summary_guard_reset(api)
+    calls = {"n": 0}
+
+    def no_db():
+        calls["n"] += 1
+        return None
+    monkeypatch.setattr(api, "_birdnet_db", no_db)
+    client = TestClient(api.app)
+    codes = [client.get("/api/birdnet-summary",
+                        headers={"cf-connecting-ip": "203.0.113.7"}).status_code
+             for _ in range(api._SUMMARY_RATE_N + 10)]
+    assert codes[:api._SUMMARY_RATE_N] == [200] * api._SUMMARY_RATE_N
+    assert set(codes[api._SUMMARY_RATE_N:]) == {429}
+    assert calls["n"] == api._SUMMARY_RATE_N  # the flood never reached the DB
+
+
+def test_birdnet_summary_flood_serves_cache_when_present(monkeypatch):
+    import dashboard.api as api
+    from fastapi.testclient import TestClient
+    _summary_guard_reset(api)
+    api._birdnet_summary_cache = {"total_detections": 1, "cached": True}
+    api._birdnet_summary_mtime = 0  # stale on purpose
+    calls = {"n": 0}
+
+    def no_db():
+        calls["n"] += 1
+        return None
+    monkeypatch.setattr(api, "_birdnet_db", no_db)
+    client = TestClient(api.app)
+    for _ in range(api._SUMMARY_RATE_N + 10):
+        r = client.get("/api/birdnet-summary", headers={"x-forwarded-for": "198.51.100.9, 10.0.0.1"})
+        assert r.status_code == 200
+    # every over-budget call answered from memory; other clients are unaffected
+    assert calls["n"] == api._SUMMARY_RATE_N
+    r = client.get("/api/birdnet-summary", headers={"cf-connecting-ip": "203.0.113.99"})
+    assert r.status_code == 200 and calls["n"] == api._SUMMARY_RATE_N + 1
+    _summary_guard_reset(api)
