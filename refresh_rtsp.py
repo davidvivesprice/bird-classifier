@@ -111,8 +111,9 @@ def write_go2rtc_config(tokens):
     lines.extend([
         "",
         "api:",
-        '  listen: ":1984"',
-        '  origin: "*"',
+        # Loopback only (2026-09-18): the dashboard proxies /api/ws and
+        # /api/stream.mp4 from 127.0.0.1; go2rtc's API can run exec: sources.
+        '  listen: "127.0.0.1:1984"',
         "",
         "log:",
         "  level: info",
