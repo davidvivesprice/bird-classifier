@@ -152,8 +152,8 @@ def write_go2rtc_config(tokens):
     Preserves any non-managed streams already in the existing config (e.g.
     feeder-demo for the dashboard's demo-mode toggle). Cameras whose token
     fetch failed upstream are omitted rather than KeyError'ing.
-    api.listen + origin "*" must be present so the dashboard WebSocket
-    from pi5.vivessato.com can talk to go2rtc.
+    api.listen stays on loopback: the dashboard reaches go2rtc from
+    127.0.0.1 and nothing on the LAN or the tunnel should.
     """
     existing_extras = _load_existing_extras()
     lines = ["streams:"]
@@ -175,8 +175,9 @@ def write_go2rtc_config(tokens):
     lines.extend([
         "",
         "api:",
-        '  listen: ":1984"',
-        '  origin: "*"',
+        # Loopback only (2026-09-18): the dashboard proxies /api/ws and
+        # /api/stream.mp4 from 127.0.0.1; go2rtc's API can run exec: sources.
+        '  listen: "127.0.0.1:1984"',
         "",
         "log:",
         "  level: info",

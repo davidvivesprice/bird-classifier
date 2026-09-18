@@ -40,6 +40,23 @@ ANNOTATED_ROOT = Path.home() / "bird-snapshots" / "annotated"
 PENDING_ROOT = Path.home() / "bird-snapshots" / "pending"  # pre-classification holding, for parity
 HLS_ROOT = Path.home() / "bird-snapshots" / "hls"
 
+# classifications.era for rows this writer produces. Pi rows before
+# 2026-05-12 ('pre-hls-pts') stored a bbox that did not describe the saved
+# image; from the HLS-by-PTS path on, bbox and image share one pixel space.
+SNAPSHOT_ERA = "hls-pts"
+MIN_CROP_PX = 5
+
+
+def _crop_valid(bbox, image_w: int, image_h: int) -> int:
+    """1 when bbox, clamped to the image, still leaves a usable crop."""
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+    except (TypeError, ValueError):
+        return 0
+    x1, y1 = max(0.0, x1), max(0.0, y1)
+    x2, y2 = min(float(image_w), x2), min(float(image_h), y2)
+    return 1 if (x2 - x1 >= MIN_CROP_PX and y2 - y1 >= MIN_CROP_PX) else 0
+
 
 def _draw_annotated_brackets(frame, bbox, label: str, inflate: float = 0.10):
     """Draw /live-style corner L-brackets + pill label onto a BGR frame in place.
@@ -445,6 +462,11 @@ class SnapshotWriter:
         }
 
     def _write_one(self, p: dict):
+        # Lazy on purpose: classifications_db resolves DB_PATH from the
+        # environment at import time (demo-mode routing). Imported before any
+        # file is written so an import failure cannot orphan JPGs.
+        import classifications_db as cdb
+
         # Prefer a true high-resolution frame from the same timeline. In the
         # intended single-stream mode `bgr_full` is already larger than the
         # detector frame. On the Pi's current substream architecture, bgr_full
@@ -558,6 +580,8 @@ class SnapshotWriter:
         # The review UI tolerates sparse top3.
         top3 = [top_prediction]
 
+        image_h, image_w = p["frame"].shape[:2]
+
         entry = {
             "file": fname,
             "camera": camera,
@@ -601,10 +625,19 @@ class SnapshotWriter:
             # harness can correlate this snapshot to the SSE event and the
             # exact video frame, without going through wall-clock.
             "pts": float(p.get("pts", 0.0)),
+            # Provenance columns (classifications_db.PROVENANCE_COLUMNS).
+            "label_source": cdb.label_source_for(lock_time_source),
+            "lock_species": lock_time_species,
+            "auth_species": auth["species"] if auth else None,
+            "auth_confidence": auth["confidence"] if auth else None,
+            "image_w": int(image_w),
+            "image_h": int(image_h),
+            "bbox_space": "image",
+            "crop_valid": _crop_valid(p["bbox"], image_w, image_h),
+            "era": SNAPSHOT_ERA,
         }
 
         try:
-            import classifications_db as cdb
             cdb.insert_classification(entry)
         except Exception as e:
             # Don't leave orphan JPGs around if DB write fails — remove BOTH

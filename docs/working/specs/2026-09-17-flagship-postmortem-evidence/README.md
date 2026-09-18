@@ -1,0 +1,15 @@
+# Evidence index (all read-only probes, 2026-09-17)
+
+| File | What it is | Used for |
+|---|---|---|
+| `../EVIDENCE_LOG.md` | Predecessor analyst's salvaged probes (repo listings, `train_yard_model.py`, `yard_classifier.py`, `probe_yard_model.py`, `tier2_eval/*`, `training_report.json`, `train_local.py`, `train_export.py`, memory files, iMac schema + review counts, first Pi probe) | Timeline rows 1–4, RC2, RC3 |
+| `manifest_provenance_join.txt` | `~/bird-snapshots/flagship/manifest.csv` (2026-06-29) joined by filename to iMac `classifications.db`: per split/label counts by label source (yard / aiy / aiy_only / both_agree / pre-v3 batch), camera, era, and yard-vs-AIY disagreement | RC1 (71% yard-labelled train, 43% disagreeing), RC6 (12,257 ground train rows), RC4 (123 window rows) |
+| `imac_db_probes.txt` | iMac `classifications.db` (ro): canonical label source by month (`common_name == lock_time.species` 100% since 2026-05), reviews per verdict per month, `reclassify` has no species, same-minute clustering of reviewed frames (1,180/1,875), per-species human-verified inventory by camera/era/confirmed model | RC1, RC2 (leakage proxy), RC5(d), RC8, Section 5 table |
+| `pi_db_probes.txt` | Pi `pi_reviews.db` / `classifications.db` / `pipeline.db` (ro over ssh): verdicts × model_source × has-correct_species (0/828), per-species yes/no by era (pre/post 2026-05-12), classified rows pre/post (30,144 / 34,733), top labels pre vs post (exotics only pre-fix), `range_filter_applied` always 0, `best_keeper_path` never set (0/10,121), tracker `track_id` reuse across days | RC4, RC8, Section 5 table |
+| `contact_train_American_Goldfinch.png` | 16 random **train** crops from the flagship manifest labelled American Goldfinch (bbox crop +15% pad; caption = date, image size, box size, label source; second line = AIY authoritative species + confidence, green if it agrees) | RC1 visual check: ≈2/16 are Goldfinches; 2 empty-feeder crops |
+| `contact_train_Carolina_Wren.png` | same, Carolina Wren | ≈1–2/16 are wrens |
+| `contact_train_Dark-eyed_Junco.png` | same, Dark-eyed Junco | 3/16 Juncos, all pre-v3 AIY-labelled March frames; 0/13 yard-labelled are Juncos |
+| `contact_train_Mourning_Dove.png` | same, Mourning Dove | 16/16 correct but all ground camera 1080p (RC6) |
+| `contact_pi_prefix_exotics_vs_recent.png` + `pi_sample/` | 16 full Pi frames with stored bbox drawn: 8 pre-fix rows labelled Great-tailed Grackle / Baltimore Oriole / Carolina Chickadee, 8 Aug-2026 rows labelled House Sparrow; `pi_sample/list.txt` = file, label, best_detection_json | RC4: all "Baltimore Oriole" boxes are on the stationary orange feeder cup; "Carolina Chickadee" = Black-capped with no regional filter; recent 640×360 frames |
+
+Reproduction notes: all SQL was run with `sqlite3 "file:PATH?mode=ro"`; Pi access via `ssh vives@192.168.6.156` read-only (no service restarts, no writes). Contact sheets were built with `/Users/vives/bird-classifier/venv/bin/python` (Pillow 12.1.1) from the scratchpad; no repository file was modified and no model was run.

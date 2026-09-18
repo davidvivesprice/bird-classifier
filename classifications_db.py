@@ -99,9 +99,44 @@ CREATE TABLE IF NOT EXISTS classifications (
     range_filter_applied INTEGER DEFAULT 0,
     original_species TEXT,
     filter_reason   TEXT,
-    extra_json      TEXT
+    extra_json      TEXT,
+    label_source    TEXT,
+    lock_species    TEXT,
+    auth_species    TEXT,
+    auth_confidence REAL,
+    disagreement    INTEGER,
+    track_id        INTEGER,
+    pts             REAL,
+    model_source    TEXT,
+    image_w         INTEGER,
+    image_h         INTEGER,
+    bbox_space      TEXT,
+    crop_valid      INTEGER,
+    era             TEXT
 )
 """
+
+# Label provenance, promoted out of extra_json (post-mortem must-fix 1 + 3).
+# label_source: which model's decision the stored label IS —
+#   aiy_onnx | aiy | yard | aiy_batch | human (anything else = raw model_source).
+# crop_valid: 1 when best_detection_json.box describes the stored image;
+#   era names the snapshot pipeline generation that produced the row.
+PROVENANCE_COLUMNS = (
+    ("label_source", "TEXT"),
+    ("lock_species", "TEXT"),
+    ("auth_species", "TEXT"),
+    ("auth_confidence", "REAL"),
+    ("disagreement", "INTEGER"),
+    ("track_id", "INTEGER"),
+    ("pts", "REAL"),
+    ("model_source", "TEXT"),
+    ("image_w", "INTEGER"),
+    ("image_h", "INTEGER"),
+    ("bbox_space", "TEXT"),
+    ("crop_valid", "INTEGER"),
+    ("era", "TEXT"),
+)
+PROVENANCE_COLUMN_NAMES = tuple(name for name, _ in PROVENANCE_COLUMNS)
 
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cls_file ON classifications(file)",
@@ -114,7 +149,24 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cls_timestamp ON classifications(timestamp)",
     "CREATE INDEX IF NOT EXISTS idx_cls_action_common ON classifications(action, common_name)",
     "CREATE INDEX IF NOT EXISTS idx_cls_date_action_name ON classifications(source_date, action, common_name)",
+    "CREATE INDEX IF NOT EXISTS idx_cls_label_source ON classifications(label_source)",
+    "CREATE INDEX IF NOT EXISTS idx_cls_era_crop ON classifications(era, crop_valid)",
 ]
+
+
+def ensure_provenance_columns(conn) -> list:
+    """ALTER TABLE ADD COLUMN for any provenance column the table lacks.
+
+    Idempotent (guarded by PRAGMA table_info). Returns the names added, so a
+    migration tool can report what it changed. Caller commits.
+    """
+    have = {r[1] for r in conn.execute("PRAGMA table_info(classifications)")}
+    added = []
+    for name, typ in PROVENANCE_COLUMNS:
+        if name not in have:
+            conn.execute(f"ALTER TABLE classifications ADD COLUMN {name} {typ}")
+            added.append(name)
+    return added
 
 
 def init_db():
@@ -124,6 +176,7 @@ def init_db():
     conn = get_conn(readonly=False)
     with _schema_lock:
         conn.execute(CREATE_TABLE)
+        ensure_provenance_columns(conn)
         for idx in INDEXES:
             conn.execute(idx)
         conn.commit()
@@ -144,24 +197,90 @@ def _ensure_schema():
 
 # ── Write (used by classify.py) ──
 
-INSERT_SQL = """
+INSERT_SQL = f"""
 INSERT OR REPLACE INTO classifications (
     file, camera, timestamp, source_timestamp, source_date, action,
     detect_ms, classify_ms, total_ms, detections,
     best_detection_json, top_prediction_json, top3_json, raw_top3_json, birds_json,
     common_name, scientific_name, raw_score, confidence,
-    range_filter_applied, original_species, filter_reason, extra_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    range_filter_applied, original_species, filter_reason, extra_json,
+    {", ".join(PROVENANCE_COLUMN_NAMES)}
+) VALUES ({", ".join("?" * (23 + len(PROVENANCE_COLUMNS)))})
 """
 
-# Known top-level fields — anything else goes into extra_json
+# Known top-level fields — anything else goes into extra_json.
+# track_id / pts / model_source / disagreement are deliberately NOT listed:
+# they are written to their columns AND kept in extra_json because the
+# dashboard still reads them via json_extract(extra_json, ...).
 _KNOWN_FIELDS = {
     "file", "camera", "timestamp", "source_timestamp", "action",
     "detect_ms", "classify_ms", "total_ms", "detections",
     "best_detection", "top_prediction", "top3", "raw_top3", "birds",
     "common_name", "scientific_name", "raw_score", "confidence",
     "range_filter_applied", "original_species", "filter_reason", "filter_flags",
+    "label_source", "lock_species", "auth_species", "auth_confidence",
+    "image_w", "image_h", "bbox_space", "crop_valid", "era",
 }
+
+_YARD_SOURCE_PREFIXES = ("yard", "both")
+
+
+def label_source_for(model_source) -> str | None:
+    """Map a lock-time model_source to a label_source value.
+
+    Anything the yard model had a hand in (yard, yard_coral, both_agree) is
+    'yard' — RC1: no yard-influenced label may ever train a model. Other
+    sources pass through unchanged so nothing is silently relabelled.
+    """
+    s = (model_source or "").strip().lower()
+    if not s:
+        return None
+    if s.startswith(_YARD_SOURCE_PREFIXES):
+        return "yard"
+    return s
+
+
+def _int_or_none(v):
+    try:
+        return None if v is None else int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(v):
+    try:
+        return None if v is None else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def derive_provenance(entry: dict, common_name=None) -> dict:
+    """Label-provenance columns from an entry dict or a parsed extra_json.
+
+    Explicit top-level keys win; otherwise values come from the nested
+    lock_time / authoritative payload the snapshot writer has always written.
+    lock_species falls back to common_name (the label the row was filed
+    under) for pre-RC3 rows that have no lock_time.
+    """
+    e = entry or {}
+    lock = e.get("lock_time") if isinstance(e.get("lock_time"), dict) else {}
+    auth = e.get("authoritative") if isinstance(e.get("authoritative"), dict) else {}
+    model_source = e.get("model_source") or lock.get("source") or None
+    label_source = e.get("label_source") or label_source_for(lock.get("source") or model_source)
+    disagreement = e.get("disagreement")
+    if disagreement is None and auth.get("species") is not None:
+        disagreement = auth.get("species") != lock.get("species")
+    return {
+        "label_source": label_source,
+        "lock_species": e.get("lock_species") or lock.get("species") or common_name,
+        "auth_species": e.get("auth_species") or auth.get("species"),
+        "auth_confidence": _float_or_none(
+            e.get("auth_confidence") if e.get("auth_confidence") is not None else auth.get("confidence")),
+        "disagreement": None if disagreement is None else int(bool(disagreement)),
+        "track_id": _int_or_none(e.get("track_id")),
+        "pts": _float_or_none(e.get("pts")),
+        "model_source": str(model_source) if model_source else None,
+    }
 
 
 def insert_classification(entry: dict):
@@ -190,6 +309,15 @@ def insert_classification(entry: dict):
     extra = {k: v for k, v in e.items() if k not in _KNOWN_FIELDS}
     extra_json = json.dumps(extra) if extra else None
 
+    prov = derive_provenance(e, common_name=common_name)
+    prov.update({
+        "image_w": _int_or_none(e.get("image_w")),
+        "image_h": _int_or_none(e.get("image_h")),
+        "bbox_space": e.get("bbox_space"),
+        "crop_valid": _int_or_none(e.get("crop_valid")),
+        "era": e.get("era"),
+    })
+
     row = (
         e.get("file", ""),
         e.get("camera", "feeder"),
@@ -214,6 +342,7 @@ def insert_classification(entry: dict):
         e.get("original_species"),
         e.get("filter_reason"),
         extra_json,
+        *(prov[name] for name in PROVENANCE_COLUMN_NAMES),
     )
 
     conn = get_conn(readonly=False)
@@ -290,6 +419,11 @@ def _row_to_entry(row):
             d["original_species"] = row["original_species"]
         if row["filter_reason"]:
             d["filter_reason"] = row["filter_reason"]
+
+    keys = row.keys()
+    for name in PROVENANCE_COLUMN_NAMES:
+        if name in keys and row[name] is not None:
+            d[name] = row[name]
 
     extra = _safe_json(row["extra_json"])
     if extra and isinstance(extra, dict):

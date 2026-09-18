@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 
 CLIENT_QUEUE_MAX = 32
 KEEPALIVE_INTERVAL_S = 15.0
+# Event payload schema (2026-09-18). 2 = per-track label_state / label_epoch /
+# seg_pts / lock_pts plus the optional top-level identity list. Absent on the
+# wire = the pre-schema payload; clients branch on it.
+SCHEMA_VERSION = 2
 
 
 class _SSEHandler(BaseHTTPRequestHandler):
@@ -150,7 +154,7 @@ class SSEEventServer:
             self._httpd = None
 
     def emit(self, camera: str, wall_time_ms: int, tracks: list,
-             pts: float = 0.0) -> None:
+             pts: float = 0.0, identity: Optional[list] = None) -> None:
         """Broadcast a per-frame event to all subscribed clients.
 
         `pts` is the canonical clock — stream time in seconds, extracted
@@ -159,8 +163,12 @@ class SSEEventServer:
         `requestVideoFrameCallback`-reported PTS of the rendered frame.
         `wall_time_ms` is kept for log/UI human-readable timestamps but
         must NOT be used for sync decisions.
+
+        `identity` (schema 2): tracker merge/split ops riding this event,
+        `[{id, op, from, into|to, at_pts}]`. The key is present only when
+        there are ops, so a client can rekey the frames it still holds.
         """
-        payload = json.dumps({
+        event = {
             "camera": camera,
             "wall_time_ms": wall_time_ms,
             "pts": float(pts),
@@ -170,8 +178,12 @@ class SSEEventServer:
             # pts remains canonical.
             "seq": self._seq,
             "emit_ms": time.time() * 1000.0,
+            "schema": SCHEMA_VERSION,
             "tracks": tracks,
-        })
+        }
+        if identity:
+            event["identity"] = identity
+        payload = json.dumps(event)
         self._seq += 1
         if self._record_fh is not None:
             try:

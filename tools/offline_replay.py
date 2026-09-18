@@ -46,13 +46,16 @@ class FakeSSE:
     def __init__(self):
         self.events = []
 
-    def emit(self, camera, wall_time_ms, pts, tracks):
-        self.events.append({
+    def emit(self, camera, wall_time_ms, pts, tracks, identity=None):
+        rec = {
             "camera": camera,
             "wall_time_ms": wall_time_ms,
             "pts": pts,
             "tracks": tracks,
-        })
+        }
+        if identity:
+            rec["identity"] = identity
+        self.events.append(rec)
 
 
 class FakeHealth:

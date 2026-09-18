@@ -55,9 +55,11 @@ from tools.annotation_parser import load_annotations_file  # noqa: E402
 class _FakeSSE:
     """Captures the exact payload ProcessThread._process_frame builds."""
     def __init__(self): self.records = []
-    def emit(self, camera, wall_time_ms, pts, tracks):
-        self.records.append({"camera": camera, "wall_time_ms": wall_time_ms,
-                             "pts": pts, "tracks": tracks})
+    def emit(self, camera, wall_time_ms, pts, tracks, identity=None):
+        rec = {"camera": camera, "wall_time_ms": wall_time_ms, "pts": pts, "tracks": tracks}
+        if identity:
+            rec["identity"] = identity
+        self.records.append(rec)
 
 
 class _FakeHealth:

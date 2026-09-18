@@ -125,7 +125,10 @@ class BirdTracker:
         self.tracks: dict = {}
         self.id_switches: int = 0
 
-    def update(self, detections: list, frame_time_ms: float, frame_bgr=None) -> TrackerOutput:
+    def update(self, detections: list, frame_time_ms: float, frame_bgr=None,
+               pts=None) -> TrackerOutput:
+        # `pts` is accepted for call-site parity with BirdTrackerV4 and ignored:
+        # v3 exists for A/B only and does not fill the schema-2 pts anchors.
         # Dedup the detection list before tracking. A double-box (two detections
         # on one bird) would otherwise spawn a second track_id, since Norfair
         # matches exactly one detection per object. Greedy: keep the highest-

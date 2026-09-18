@@ -171,7 +171,7 @@ Both v2 and v3 write to the same SQLite DB at `~/bird-snapshots/logs/pipeline.db
 
 ### M4. `go2rtc.yaml` on disk (main branch) differs from the running config
 
-**Where:** `/Users/vives/bird-classifier/go2rtc.yaml` says `feeder-main: rtsp://192.168.4.9:7447/dTARm8n5b7quCxFU#tcp` but the running go2rtc (which wasn't restarted) is still serving `feeder-main` as the test video loop from an earlier config.
+**Where:** `/Users/vives/bird-classifier/go2rtc.yaml` says `feeder-main: rtsp://<NVR>:7447/<TOKEN>#tcp` but the running go2rtc (which wasn't restarted) is still serving `feeder-main` as the test video loop from an earlier config.
 
 **Status:** Unrelated to v3, but I noticed it during the smoke test setup. If someone restarts go2rtc, feeder will abruptly switch from the test loop to the real UniFi camera. Worth knowing.
 

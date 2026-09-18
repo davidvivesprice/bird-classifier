@@ -14,6 +14,7 @@ alert unit, logrotate, timer fixes).
 - `go2rtc.service` — RTSP-in / WebRTC-out, port 1984, `Restart=always`, `RestartSec=5`
 - `cloudflared.service` — Cloudflare tunnel `pi5.vivessato.com` → `:8099`, `Restart=always`, `RestartSec=5`
 - `bird-audio.service` — BirdNET audio analyzer (journal logging from day one)
+- `bird-unifi-events.service` — `pipeline/unifi_events.py`: subscribes to the Protect Integration API events WebSocket (needs `UNIFI_API_KEY` from the env file) and upserts the feeder camera's motion events into `pipeline.db` table `unifi_events` — the recall oracle behind `GET /api/unifi-compare`; health at `/tmp/unifi-events-health.json`, `Restart=always`, `RestartSec=10`, `Nice=10`
 
 All log to the **journal** (persistent, capped at 500M via
 `journald-99-persistent.conf`). Read logs with:
@@ -64,7 +65,7 @@ rsync -av --exclude 'service-canary.*' deploy/systemd/*.service deploy/systemd/*
 rsync -av tools/pi5-thermal-watch.service tools/pi5-thermal-watch.timer vives@pi5.local:.config/systemd/user/
 rsync -av deploy/systemd/bird-pipeline.service.d/coredump.conf vives@pi5.local:.config/systemd/user/bird-pipeline.service.d/
 ssh vives@pi5.local "systemctl --user daemon-reload"
-ssh vives@pi5.local "systemctl --user enable --now bird-pipeline bird-dashboard go2rtc cloudflared bird-audio bird-integrity-audit.timer refresh-rtsp.timer bird-logrotate.timer pi5-thermal-watch.timer"
+ssh vives@pi5.local "systemctl --user enable --now bird-pipeline bird-dashboard go2rtc cloudflared bird-audio bird-unifi-events bird-integrity-audit.timer refresh-rtsp.timer bird-logrotate.timer pi5-thermal-watch.timer"
 ssh vives@pi5.local "loginctl enable-linger vives"  # services survive logout
 ```
 
@@ -90,7 +91,7 @@ These are **SYSTEM** units/files, NOT for the user manager:
 
 ```bash
 ssh vives@pi5.local "systemctl --user list-timers --all"
-ssh vives@pi5.local "systemctl --user is-active bird-pipeline bird-dashboard go2rtc cloudflared bird-audio"
+ssh vives@pi5.local "systemctl --user is-active bird-pipeline bird-dashboard go2rtc cloudflared bird-audio bird-unifi-events"
 ssh vives@pi5.local "sudo systemctl is-active service-canary.timer"
 ```
 

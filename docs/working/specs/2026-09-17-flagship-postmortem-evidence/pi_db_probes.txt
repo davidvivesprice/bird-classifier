@@ -1,0 +1,135 @@
+# Pi probes (read-only), run 2026-09-17
+## pi_reviews verdicts x model_source x has correct_species
+no|aiy_onnx|0|190
+yes|aiy_onnx|0|638
+## per species yes/no by era (snapshot source_timestamp < 2026-05-12 = pre)
+Altamira Oriole|no|pre|1
+Altamira Oriole|yes|pre|1
+American Goldfinch|no|pre|3
+American Goldfinch|yes|post|19
+American Robin|no|pre|2
+Baltimore Oriole|no|pre|1
+Baltimore Oriole|yes|pre|90
+Black Phoebe|no|pre|2
+Black-capped Chickadee|no|pre|13
+Black-capped Chickadee|yes|post|14
+Black-capped Chickadee|yes|pre|13
+Black-crowned Night-Heron|no|pre|5
+Black-headed Grosbeak|no|pre|5
+Black-throated Sparrow|no|pre|1
+Blue Jay|no|pre|5
+Bullock's Oriole|no|pre|11
+Bullock's Oriole|yes|pre|6
+California Scrub-Jay|no|pre|2
+Carolina Chickadee|no|pre|29
+Carolina Chickadee|yes|pre|2
+Carolina Wren|no|pre|1
+Carolina Wren|yes|pre|6
+Chipping Sparrow|yes|pre|25
+Coal Tit|no|pre|1
+Common Yellowthroat|no|pre|1
+Domestic Muscovy Duck|no|pre|1
+Downy Woodpecker|no|pre|7
+Downy Woodpecker|yes|post|20
+Downy Woodpecker|yes|pre|4
+Eurasian Blackbird|no|pre|1
+Eurasian Magpie|no|pre|1
+European Robin|no|pre|1
+Golden-crowned Sparrow|no|pre|1
+Great Tit|no|pre|2
+Great-tailed Grackle|no|pre|9
+Greater Roadrunner|no|pre|1
+Grey Wagtail|no|pre|1
+Hairy Woodpecker|no|post|6
+Hairy Woodpecker|no|pre|4
+Hooded Crow|no|pre|1
+Horned Lark|no|pre|2
+House Finch|no|pre|12
+House Finch|yes|post|88
+House Finch|yes|pre|213
+House Sparrow|no|pre|7
+House Sparrow|yes|post|11
+House Sparrow|yes|pre|1
+Indian Peafowl|no|pre|1
+Kea|no|pre|1
+Killdeer|no|pre|1
+Lesser Goldfinch|no|pre|1
+Mourning Dove|no|post|2
+Mourning Dove|no|pre|2
+Northern Cardinal|no|post|1
+Northern Cardinal|no|pre|1
+Northern Cardinal|yes|post|50
+Northern Flicker|no|post|1
+Northern Mockingbird|yes|pre|1
+Northern Pintail|no|pre|1
+Paradise Shelduck|no|pre|2
+Red-winged Blackbird|no|post|1
+Ring-billed Gull|no|pre|1
+Rock Pigeon|no|pre|3
+Rose-breasted Grosbeak|no|pre|2
+Song Sparrow|yes|pre|1
+Spotted Flycatcher|no|pre|1
+Spotted Towhee|yes|pre|1
+Steller's Jay|no|pre|1
+Streak-backed Oriole|no|pre|1
+Tufted Titmouse|no|post|2
+Tufted Titmouse|no|pre|8
+Tufted Titmouse|yes|post|19
+Tufted Titmouse|yes|pre|7
+Western Gull|no|pre|3
+Western Wood-Pewee|no|pre|1
+White Wagtail|no|pre|3
+White-breasted Nuthatch|no|post|1
+White-breasted Nuthatch|no|pre|5
+White-breasted Nuthatch|yes|post|45
+White-breasted Nuthatch|yes|pre|1
+White-faced Heron|no|pre|1
+White-winged Dove|no|pre|1
+Yellow-bellied Sapsucker|no|post|1
+## classified rows pre/post
+post|34733
+pre|30144
+## top labels pre vs post
+House Finch|11956|4461
+House Sparrow|395|7159
+American Goldfinch|4178|2493
+Tufted Titmouse|719|3829
+Black-capped Chickadee|1041|3180
+Downy Woodpecker|1205|2815
+Northern Cardinal|348|2954
+White-breasted Nuthatch|239|2016
+Hairy Woodpecker|910|1028
+Blue Jay|1128|749
+Chipping Sparrow|614|462
+Carolina Chickadee|1074|0
+Brown-headed Cowbird|82|816
+Northern Flicker|563|276
+Baltimore Oriole|680|29
+Great-tailed Grackle|519|0
+Common Grackle|60|434
+Northern Mockingbird|193|225
+Mourning Dove|123|288
+finch|318|0
+Gray Catbird|65|249
+Song Sparrow|235|15
+Carolina Wren|115|125
+Red-winged Blackbird|10|197
+Dark-eyed Junco|62|116
+European Starling|42|117
+Rock Pigeon|155|0
+Red Crossbill|13|129
+Eurasian Magpie|137|0
+Rose-breasted Grosbeak|128|6
+## range_filter_applied
+0|64877
+## pipeline_tracks best_keeper_path populated
+10124|0
+## tracker track_id reuse across days in pipeline_events
+2026-09-10|43|74
+2026-09-11|1795|1795
+2026-09-12|1625|1625
+2026-09-13|2499|2499
+2026-09-14|1198|1198
+2026-09-15|227|227
+2026-09-16|1320|1320
+2026-09-17|604|604

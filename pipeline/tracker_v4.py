@@ -35,6 +35,7 @@ All knobs are env-tunable (PIPELINE_TRACK_*); defaults are for 640x360 @ ~30fps.
 from __future__ import annotations
 
 import os
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -112,6 +113,10 @@ _VOTE_MIN_WEIGHT = float(os.environ.get("PIPELINE_TRACK_VOTE_MIN", "1.0"))
 # buffer with its identity restored. (Replay case: a titmouse's id handed to a
 # partially-visible jay at the same perch 3 s later.)
 _VOTE_SPLIT_SIM = float(os.environ.get("PIPELINE_TRACK_VOTE_SPLIT_SIM", "0.20"))
+# Merge/split ops kept for the display path. process_thread drains them by op
+# id on every emitted event, so it is never more than one frame behind; the
+# bound only stops a long-running pipeline from growing the log without limit.
+_IDENTITY_LOG_MAX = 1000
 
 
 # ── Kalman (const-velocity on [cx, cy, w, h]) ────────────────────────────
@@ -257,7 +262,7 @@ def _vote_sim(a: dict, b: dict) -> float:
 
 
 class BirdTrackerV4:
-    """Drop-in for BirdTracker: update(detections, frame_time_ms, frame_bgr=None)."""
+    """Drop-in for BirdTracker: update(detections, frame_time_ms, frame_bgr=None, pts=None)."""
 
     def __init__(self, distance_threshold: float = 2.5, hit_counter_max: int = 150,
                  initialization_delay: int = 2):
@@ -274,13 +279,21 @@ class BirdTrackerV4:
         self.splits: list = []           # (original_id, newcomer_id) history
         self.revivals = 0                # colour/space ReID revivals of lost tracks
         self.id_switches = 0
+        # Merge/split ops for the display path ({id, op, from, into|to, at_pts}),
+        # append-only with monotonic ids so a client can dedupe repeats. A
+        # bounded deque read by op id (process_thread._drain_identity_ops).
+        self.identity_log: deque = deque(maxlen=_IDENTITY_LOG_MAX)
+        self._identity_seq = 0
+        self._pts: Optional[float] = None   # stream clock of the frame in update()
         self._init_hits = max(1, initialization_delay if initialization_delay else _INIT_HITS)
 
     # ── public ───────────────────────────────────────────────────────────
-    def update(self, detections: list, frame_time_ms: float, frame_bgr=None) -> TrackerOutput:
+    def update(self, detections: list, frame_time_ms: float, frame_bgr=None,
+               pts: Optional[float] = None) -> TrackerOutput:
         self._frame += 1
+        self._pts = pts
         self._apply_pending_merges(frame_time_ms)
-        self._apply_pending_splits(frame_time_ms)
+        new_tracks: list = self._apply_pending_splits(frame_time_ms)
         dets = self._dedup(detections)
         high = [d for d in dets if d.confidence >= _T_HIGH]
         low = [d for d in dets if _T_LOW <= d.confidence < _T_HIGH]
@@ -325,7 +338,6 @@ class BirdTrackerV4:
         # rejected — re-seat that track instead of spawning a twin beside it
         # (measured: the twin was the whole 2% duplicate-box rate); (2) ReID
         # vs lost; (3) spawn tentative.
-        new_tracks: list = []
         for c in unmatched_high:
             d = high[c]
             reseated = None
@@ -470,6 +482,8 @@ class BirdTrackerV4:
             st.frozen = {
                 "species": trk.species, "species_confidence": trk.species_confidence,
                 "model_source": trk.model_source, "is_locked": trk.is_locked,
+                "tentative": trk.tentative, "lock_pts": trk.lock_pts,
+                "label_epoch": trk.label_epoch, "seg_pts": trk.seg_pts,
                 "vote_history": list(trk.vote_history), "votes": dict(st.votes),
                 "hist": st.hist, "last_box": list(st.last_box),
                 "last_center": st.last_center, "area_ema": st.area_ema,
@@ -517,6 +531,7 @@ class BirdTrackerV4:
         st.revive_frame = self._frame
         st.votes_since_revive = {}
         self.revivals += 1
+        trk.seg_pts = self._pts
         self.tracks[best_tid] = trk
         self._hit(best_tid, d, frame_time_ms, frame_bgr)
         return trk
@@ -532,6 +547,7 @@ class BirdTrackerV4:
         trk = Track(track_id=tid, created_at_ms=frame_time_ms, last_updated_ms=frame_time_ms,
                     bbox=list(d.box), confidence=float(d.confidence))
         trk.frame_count = 1
+        trk.seg_pts = self._pts
         trk.motion_history.append((float(z[0]), float(z[1])))
         if self._init_hits <= 1:
             st.confirmed = True
@@ -613,17 +629,22 @@ class BirdTrackerV4:
             lost.frame_count += young.frame_count
             lost.motion_history.extend(young.motion_history)
             lost.vote_history.extend(young.vote_history)
+            lost.seg_pts = young.seg_pts
             self.tracks.pop(young_id, None)
             self._st.pop(young_id, None)
             self._lost.pop(lost_id, None)
             self.tracks[lost_id] = lost
             self.merges.append((young_id, lost_id))
+            self._log_identity({"op": "merge", "from": young_id, "into": lost_id,
+                                "at_pts": young.seg_pts})
 
-    def _apply_pending_splits(self, frame_time_ms: float):
+    def _apply_pending_splits(self, frame_time_ms: float) -> list:
         """A revived track turned out to be a different bird: give the live
         bird a fresh id (current position/filter/appearance, its own votes)
         and return the original identity — species, lock, votes — to the lost
-        buffer as it was at the moment it disappeared."""
+        buffer as it was at the moment it disappeared. Returns the newcomers
+        so update() reports them as new."""
+        newcomers: list = []
         for tid in list(self._pending_split):
             self._pending_split.discard(tid)
             trk = self.tracks.get(tid)
@@ -631,6 +652,7 @@ class BirdTrackerV4:
             if trk is None or st is None or st.frozen is None:
                 continue
             fr = st.frozen
+            at = trk.seg_pts   # revival pts: the ride from here on was the newcomer
             # 1) the newcomer, on a fresh id
             nid = self._next_id
             self._next_id += 1
@@ -650,11 +672,15 @@ class BirdTrackerV4:
             newcomer.frame_count = ns.hits
             newcomer.coasting = trk.coasting
             newcomer.vote_history = list(post)
+            newcomer.seg_pts = at
             newcomer.motion_history.extend(list(trk.motion_history)[-5:])
             self.tracks[nid] = newcomer
+            newcomers.append(newcomer)
             # 2) the original, back to lost with its identity restored
             trk.species, trk.species_confidence = fr["species"], fr["species_confidence"]
             trk.model_source, trk.is_locked = fr["model_source"], fr["is_locked"]
+            trk.tentative, trk.lock_pts = fr["tentative"], fr["lock_pts"]
+            trk.label_epoch, trk.seg_pts = fr["label_epoch"], fr["seg_pts"]
             trk.vote_history = list(fr["vote_history"])
             trk.needs_classification = not fr["is_locked"]
             trk.coasting = True
@@ -669,6 +695,12 @@ class BirdTrackerV4:
             self.tracks.pop(tid, None)
             self._lost[tid] = trk
             self.splits.append((tid, nid))
+            self._log_identity({"op": "split", "from": tid, "to": nid, "at_pts": at})
+        return newcomers
+
+    def _log_identity(self, op: dict):
+        self._identity_seq += 1
+        self.identity_log.append({"id": self._identity_seq, **op})
 
     def _count_id_switches(self, new_tracks: list, matched_track: dict):
         """Heuristic parity with v3: a freshly confirmed track adjacent to a

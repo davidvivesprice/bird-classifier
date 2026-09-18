@@ -1,0 +1,27 @@
+[Unit]
+Description=UniFi Protect motion events → pipeline.db (recall oracle for the tracker)
+# NOTE: network-online.target is a stub in the *user* manager (nothing populates
+# it). The subscriber's own reconnect loop (1 s → 60 s backoff) is the real
+# wait for the CloudKey, so no ExecStartPre probe is needed here.
+After=network-online.target
+Wants=network-online.target
+OnFailure=bird-alert@%N.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bird-classifier
+# "-" prefix as in the sibling units: a missing env file must not pre-start-fail
+# the unit silently — unifi_events.py exits 1 with a clear message instead and
+# writes status "misconfigured" to /tmp/unifi-events-health.json.
+EnvironmentFile=-%h/.bird-observatory-env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/bird-classifier/venv/bin/python3 -u -m pipeline.unifi_events
+Restart=always
+RestartSec=10
+# Bookkeeping only — never compete with live detection for CPU.
+Nice=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

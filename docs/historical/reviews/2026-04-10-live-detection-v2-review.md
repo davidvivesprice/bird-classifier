@@ -89,7 +89,7 @@ retries: 0
 ### Stream topology
 
 - `feeder-main` is the **test video loop** (`exec:ffmpeg ... playlist.txt` in go2rtc)
-- `ground-main` is the **real UniFi camera** (`rtsp://192.168.4.9:7447/RTSnv0lLeUd8cJDw`)
+- `ground-main` is the **real UniFi camera** (`rtsp://<NVR>:7447/<TOKEN>`)
 - HLS recorders run as separate ffmpeg subprocesses for both cameras (4 ffmpegs total + 1 capture per camera = 6 ffmpeg processes against the same 8GB RAM pool)
 
 ### Tests

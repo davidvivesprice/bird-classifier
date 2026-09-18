@@ -238,3 +238,150 @@ def test_vote_split_undoes_a_wrong_colour_reid():
     newcomer = out.active[0]
     assert newcomer.species is None and not newcomer.is_locked
     assert 1 in tr._lost and tr._lost[1].species == "Tufted Titmouse" and tr._lost[1].is_locked
+
+
+# ── identify-then-render (2026-09-18): pts anchors + identity ops ──────────
+def _pts_stepper(tracker):
+    """update() driver that stamps a 30 fps stream clock; pts rounded so the
+    values stored by the tracker compare exactly with the ones we captured."""
+    p = [0.0]
+
+    def step(dets, fb=None):
+        pts = round(p[0], 4)
+        out = tracker.update(dets, p[0] * 1000.0, frame_bgr=fb, pts=pts)
+        p[0] += 1 / 30
+        return out, pts
+    return step
+
+
+def test_seg_pts_is_the_spawn_pts_and_label_fields_default_clean():
+    tr = BirdTrackerV4()
+    step = _pts_stepper(tr)
+    _, spawn_pts = step([det(100, 100)])          # tentative on this frame
+    out = None
+    for _ in range(4):
+        out, _ = step([det(100, 100)])
+    trk = out.active[0]
+    assert trk.seg_pts == spawn_pts                # birth = first sighting, not the confirming hit
+    assert trk.tentative is False and trk.label_epoch == 0 and trk.lock_pts is None
+    assert list(tr.identity_log) == []
+
+
+def test_revival_restarts_seg_pts_but_keeps_the_label_and_is_not_an_identity_op():
+    tr = BirdTrackerV4()
+    step = _pts_stepper(tr)
+    red = (30, 30, 200)
+    box = lambda cx, cy: (cx - 20, cy - 15, cx + 20, cy + 15)
+    for _ in range(20):
+        step([det(200, 150)], frame_with([(box(200, 150), red)]))
+    a = tr.tracks[1]
+    a.species, a.is_locked, a.lock_pts, a.label_epoch = "Northern Cardinal", True, 0.3, 1
+    for _ in range(120):
+        step([])
+    assert 1 in tr._lost
+    fr = tr._st[1].frozen
+    assert fr["seg_pts"] == 0.0 and fr["lock_pts"] == 0.3 and fr["label_epoch"] == 1 and fr["tentative"] is False
+    out, revive_pts = step([det(230, 160)], frame_with([(box(230, 160), red)]))
+    back = out.active[0]
+    assert back.track_id == 1 and tr.revivals == 1
+    assert back.seg_pts == revive_pts
+    assert back.is_locked and back.lock_pts == 0.3 and back.label_epoch == 1
+    assert list(tr.identity_log) == []
+
+
+def test_merge_logs_identity_op_adopts_young_seg_pts_and_ids_are_monotonic():
+    tr = BirdTrackerV4()
+    step = _pts_stepper(tr)
+    red, gray = (30, 30, 200), (150, 150, 150)
+    box = lambda cx, cy: (cx - 20, cy - 15, cx + 20, cy + 15)
+    for _ in range(40):
+        step([det(200, 150)], frame_with([(box(200, 150), red)]))
+    tr.note_vote(1, "Tufted Titmouse", 0.8); tr.note_vote(1, "Tufted Titmouse", 0.7)
+    a = tr.tracks[1]
+    a.species, a.is_locked, a.lock_pts, a.label_epoch = "Tufted Titmouse", True, 0.5, 1
+
+    def lose_then_return(cx, cy):
+        for _ in range(80):
+            step([])
+        assert 1 in tr._lost
+        out, spawn_pts = step([det(cx, cy)], frame_with([(box(cx, cy), gray)]))
+        for _ in range(5):
+            out, _ = step([det(cx, cy)], frame_with([(box(cx, cy), gray)]))
+        young = out.active[0].track_id
+        assert young != 1 and out.active[0].seg_pts == spawn_pts
+        tr.note_vote(young, "Tufted Titmouse", 0.9); tr.note_vote(young, "Tufted Titmouse", 0.6)
+        out, _ = step([det(cx + 2, cy)], frame_with([(box(cx + 2, cy), gray)]))
+        return young, spawn_pts, out
+
+    young1, spawn1, out = lose_then_return(230, 160)
+    survivor = out.active[0]
+    assert [t.track_id for t in out.active] == [1] and tr.merges == [(young1, 1)]
+    assert survivor.seg_pts == spawn1                          # the visible segment is the young's
+    assert survivor.is_locked and survivor.lock_pts == 0.5 and survivor.label_epoch == 1
+    assert list(tr.identity_log) == [
+        {"id": 1, "op": "merge", "from": young1, "into": 1, "at_pts": spawn1},
+    ]
+    young2, spawn2, out = lose_then_return(240, 165)
+    assert tr.merges == [(young1, 1), (young2, 1)]             # legacy tuples untouched
+    assert [op["id"] for op in tr.identity_log] == [1, 2]
+    assert tr.identity_log[1] == {"id": 2, "op": "merge", "from": young2, "into": 1, "at_pts": spawn2}
+    assert out.active[0].seg_pts == spawn2
+
+
+def test_split_logs_identity_op_rekeys_at_revival_pts_and_restores_label_state():
+    """A tentative titmouse (lock demoted on departure, species kept) leaves; a
+    same-coloured bird takes its perch and colour-ReID revives id 1. Meanwhile
+    the label state on the ride is mutated (as process_thread would). The
+    vote-split must hand the ride to a fresh id starting at the REVIVAL pts and
+    give id 1 back exactly the label state it had when it disappeared."""
+    tr = BirdTrackerV4()
+    step = _pts_stepper(tr)
+    gray = (150, 150, 150)
+    box = lambda cx, cy: (cx - 20, cy - 15, cx + 20, cy + 15)
+    for _ in range(40):
+        step([det(200, 150)], frame_with([(box(200, 150), gray)]))
+    tr.note_vote(1, "Tufted Titmouse", 0.8); tr.note_vote(1, "Tufted Titmouse", 0.7)
+    a = tr.tracks[1]
+    a.species, a.is_locked, a.tentative, a.lock_pts, a.label_epoch = "Tufted Titmouse", False, True, 0.4, 3
+    for _ in range(60):
+        step([])
+    assert 1 in tr._lost
+    out, revive_pts = step([det(205, 152)], frame_with([(box(205, 152), gray)]))
+    assert [x.track_id for x in out.active] == [1] and out.active[0].seg_pts == revive_pts
+    ride = out.active[0]
+    ride.tentative, ride.is_locked, ride.lock_pts, ride.label_epoch = False, True, 7.7, 9
+    tr.note_vote(1, "Blue Jay", 0.9); tr.note_vote(1, "Blue Jay", 0.8)
+    out, _ = step([det(207, 152)], frame_with([(box(207, 152), gray)]))
+    assert [x.track_id for x in out.active] == [2] and tr.splits == [(1, 2)]
+    newcomer = out.active[0]
+    assert newcomer.seg_pts == revive_pts
+    assert newcomer.species is None and not newcomer.is_locked and newcomer.tentative is False
+    assert newcomer.lock_pts is None and newcomer.label_epoch == 0
+    assert [t.track_id for t in out.new] == [2]                # design risk #9: the newcomer is born here
+    orig = tr._lost[1]
+    assert orig.species == "Tufted Titmouse" and orig.is_locked is False
+    assert orig.tentative is True and orig.lock_pts == 0.4 and orig.label_epoch == 3
+    assert orig.seg_pts == 0.0
+    assert list(tr.identity_log) == [{"id": 1, "op": "split", "from": 1, "to": 2, "at_pts": revive_pts}]
+
+
+def test_identity_log_is_bounded_and_keeps_the_newest_ops():
+    """process_thread drains by op id every emitted event, so the bound is a
+    memory guard for a long-running pipeline, never a working mode."""
+    from pipeline.tracker_v4 import _IDENTITY_LOG_MAX
+    tr = BirdTrackerV4()
+    for i in range(_IDENTITY_LOG_MAX + 5):
+        tr._log_identity({"op": "merge", "from": i + 2, "into": 1, "at_pts": None})
+    assert len(tr.identity_log) == _IDENTITY_LOG_MAX
+    assert tr.identity_log[0]["id"] == 6 and tr.identity_log[-1]["id"] == _IDENTITY_LOG_MAX + 5
+
+
+def test_v3_tracker_accepts_the_ignored_pts_kwarg():
+    pytest.importorskip("norfair")
+    from pipeline.tracker import BirdTracker
+    tr = BirdTracker(distance_threshold=2.5, hit_counter_max=150, initialization_delay=2)
+    out = None
+    for i in range(5):
+        out = tr.update([det(100, 100)], i * 33.3, frame_bgr=None, pts=1.0 + i / 30)
+    assert [t.track_id for t in out.active] == [1]
+    assert out.active[0].seg_pts is None

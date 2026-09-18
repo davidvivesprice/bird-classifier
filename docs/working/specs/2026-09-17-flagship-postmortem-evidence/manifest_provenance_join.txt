@@ -1,0 +1,104 @@
+# flagship manifest.csv (2026-06-29) joined to classifications.db on filename; run 2026-09-17
+manifest rows 119899 matched DB rows 119530
+
+[train]
+  cam:feeder                               102115
+  cam:ground                               12257
+  era:04-19..04-23 window                  123
+  era:post-04-23                           85795
+  era:pre-04-19                            28454
+  label_source:aiy                         4906
+  label_source:aiy_only                    7663
+  label_source:both_agree                  1733
+  label_source:none(pre-v3 batch AIY)      18894
+  label_source:yard                        81176
+  no_db_row                                345
+  yard_and_aiy_agree                       31282
+  yard_and_aiy_disagree                    49894
+
+[val]
+  cam:feeder                               3332
+  cam:ground                               508
+  era:04-19..04-23 window                  15
+  era:post-04-23                           2787
+  era:pre-04-19                            1038
+  label_source:aiy                         187
+  label_source:aiy_only                    313
+  label_source:both_agree                  43
+  label_source:none(pre-v3 batch AIY)      669
+  label_source:yard                        2628
+  no_db_row                                24
+  yard_and_aiy_agree                       747
+  yard_and_aiy_disagree                    1881
+
+[test]
+  cam:feeder                               1097
+  cam:ground                               182
+  era:04-19..04-23 window                  30
+  era:post-04-23                           226
+  era:pre-04-19                            1023
+  label_source:aiy                         35
+  label_source:aiy_only                    456
+  label_source:both_agree                  6
+  label_source:none(pre-v3 batch AIY)      565
+  label_source:yard                        217
+  yard_and_aiy_agree                       164
+  yard_and_aiy_disagree                    53
+
+[ood_test]
+  cam:feeder                               22
+  cam:ground                               17
+  era:04-19..04-23 window                  3
+  era:post-04-23                           1
+  era:pre-04-19                            35
+  label_source:aiy                         4
+  label_source:aiy_only                    1
+  label_source:none(pre-v3 batch AIY)      34
+
+--- per split/label: n, yard-labelled, yard&AIY-disagree
+ood_test unknown                    n=    39 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     American Goldfinch         n=    76 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Black-capped Chickadee     n=   195 yard=    85 (  44%) yard_disagree=    26 (  13%)
+test     Blue Jay                   n=    32 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Brown-headed Cowbird       n=    63 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Carolina Wren              n=    90 yard=     5 (   6%) yard_disagree=     1 (   1%)
+test     Dark-eyed Junco            n=    67 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Downy Woodpecker           n=    78 yard=    10 (  13%) yard_disagree=     1 (   1%)
+test     Hairy Woodpecker           n=    85 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     House Finch                n=   196 yard=   106 (  54%) yard_disagree=    23 (  12%)
+test     Mourning Dove              n=    60 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Northern Cardinal          n=    66 yard=     2 (   3%) yard_disagree=     0 (   0%)
+test     Red-bellied Woodpecker     n=    62 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Song Sparrow               n=    83 yard=     0 (   0%) yard_disagree=     0 (   0%)
+test     Tufted Titmouse            n=    68 yard=     9 (  13%) yard_disagree=     2 (   3%)
+test     White-breasted Nuthatch    n=    58 yard=     0 (   0%) yard_disagree=     0 (   0%)
+train    American Goldfinch         n=  4596 yard=  4131 (  90%) yard_disagree=  3051 (  66%)
+train    Black-capped Chickadee     n= 15763 yard= 11098 (  70%) yard_disagree=  5964 (  38%)
+train    Blue Jay                   n=   197 yard=     0 (   0%) yard_disagree=     0 (   0%)
+train    Brown-headed Cowbird       n=  1591 yard=  1120 (  70%) yard_disagree=  1105 (  69%)
+train    Carolina Wren              n=  5210 yard=  5019 (  96%) yard_disagree=  4401 (  84%)
+train    Dark-eyed Junco            n= 13401 yard= 10379 (  77%) yard_disagree= 10022 (  75%)
+train    Downy Woodpecker           n=  6057 yard=  4769 (  79%) yard_disagree=  3029 (  50%)
+train    Hairy Woodpecker           n=  1348 yard=  1072 (  80%) yard_disagree=   703 (  52%)
+train    House Finch                n= 34681 yard= 26785 (  77%) yard_disagree=  8540 (  25%)
+train    Mourning Dove              n=  6827 yard=     0 (   0%) yard_disagree=     0 (   0%)
+train    Northern Cardinal          n=  4243 yard=  2618 (  62%) yard_disagree=  1185 (  28%)
+train    Red-bellied Woodpecker     n=    40 yard=     0 (   0%) yard_disagree=     0 (   0%)
+train    Song Sparrow               n=  6654 yard=  2939 (  44%) yard_disagree=  2589 (  39%)
+train    Tufted Titmouse            n=  3920 yard=  2292 (  58%) yard_disagree=  1536 (  39%)
+train    White-breasted Nuthatch    n=  9844 yard=  8954 (  91%) yard_disagree=  7769 (  79%)
+val      American Goldfinch         n=   299 yard=   275 (  92%) yard_disagree=   212 (  71%)
+val      Black-capped Chickadee     n=   298 yard=   215 (  72%) yard_disagree=    99 (  33%)
+val      Blue Jay                   n=    34 yard=     0 (   0%) yard_disagree=     0 (   0%)
+val      Brown-headed Cowbird       n=   280 yard=   202 (  72%) yard_disagree=   198 (  71%)
+val      Carolina Wren              n=   299 yard=   291 (  97%) yard_disagree=   258 (  86%)
+val      Dark-eyed Junco            n=   299 yard=   233 (  78%) yard_disagree=   225 (  75%)
+val      Downy Woodpecker           n=   294 yard=   234 (  80%) yard_disagree=   150 (  51%)
+val      Hairy Woodpecker           n=   238 yard=   184 (  77%) yard_disagree=   117 (  49%)
+val      House Finch                n=   300 yard=   224 (  75%) yard_disagree=    67 (  22%)
+val      Mourning Dove              n=   300 yard=     0 (   0%) yard_disagree=     0 (   0%)
+val      Northern Cardinal          n=   299 yard=   189 (  63%) yard_disagree=   100 (  33%)
+val      Red-bellied Woodpecker     n=     7 yard=     0 (   0%) yard_disagree=     0 (   0%)
+val      Song Sparrow               n=   296 yard=   133 (  45%) yard_disagree=   114 (  39%)
+val      Tufted Titmouse            n=   297 yard=   179 (  60%) yard_disagree=   111 (  37%)
+val      White-breasted Nuthatch    n=   300 yard=   269 (  90%) yard_disagree=   230 (  77%)

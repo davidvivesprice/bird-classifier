@@ -177,3 +177,30 @@ def test_sse_server_missing_camera_query_returns_400():
             assert e.code == 400
     finally:
         server.stop()
+
+
+# ── identify-then-render (2026-09-18): schema 2 + identity ops ──────────────
+def _emitted(**kw):
+    """emit() through the recorder sink: the exact JSON a client receives, no socket."""
+    import io
+    from pipeline.sse_events import SSEEventServer
+    server = SSEEventServer(port=_pick_port())
+    server._record_fh = io.StringIO()
+    server.emit(**kw)
+    return json.loads(server._record_fh.getvalue())
+
+
+def test_emit_adds_schema_2_and_nothing_else_without_identity():
+    ev = _emitted(camera="feeder", wall_time_ms=1, tracks=[{"track_id": 1}], pts=2.5)
+    assert ev["schema"] == 2
+    assert "identity" not in ev
+    assert list(ev) == ["camera", "wall_time_ms", "pts", "seq", "emit_ms", "schema", "tracks"]
+    assert ev["tracks"] == [{"track_id": 1}] and ev["pts"] == 2.5 and ev["seq"] == 0
+
+
+def test_emit_carries_identity_ops_only_when_given():
+    ops = [{"id": 17, "op": "split", "from": 8, "to": 9, "at_pts": 137.0667},
+           {"id": 18, "op": "merge", "from": 12, "into": 4, "at_pts": 300.1}]
+    ev = _emitted(camera="feeder", wall_time_ms=1, tracks=[], pts=0.0, identity=ops)
+    assert ev["identity"] == ops and ev["schema"] == 2
+    assert "identity" not in _emitted(camera="feeder", wall_time_ms=1, tracks=[], pts=0.0, identity=None)

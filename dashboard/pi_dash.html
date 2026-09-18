@@ -760,6 +760,16 @@
     line-height: 1; margin-top: 6px;
   }
   body[data-theme="minimalist"] .stat-card .val { font-family: var(--font-mono); font-size: 22px; font-weight: 500; }
+  /* UniFi-oracle tile: a stat card whose value is a sentence, not a hero number */
+  .oracle-card { display: block; margin-top: 12px; color: var(--text); text-decoration: none; transition: border-color 0.15s; }
+  .oracle-card[hidden] { display: none; }
+  .oracle-card:hover, .oracle-card:focus-visible { border-color: var(--border-strong); }
+  .oracle-card .val, body[data-theme="minimalist"] .oracle-card .val {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 500; line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+  .oracle-card .oracle-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .oracle-card .oracle-sub .warn { color: var(--danger); }
 
   /* Recently Heard panel (audio port, pass-1 rebuild 2026-07-08) */
   .heard-strip {
@@ -1044,6 +1054,17 @@
         </div>
         <div class="predictions" id="predictions"></div>
         <div class="lab-system" id="lab-system" title="live engineering numbers">—</div>
+        <!-- UniFi Protect's own motion detector as a recall oracle: it fires
+             on any movement, so a Protect motion event with no track of ours
+             is a candidate missed visit. Fed by /api/unifi-compare; stays
+             hidden until bird-unifi-events has recorded something. -->
+        <a class="stat-card oracle-card" id="unifi-card" href="/api/unifi-compare?hours=24"
+           target="_blank" rel="noopener" hidden
+           title="UniFi Protect motion events for the feeder cam vs our tracks, last 24 h. Lag = first track start − motion start; negative means we saw the bird first.">
+          <div class="label">UniFi motion vs us · 24h</div>
+          <div class="val" id="unifi-card-val">—</div>
+          <div class="oracle-sub" id="unifi-card-sub"></div>
+        </a>
       </div>
 
       <div class="panel">
@@ -1714,6 +1735,58 @@
         ? 'Asleep until dawn — detection resumes with the birds'
         : 'Watching for birds…';
     } catch (e) {}
+  }
+
+  // ── UniFi motion oracle — /api/unifi-compare ─────────────────────
+  async function pollUnifiCompare() {
+    const card = document.getElementById('unifi-card');
+    try {
+      const r = await fetch('/api/unifi-compare?hours=24');
+      if (!r.ok) { card.hidden = true; return; }
+      const d = await r.json();
+      if (!d.available || (!d.motion_events && !d.tracks_total)) { card.hidden = true; return; }
+      const n = d.motion_events || 0;
+      const pct = n ? Math.round(100 * d.events_with_track / n) : null;
+      const lag = d.lead_lag_ms ? d.lead_lag_ms.p50 : null;
+      let lagTxt = 'no overlap yet';
+      if (typeof lag === 'number') {
+        const s = (Math.abs(lag) / 1000).toFixed(1);
+        lagTxt = Math.abs(lag) < 250 ? 'in sync (p50)'
+          : (lag > 0 ? `we lag +${s} s (p50)` : `we lead ${s} s (p50)`);
+      }
+      document.getElementById('unifi-card-val').textContent =
+        `${n} event${n === 1 ? '' : 's'} · covered ${pct === null ? '—' : pct + '%'} · ${lagTxt}`;
+      const sub = document.getElementById('unifi-card-sub');
+      sub.innerHTML = '';
+      const bits = [];
+      const misses = (d.events_without_track || {}).count || 0;
+      const phantoms = (d.tracks_without_motion || {}).count || 0;
+      bits.push(`${misses} possible miss${misses === 1 ? '' : 'es'}`);
+      bits.push(`${phantoms} track${phantoms === 1 ? '' : 's'} without motion`);
+      if (d.lead_lag_ms && typeof d.lead_lag_ms.p90 === 'number') {
+        bits.push(`p90 ${(d.lead_lag_ms.p90 / 1000).toFixed(1)} s`);
+      }
+      // The window shrinks to the start of the oracle's coverage while that
+      // is younger than 24 h — say so rather than let "24h" overstate the sample.
+      if (d.window && d.window.clipped_to_oracle) {
+        const dt = new Date(d.window.since_ms);
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mm = String(dt.getMinutes()).padStart(2, '0');
+        bits.push(`since ${ribTime(`T${hh}:${mm}`)}`);
+      }
+      bits.forEach((t, i) => {
+        if (i) sub.append(' · ');
+        sub.append(t);
+      });
+      const o = d.oracle || {};
+      if (o.status !== 'connected' || o.stale) {
+        const w = document.createElement('span');
+        w.className = 'warn';
+        w.textContent = ` · oracle ${o.stale ? 'stale' : o.status || 'unknown'}`;
+        sub.appendChild(w);
+      }
+      card.hidden = false;
+    } catch (e) { card.hidden = true; }
   }
 
   // ── Bird-first ribbon — /api/today-summary ───────────────────────
@@ -3093,6 +3166,8 @@
   }
   pollAlerts();
   setInterval(pollAlerts, 60000);
+  pollUnifiCompare();
+  setInterval(pollUnifiCompare, 60000);
   setInterval(loadRecent, 10000);
   setInterval(loadReviewStats, 30000);
 })();

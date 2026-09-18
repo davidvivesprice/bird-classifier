@@ -82,6 +82,22 @@ LOCK_VERIFY_MIN_CONF = float(os.environ.get("PIPELINE_LOCK_VERIFY_MIN_CONF", "0.
 LOCK_UNVERIFIED_N = int(os.environ.get("PIPELINE_LOCK_UNVERIFIED_N", "20"))
 # TTA views for decisive (3rd) and verify votes; 1 disables (2026-09-17, +0.4-0.8 pt recall measured)
 _TTA_VIEWS = int(os.environ.get("PIPELINE_TTA_VIEWS", "4"))
+# Consecutive emitted events each tracker identity op (merge/split) rides.
+# The per-client SSE queue drops silently when full (sse_events.CLIENT_QUEUE_MAX),
+# so a one-shot op could vanish; ~0.3 s of repeats + client dedupe by id covers
+# short stalls, and a longer stall ends in a reconnect with nothing to rekey.
+IDENTITY_REPEAT_EVENTS = 10
+
+
+def _label_state(track) -> str:
+    """The one per-track field the overlay's render rule reads: species text
+    is drawn only for "locked" and "tentative"; "candidate" is votes still
+    accumulating and must never be shown as a species."""
+    if track.is_locked:
+        return "locked"
+    if not track.species:
+        return "none"
+    return "tentative" if track.tentative else "candidate"
 
 
 class CameraProcessThread:
@@ -93,6 +109,8 @@ class CameraProcessThread:
     snapshot_writer = None
     capture = None
     disagreement_detector = None
+    _identity_last_id = 0
+    _identity_pending = None
 
     def __init__(self, name: str, frame_queue: queue.Queue,
                  motion_gate, detector, tracker, classifier,
@@ -120,6 +138,10 @@ class CameraProcessThread:
         self._last_forced_full = 0.0
         self._last_debug_encode_ms = 0
         self._last_health_update_ms = 0
+        # last tracker.identity_log op id drained + ops still riding SSE events
+        # as [op, emitted_count]
+        self._identity_last_id = 0
+        self._identity_pending = deque()
         self._stats = {
             "frames_processed": 0,
             "detections": 0,
@@ -193,7 +215,8 @@ class CameraProcessThread:
         self._stats["detections"] += len(detections)
 
         # 4. Track
-        tracker_out = self.tracker.update(detections, frame.wall_time_ms, frame_bgr=frame.bgr)
+        tracker_out = self.tracker.update(detections, frame.wall_time_ms,
+                                          frame_bgr=frame.bgr, pts=frame.pts)
 
         # 4b. Idle-scan hint (r4 thermal lever): tell the capture child
         # whether anything is active. With no active tracks it drops to
@@ -257,6 +280,7 @@ class CameraProcessThread:
 
         # 6b. Emit SSE event for live dashboard consumption
         if tracker_out.active and self.sse_server is not None:
+            identity_ops = self._drain_identity_ops()
             tracks_payload = []
             for track in tracker_out.active:
                 bbox = list(track.bbox)
@@ -274,12 +298,20 @@ class CameraProcessThread:
                     # Coasting tracks have a bbox frozen at the last detection —
                     # the overlay renders them held/dimmed instead of live.
                     "coasting": bool(getattr(track, "coasting", False)),
+                    # Schema 2 label contract (see Track in tracker_common.py):
+                    # sent on every event so a reconnecting client needs no
+                    # history.
+                    "label_state": _label_state(track),
+                    "label_epoch": track.label_epoch,
+                    "seg_pts": track.seg_pts,
+                    "lock_pts": track.lock_pts,
                 })
             self.sse_server.emit(
                 camera=self.name,
                 wall_time_ms=int(frame.wall_time_ms),
                 pts=float(frame.pts),
                 tracks=tracks_payload,
+                identity=identity_ops or None,
             )
 
         # 7. Track expired → write summary (skipped in dry-run)
@@ -323,6 +355,36 @@ class CameraProcessThread:
         # 9. Update health — capture stats every frame (cheap: just age + frame
         #    count), numpy stats (mean/p99) throttled to every 2 seconds.
         self._update_health(frame, det_ms)
+
+    def _drain_identity_ops(self) -> list:
+        """Tracker merge/split ops not yet seen, plus the ones still within
+        their IDENTITY_REPEAT_EVENTS repeats. Called once per emitted event.
+        The tracker's log is a bounded deque with monotonic op ids, so the
+        read position is the last id seen (an index would shift as old ops
+        rotate out): walk newest-first until a seen id."""
+        pending = self._identity_pending
+        if pending is None:
+            pending = self._identity_pending = deque()
+        log_ = getattr(self.tracker, "identity_log", None)
+        if log_:
+            fresh = []
+            for op in reversed(log_):
+                if op["id"] <= self._identity_last_id:
+                    break
+                fresh.append(op)
+            if fresh:
+                self._identity_last_id = fresh[0]["id"]
+                fresh.reverse()
+                for op in fresh:
+                    pending.append([op, 0])
+        if not pending:
+            return []
+        ops = [entry[0] for entry in pending]
+        for entry in pending:
+            entry[1] += 1
+        while pending and pending[0][1] >= IDENTITY_REPEAT_EVENTS:
+            pending.popleft()
+        return ops
 
     def _crop_track(self, frame: Frame, track):
         """Crop the track's bbox from the detect frame as PIL RGB, or None if
@@ -391,6 +453,8 @@ class CameraProcessThread:
                             track.no_vote_streak,
                         )
                         track.is_locked = False
+                        track.tentative = True
+                        track.label_epoch += 1
                         track.needs_classification = True
                         track.vote_history = []
                         # KEEP species/confidence as a TENTATIVE label: this
@@ -428,6 +492,9 @@ class CameraProcessThread:
                             result.species, result.confidence or 0,
                         )
                         track.is_locked = False
+                        track.tentative = False
+                        track.lock_pts = None
+                        track.label_epoch += 1
                         track.needs_classification = True
                         track.vote_history = [(result.species, result.confidence)]
                         _trk = getattr(self, 'tracker', None)
@@ -489,6 +556,15 @@ class CameraProcessThread:
                 # (so the label shows something while votes accumulate)
                 species_counts = Counter(s for s, c in track.vote_history)
                 top_species, _ = species_counts.most_common(1)[0]
+                if track.tentative and top_species != track.species:
+                    # The kept (tentative) label is contradicted by the new
+                    # plurality, so it is no longer a verified species: demote
+                    # to candidate (drawn without text) and bump the epoch so
+                    # the client strips its buffered frames. Without this a
+                    # single unverified vote would render as verified text.
+                    track.tentative = False
+                    track.lock_pts = None
+                    track.label_epoch += 1
                 track.species = top_species
                 track.species_confidence = max(
                     c for s, c in track.vote_history if s == top_species
@@ -516,6 +592,9 @@ class CameraProcessThread:
                         track.species_confidence >= LOCK_CONF_THRESHOLD and
                         species_counts[top_species] / len(track.vote_history) >= 0.6):
                     track.is_locked = True
+                    track.tentative = False
+                    track.lock_pts = frame.pts
+                    track.label_epoch += 1
                     track.needs_classification = False
 
                 # Within-track disagreement: always record the prediction in the

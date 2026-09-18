@@ -1720,7 +1720,7 @@ streams:
   feeder-sub:
     - "ffmpeg:feeder-main#video=h264#width=640#height=360#hardware"
   ground-main:
-    - rtsp://192.168.4.9:7447/RTSnv0lLeUd8cJDw#tcp
+    - rtsp://<NVR>:7447/<TOKEN>#tcp
   ground-sub:
     - "ffmpeg:ground-main#video=h264#width=640#height=360#hardware"
 

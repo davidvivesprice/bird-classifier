@@ -786,3 +786,226 @@ def test_disagreement_detector_stops_flipflopping_track_early():
     assert fake_track.is_locked is False, "Disagreement early-stop is not a vote-lock"
     assert fake_track.species in species_sequence, "Should still emit a species (plurality)"
     assert fake_track.model_source == ModelSource.VOTE_PLURALITY
+
+
+# ── identify-then-render (2026-09-18): label state, pts anchors, identity ops ──
+def _bare_thread(tracker_out, sse_server=None):
+    """CameraProcessThread via __new__ with just the attributes _process_frame
+    reads; dry-run so no event_store writes."""
+    import threading, time
+    from pipeline.process_thread import CameraProcessThread
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._dry_run = True
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+    t._last_forced_full = time.time()
+    t.motion_gate = MagicMock(); t.motion_gate.regions.return_value = []
+    t.detector = MagicMock(); t.detector.detect.return_value = []
+    t.tracker = MagicMock(); t.tracker.update.return_value = tracker_out
+    t.tracker.tracks = {}; t.tracker.stationary_regions.return_value = []
+    t.tracker.identity_log = []
+    t.classifier = MagicMock(); t.classifier.stats = {}
+    t.event_store = MagicMock(); t.health = MagicMock()
+    t.sse_server = sse_server
+    t.frame_width, t.frame_height = 640, 360
+    return t
+
+
+def _frame(pts=0.0):
+    from pipeline.frame import Frame
+    return Frame(bgr=np.zeros((360, 640, 3), dtype=np.uint8), wall_time_ms=1_700_000_000_000,
+                 camera="feeder", width=640, height=360, pts=pts)
+
+
+def _track(**kw):
+    from pipeline.tracker_common import Track
+    trk = Track(track_id=kw.pop("track_id", 1), created_at_ms=0, last_updated_ms=0,
+                bbox=kw.pop("bbox", [100, 100, 300, 300]), confidence=0.9)
+    for k, v in kw.items():
+        setattr(trk, k, v)
+    return trk
+
+
+def test_tracker_update_receives_the_frame_pts():
+    from pipeline.tracker_common import TrackerOutput
+    t = _bare_thread(TrackerOutput(active=[], new=[], expired=[], frame_time_ms=0))
+    t._process_frame(_frame(pts=12.5))
+    assert t.tracker.update.call_args.kwargs["pts"] == 12.5
+
+
+def test_label_state_has_exactly_four_states():
+    from pipeline.process_thread import _label_state
+    trk = _track()
+    assert _label_state(trk) == "none"
+    trk.species = "Blue Jay"
+    assert _label_state(trk) == "candidate"
+    trk.tentative = True
+    assert _label_state(trk) == "tentative"
+    trk.is_locked = True
+    assert _label_state(trk) == "locked"
+    trk.is_locked, trk.species = False, None
+    assert _label_state(trk) == "none"                  # tentative with nothing to show is nothing
+
+
+def test_payload_carries_label_fields_beside_the_legacy_keys_and_identity_none():
+    from pipeline.tracker_common import TrackerOutput
+    trk = _track(track_id=3, bbox=[10, 10, 50, 50], species="Blue Jay", is_locked=True,
+                 label_epoch=1, lock_pts=133.1667, seg_pts=132.4333)
+    sse = MagicMock()
+    t = _bare_thread(TrackerOutput(active=[trk], new=[trk], expired=[], frame_time_ms=0), sse)
+    t._process_frame(_frame(pts=134.0))
+    kw = sse.emit.call_args.kwargs
+    assert kw["pts"] == 134.0 and kw["identity"] is None
+    p = kw["tracks"][0]
+    assert p["label_state"] == "locked" and p["label_epoch"] == 1
+    assert p["lock_pts"] == 133.1667 and p["seg_pts"] == 132.4333
+    for k in ("track_id", "bbox", "bbox_center_x", "frame_width", "frame_height", "species",
+              "species_confidence", "model_source", "is_locked", "frame_count", "coasting"):
+        assert k in p, k
+
+
+def test_identity_ops_ride_ten_emitted_events_then_drain():
+    from pipeline.tracker_common import TrackerOutput
+    trk = _track(bbox=[10, 10, 50, 50])
+    busy = TrackerOutput(active=[trk], new=[], expired=[], frame_time_ms=0)
+    idle = TrackerOutput(active=[], new=[], expired=[], frame_time_ms=0)
+    sse = MagicMock()
+    t = _bare_thread(busy, sse)
+    log = t.tracker.identity_log
+
+    def emitted_identity():
+        return sse.emit.call_args.kwargs["identity"]
+
+    t._process_frame(_frame())
+    assert emitted_identity() is None
+    op1 = {"id": 1, "op": "split", "from": 8, "to": 9, "at_pts": 137.0667}
+    log.append(op1)
+    # frames with no active tracks emit nothing and must not consume repeats
+    t.tracker.update.return_value = idle
+    for _ in range(3):
+        t._process_frame(_frame())
+    assert sse.emit.call_count == 1
+    t.tracker.update.return_value = busy
+    for _ in range(5):
+        t._process_frame(_frame())
+        assert emitted_identity() == [op1]
+    op2 = {"id": 2, "op": "merge", "from": 12, "into": 4, "at_pts": 300.1}
+    log.append(op2)
+    for _ in range(5):
+        t._process_frame(_frame())
+        assert emitted_identity() == [op1, op2]          # op1 events 6..10
+    for _ in range(5):
+        t._process_frame(_frame())
+        assert emitted_identity() == [op2]               # op1 drained after its 10th event
+    t._process_frame(_frame())
+    assert emitted_identity() is None
+    assert log == [op1, op2]                             # the tracker's log is never mutated
+
+
+def test_identity_drain_reads_by_op_id_so_a_rotated_log_never_resends_or_skips():
+    """The tracker's identity_log is a bounded deque. Ops that rotated out
+    before the drain are simply gone; ops already riding are not re-sent when
+    the entries beneath them disappear, and nothing newer is skipped."""
+    from collections import deque
+    from pipeline.tracker_common import TrackerOutput
+    trk = _track(bbox=[10, 10, 50, 50])
+    sse = MagicMock()
+    t = _bare_thread(TrackerOutput(active=[trk], new=[], expired=[], frame_time_ms=0), sse)
+    log = deque(maxlen=2)
+    t.tracker.identity_log = log
+    ops = [{"id": i, "op": "merge", "from": 10 + i, "into": 1, "at_pts": float(i)} for i in range(1, 5)]
+    log.extend(ops[:3])                                  # op1 rotated out before any emit
+    t._process_frame(_frame())
+    assert sse.emit.call_args.kwargs["identity"] == [ops[1], ops[2]]
+    log.append(ops[3])                                   # pushes op2 out of the log
+    t._process_frame(_frame())
+    assert sse.emit.call_args.kwargs["identity"] == [ops[1], ops[2], ops[3]]   # op2 still rides
+    t._process_frame(_frame())
+    assert sse.emit.call_args.kwargs["identity"] == [ops[1], ops[2], ops[3]]   # nothing re-sent
+
+
+def _classify_only_thread(result):
+    import threading
+    from pipeline.process_thread import CameraProcessThread
+    t = CameraProcessThread.__new__(CameraProcessThread)
+    t.name = "feeder"
+    t._stop = threading.Event()
+    t._stats = {"frames_processed": 0, "detections": 0, "yolo_ms_samples": [],
+                "yolo_runs_total": 0, "yolo_skipped_motion": 0}
+    t.classifier = MagicMock()
+    t.classifier.classify.return_value = result
+    return t
+
+
+def test_lock_stamps_lock_pts_and_bumps_epoch_once_not_on_candidate_churn():
+    from pipeline.classifier import ClassificationResult
+    t = _classify_only_thread(ClassificationResult("Downy Woodpecker", 0.85, "yard", False))
+    trk = _track()
+    for i in range(3):
+        trk.frame_count = 100 + i * 10                   # past the CLASSIFY_EVERY gate
+        t._classify_tracks(_frame(pts=41.7), [trk])
+        if i < 2:
+            assert trk.species == "Downy Woodpecker" and not trk.is_locked
+            assert trk.label_epoch == 0 and trk.lock_pts is None
+    assert trk.is_locked and trk.tentative is False
+    assert trk.label_epoch == 1 and trk.lock_pts == 41.7
+
+
+def test_unverifiable_unlock_demotes_to_tentative_keeps_species_and_lock_pts_then_relocks():
+    from pipeline.classifier import ClassificationResult
+    from pipeline.process_thread import LOCK_UNVERIFIED_N, _label_state
+    t = _classify_only_thread(ClassificationResult(None, 0.0, "aiy_onnx", False))
+    trk = _track(species="Blue Jay", species_confidence=0.9, is_locked=True, lock_pts=10.0,
+                 label_epoch=1, frame_count=100, last_classify_fc=0,
+                 no_vote_streak=LOCK_UNVERIFIED_N - 1)
+    t._classify_tracks(_frame(pts=20.0), [trk])
+    assert not trk.is_locked and trk.tentative is True
+    assert trk.species == "Blue Jay" and trk.lock_pts == 10.0
+    assert trk.label_epoch == 2 and _label_state(trk) == "tentative"
+    # votes resume and agree: back to locked, fresh lock_pts, one more epoch
+    t.classifier.classify.return_value = ClassificationResult("Blue Jay", 0.85, "yard", False)
+    for i in range(3):
+        trk.frame_count += 10
+        t._classify_tracks(_frame(pts=23.0), [trk])
+    assert trk.is_locked and trk.tentative is False
+    assert trk.lock_pts == 23.0 and trk.label_epoch == 3
+
+
+def test_relabel_while_tentative_demotes_to_candidate_and_bumps_epoch():
+    """A tentative label (kept from a demoted lock) is verified text on glass.
+    Once the votes since the demotion favour ANOTHER species it is no longer
+    verified: candidate (no text), lock_pts null, epoch +1 — never a one-vote
+    species rendered as tentative. An agreeing vote leaves it untouched."""
+    from pipeline.classifier import ClassificationResult
+    from pipeline.process_thread import LOCK_CONF_THRESHOLD, _label_state
+    sub = LOCK_CONF_THRESHOLD - 0.05                      # votes that can never complete a lock
+    trk = _track(species="Blue Jay", species_confidence=0.9, is_locked=False, tentative=True,
+                 lock_pts=10.0, label_epoch=2, frame_count=100, last_classify_fc=0)
+    t = _classify_only_thread(ClassificationResult("Blue Jay", sub, "aiy_onnx", False))
+    t._classify_tracks(_frame(pts=20.0), [trk])
+    assert trk.species == "Blue Jay" and _label_state(trk) == "tentative"
+    assert trk.tentative is True and trk.lock_pts == 10.0 and trk.label_epoch == 2
+    t.classifier.classify.return_value = ClassificationResult("Tufted Titmouse", sub, "aiy_onnx", False)
+    trk.frame_count += 10
+    t._classify_tracks(_frame(pts=21.0), [trk])          # 1 jay / 1 titmouse: plurality still jay
+    assert trk.species == "Blue Jay" and trk.tentative is True and trk.label_epoch == 2
+    trk.frame_count += 10
+    t._classify_tracks(_frame(pts=22.0), [trk])          # 1 jay / 2 titmouse: the kept label is contradicted
+    assert trk.species == "Tufted Titmouse" and not trk.is_locked
+    assert trk.tentative is False and trk.lock_pts is None and trk.label_epoch == 3
+    assert _label_state(trk) == "candidate"
+
+
+def test_contradiction_unlock_clears_lock_pts_and_tentative_and_bumps_epoch():
+    from pipeline.classifier import ClassificationResult
+    from pipeline.process_thread import LOCK_UNLOCK_DISAGREEMENTS, _label_state
+    t = _classify_only_thread(ClassificationResult("Tufted Titmouse", 0.9, "aiy_onnx", False))
+    trk = _track(species="Blue Jay", species_confidence=0.9, is_locked=True, tentative=False,
+                 lock_pts=10.0, label_epoch=1, frame_count=100, last_classify_fc=0,
+                 lock_disagreements=LOCK_UNLOCK_DISAGREEMENTS - 1)
+    t._classify_tracks(_frame(pts=20.0), [trk])
+    assert not trk.is_locked and trk.tentative is False and trk.lock_pts is None
+    assert trk.species == "Tufted Titmouse" and trk.label_epoch == 2
+    assert _label_state(trk) == "candidate"

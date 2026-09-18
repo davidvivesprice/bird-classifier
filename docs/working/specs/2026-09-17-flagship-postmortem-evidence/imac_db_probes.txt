@@ -1,0 +1,63 @@
+# iMac classifications.db probes (read-only), run 2026-09-17
+
+## canonical label source by month (action=classified)
+2026-03|24340|852|0|||
+2026-04|40730|40730|22946|21613|10151|11462
+2026-05|51258|51258|50237|51258|18279|32979
+2026-06|11113|11113|10913|11113|3262|7851
+2026-07|27373|27373|27109|27373|2791|24582
+2026-08|17329|17329|17231|17329|1021|16308
+2026-09|1268|1268|1250|1268|155|1113
+
+## reviews per verdict per month
+2026-03|correct|480
+2026-03|reclassify|44
+2026-03|requeued|30
+2026-03|skip|3
+2026-03|trash|71
+2026-03|wrong|27
+2026-04|correct|859
+2026-04|reclassify|94
+2026-04|skip|22
+2026-04|trash|264
+2026-04|wrong|319
+2026-05|correct|14
+2026-05|skip|12
+2026-05|trash|4
+2026-05|wrong|42
+
+## reclassify has no correct_species
+correct|0|1353
+reclassify|0|138
+requeued|0|30
+skip|0|37
+trash|0|339
+wrong|388|388
+
+## same-minute clustering among reviewed files (leakage proxy)
+1875|1180|1100
+
+## human-verified per species: total, feeder, ground, in Apr19-23 window, after Apr-23 fix, yard-confirmed
+Black-capped Chickadee|241|240|1|4|128|118
+House Finch|221|220|1|28|121|116
+Downy Woodpecker|179|179|0|0|10|10
+Carolina Wren|92|92|0|0|5|5
+Hairy Woodpecker|89|89|0|0|0|0
+Song Sparrow|86|73|13|0|0|0
+American Goldfinch|83|83|0|0|0|0
+Tufted Titmouse|77|76|1|3|10|10
+Brown-headed Cowbird|75|66|9|0|0|0
+Dark-eyed Junco|74|55|19|0|1|1
+White-breasted Nuthatch|71|71|0|0|0|0
+Northern Cardinal|68|62|6|0|3|2
+Red-bellied Woodpecker|62|10|52|0|0|0
+Mourning Dove|61|0|61|0|0|0
+Blue Jay|41|10|31|0|0|0
+Red-winged Blackbird|20|0|20|0|0|0
+Chipping Sparrow|16|16|0|3|13|13
+Pine Warbler|13|13|0|0|0|0
+European Starling|4|4|0|0|0|0
+White-crowned Sparrow|3|2|1|0|0|0
+American Robin|2|0|2|0|0|0
+White-throated Sparrow|1|0|1|0|0|0
+House Sparrow|1|1|0|0|1|0

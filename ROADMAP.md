@@ -313,5 +313,5 @@ Read this before touching anything; it encodes hard-won constraints.
 6. ✅ **Identity persistence** *(2026-09-17)*: `pipeline/tracker_v4.py`
    (Kalman box gated on the prediction + ByteTrack two-stage + colour/size
    ReID + classifier-vote merge/split) replaced Norfair. On the may10 reel
-   through the real pipeline: 26→9 ids for 9 visits, id switches 5→0,
+   through the real pipeline: 29→9 ids for 9 visits, id switches 5→0,
    per-visit correct species 2/9→6/9, phantoms 2→0, dup boxes 1 %.

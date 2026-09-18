@@ -43,7 +43,9 @@ def test_v1_table_migrates_to_v2(tmp_path, monkeypatch):
         # old row survived
         assert c.execute("SELECT verdict FROM pi_reviews WHERE file='a.jpg'").fetchone()[0] == "yes"
         # new verdicts now pass the CHECK
-        c.execute("INSERT INTO pi_reviews VALUES ('b.jpg','not_a_bird','','2026-07-07','live',NULL)")
+        c.execute("INSERT INTO pi_reviews (file, verdict, correct_species, reviewed_at, "
+                  "source_mode, model_source) "
+                  "VALUES ('b.jpg','not_a_bird','','2026-07-07','live',NULL)")
 
 
 def test_verdict_writes_history_and_cache(pr):

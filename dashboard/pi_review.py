@@ -23,12 +23,20 @@ bulk writes that bypass history.
 """
 from __future__ import annotations
 
+import difflib
+import functools
 import sqlite3
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Header, HTTPException
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from bird_inference import SPECIES_ALIASES, normalize_species, parse_label  # noqa: E402
 
 # Pi paths. classifications.db is the existing pipeline-side DB; we
 # read model_source from it but never write.
@@ -44,8 +52,56 @@ BIRDNET_DB_PATH = (
 )
 
 VALID_VERDICTS = ("yes", "no", "not_a_bird", "trash", "skip")
+DEFAULT_REVIEWER = "dashboard"
+
+# Canonical common-name list a ✗ correct_species must come from: every
+# AIY label's common name ∪ the regional feeder list. Free text is only
+# stored (as unknown_text) when the client says allow_unknown=1.
+AIY_LABELS_PATH = _REPO_ROOT / "models" / "inat_bird_labels.txt"
+REGIONAL_SPECIES_PATH = _REPO_ROOT / "models" / "chilmark_feeder_species.txt"
 
 _lock = threading.Lock()
+
+
+def _read_names(path: Path, split_label: bool) -> set[str]:
+    if not path.exists():
+        return set()
+    names = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line == "background":
+            continue
+        common = parse_label(line)[1] if split_label else line
+        common = normalize_species(common.strip())
+        if common:
+            names.add(common)
+    return names
+
+
+@functools.lru_cache(maxsize=1)
+def canonical_species() -> frozenset[str]:
+    return frozenset(_read_names(AIY_LABELS_PATH, split_label=True)
+                     | _read_names(REGIONAL_SPECIES_PATH, split_label=False))
+
+
+@functools.lru_cache(maxsize=1)
+def _canonical_index() -> dict[str, str]:
+    idx = {n.lower(): n for n in canonical_species()}
+    for alias, target in SPECIES_ALIASES.items():
+        idx.setdefault(alias.lower(), target)
+    return idx
+
+
+def canonicalize_species(text: str | None) -> str | None:
+    """Canonical spelling for a reviewer-typed name, or None if off-list."""
+    key = " ".join((text or "").split()).lower()
+    return _canonical_index().get(key) if key else None
+
+
+def _suggest_species(text: str, n: int = 3) -> list[str]:
+    idx = _canonical_index()
+    keys = difflib.get_close_matches(" ".join(text.split()).lower(), list(idx), n=n, cutoff=0.7)
+    return [idx[k] for k in keys]
 
 
 def _conn():
@@ -96,6 +152,22 @@ _REVIEWS_SCHEMA_V2 = """
         model_source    TEXT
     );
 """
+
+# v3 columns (2026-09-18, post-mortem must-fix 2), added to BOTH tables via
+# guarded ALTER TABLE so a v2 DB migrates in place. Historical rows keep
+# NULL reviewer — they were never attributed.
+_V3_COLUMNS = (
+    ("reviewer", "TEXT"),
+    ("bbox_confirmed", "INTEGER"),
+    ("unknown_text", "TEXT"),
+)
+
+
+def _ensure_columns(c, table: str) -> None:
+    have = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+    for name, typ in _V3_COLUMNS:
+        if name not in have:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
 
 
 def init_db() -> None:
@@ -181,32 +253,62 @@ def init_db() -> None:
                 WHERE client_id IS NOT NULL;
             """
         )
+        _ensure_columns(c, "pi_reviews")
+        _ensure_columns(c, "pi_review_history")
         c.commit()
 
 
 router = APIRouter(prefix="/api/pi-review", tags=["pi-review"])
 
 
-def _upsert_cache(c, filename, verdict, correct_species, source_mode, model_source):
+def _upsert_cache(c, filename, verdict, correct_species, source_mode, model_source,
+                  reviewer=None, bbox_confirmed=None, unknown_text=None):
     c.execute(
         "INSERT INTO pi_reviews (file, verdict, correct_species, reviewed_at, "
-        "                        source_mode, model_source) "
-        "VALUES (?, ?, ?, ?, ?, ?) "
+        "                        source_mode, model_source, reviewer, bbox_confirmed, "
+        "                        unknown_text) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(file) DO UPDATE SET "
         "    verdict = excluded.verdict, "
         "    correct_species = excluded.correct_species, "
         "    reviewed_at = excluded.reviewed_at, "
         "    source_mode = excluded.source_mode, "
-        "    model_source = excluded.model_source",
-        (filename, verdict, correct_species, _now_iso(), source_mode, model_source),
+        "    model_source = excluded.model_source, "
+        "    reviewer = excluded.reviewer, "
+        "    bbox_confirmed = excluded.bbox_confirmed, "
+        "    unknown_text = excluded.unknown_text",
+        (filename, verdict, correct_species, _now_iso(), source_mode, model_source,
+         reviewer, bbox_confirmed, unknown_text),
     )
 
 
+def _reviewer_from(header_value) -> str:
+    # Called directly (tests) the parameter is FastAPI's Header marker, not a str.
+    if isinstance(header_value, str) and header_value.strip():
+        return header_value.strip()[:64]
+    return DEFAULT_REVIEWER
+
+
+def _parse_bbox_confirmed(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if value in (0, 1, "0", "1"):
+        return int(value)
+    raise HTTPException(status_code=400, detail="bbox_confirmed must be 0 or 1")
+
+
+def _truthy(value) -> bool:
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
 @router.post("/undo/{history_id}")
-def undo_review(history_id: int):
+def undo_review(history_id: int, x_reviewer: str | None = Header(default=None)):
     """Undo by APPEND: write an 'undone' history row and restore the file's
     prior state (previous non-undone verdict, or unreviewed). Provenance is
     never deleted."""
+    reviewer = _reviewer_from(x_reviewer)
     with _lock, _conn() as c:
         row = c.execute(
             "SELECT * FROM pi_review_history WHERE id = ?", (history_id,)
@@ -243,15 +345,16 @@ def undo_review(history_id: int):
         c.execute(
             "INSERT INTO pi_review_history "
             "(file, verdict, correct_species, source_mode, model_source, "
-            " client_id, prev_row_id, created_at) "
-            "VALUES (?, 'undone', '', ?, ?, NULL, ?, ?)",
+            " client_id, prev_row_id, created_at, reviewer) "
+            "VALUES (?, 'undone', '', ?, ?, NULL, ?, ?, ?)",
             (row["file"], row["source_mode"], row["model_source"],
-             history_id, _now_iso()),
+             history_id, _now_iso(), reviewer),
         )
         if prior is not None and prior["verdict"] != "cleared":
             _upsert_cache(c, row["file"], prior["verdict"],
                           prior["correct_species"], prior["source_mode"],
-                          prior["model_source"])
+                          prior["model_source"], prior["reviewer"],
+                          prior["bbox_confirmed"], prior["unknown_text"])
             restored = prior["verdict"]
         else:
             c.execute("DELETE FROM pi_reviews WHERE file = ?", (row["file"],))
@@ -341,10 +444,16 @@ def _enrich_also_heard(items: list) -> None:
 
 
 @router.post("/{filename}")
-def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
-    """Record a verdict. Body: {verdict, correct_species?, client_id?}.
-    verdict ∈ yes|no|not_a_bird|trash|skip. correct_species only meaningful
-    with 'no'. client_id makes the write idempotent (safe retries)."""
+def post_verdict(filename: str, body: dict = Body(...), mode: str = "live",
+                 allow_unknown: str = "0",
+                 x_reviewer: str | None = Header(default=None)):
+    """Record a verdict. Body: {verdict, correct_species?, client_id?,
+    bbox_confirmed?, allow_unknown?}. verdict ∈ yes|no|not_a_bird|trash|skip.
+    correct_species only meaningful with 'no' and must be a canonical common
+    name (400 otherwise) unless allow_unknown=1, which stores the raw text in
+    unknown_text instead. bbox_confirmed 0/1 says whether the box was on the
+    right bird. Reviewer comes from X-Reviewer (default 'dashboard').
+    client_id makes the write idempotent (safe retries)."""
     source_mode = _normalize_mode(mode)
     verdict = body.get("verdict")
     if verdict not in VALID_VERDICTS:
@@ -352,7 +461,27 @@ def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
             status_code=400,
             detail=f"verdict must be one of {', '.join(VALID_VERDICTS)}",
         )
-    correct_species = (body.get("correct_species") or "").strip()
+    raw_species = body.get("correct_species")
+    if raw_species is not None and not isinstance(raw_species, str):
+        raise HTTPException(status_code=400, detail="correct_species must be a string")
+    typed = " ".join((raw_species or "").split())
+    correct_species = ""
+    unknown_text = None
+    if verdict == "no" and typed:
+        correct_species = canonicalize_species(typed) or ""
+        if not correct_species:
+            if _truthy(allow_unknown) or _truthy(body.get("allow_unknown")):
+                unknown_text = typed
+            else:
+                hint = _suggest_species(typed)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown species {typed!r}"
+                           + (f" — did you mean {', '.join(hint)}?" if hint else "")
+                           + "; pass allow_unknown=1 to store it as free text",
+                )
+    bbox_confirmed = _parse_bbox_confirmed(body.get("bbox_confirmed"))
+    reviewer = _reviewer_from(x_reviewer)
     client_id = body.get("client_id") or None
     model_source = _lookup_model_source(filename, source_mode)
     with _lock, _conn() as c:
@@ -372,12 +501,14 @@ def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
         cur = c.execute(
             "INSERT INTO pi_review_history "
             "(file, verdict, correct_species, source_mode, model_source, "
-            " client_id, prev_row_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " client_id, prev_row_id, created_at, reviewer, bbox_confirmed, unknown_text) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (filename, verdict, correct_species, source_mode, model_source,
-             client_id, prev["id"] if prev else None, _now_iso()),
+             client_id, prev["id"] if prev else None, _now_iso(),
+             reviewer, bbox_confirmed, unknown_text),
         )
-        _upsert_cache(c, filename, verdict, correct_species, source_mode, model_source)
+        _upsert_cache(c, filename, verdict, correct_species, source_mode, model_source,
+                      reviewer, bbox_confirmed, unknown_text)
         c.commit()
         history_id = cur.lastrowid
     return {
@@ -385,6 +516,9 @@ def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
         "file": filename,
         "verdict": verdict,
         "correct_species": correct_species,
+        "unknown_text": unknown_text,
+        "reviewer": reviewer,
+        "bbox_confirmed": bbox_confirmed,
         "history_id": history_id,
         "duplicate": False,
         "source_mode": source_mode,
@@ -393,11 +527,13 @@ def post_verdict(filename: str, body: dict = Body(...), mode: str = "live"):
 
 
 @router.delete("/{filename}")
-def clear_verdict(filename: str, mode: str = "live"):
+def clear_verdict(filename: str, mode: str = "live",
+                  x_reviewer: str | None = Header(default=None)):
     """Toggle a verdict off. Appends a 'cleared' history row (the audit
     trail stays append-only — provenance survives) and drops the cache row
     so the file reads as unreviewed again."""
     source_mode = _normalize_mode(mode)
+    reviewer = _reviewer_from(x_reviewer)
     with _lock, _conn() as c:
         cur = c.execute(
             "DELETE FROM pi_reviews WHERE file = ? AND source_mode = ?",
@@ -412,9 +548,9 @@ def clear_verdict(filename: str, mode: str = "live"):
             c.execute(
                 "INSERT INTO pi_review_history "
                 "(file, verdict, correct_species, source_mode, model_source, "
-                " client_id, prev_row_id, created_at) "
-                "VALUES (?, 'cleared', '', ?, NULL, NULL, ?, ?)",
-                (filename, source_mode, prev["id"] if prev else None, _now_iso()),
+                " client_id, prev_row_id, created_at, reviewer) "
+                "VALUES (?, 'cleared', '', ?, NULL, NULL, ?, ?, ?)",
+                (filename, source_mode, prev["id"] if prev else None, _now_iso(), reviewer),
             )
         c.commit()
     return {"ok": True, "file": filename, "source_mode": source_mode, "deleted": deleted}

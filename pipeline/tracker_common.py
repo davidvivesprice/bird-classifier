@@ -72,6 +72,18 @@ class Track:
     last_classify_fc: int = -1_000_000
     no_vote_streak: int = 0
     lock_disagreements: int = 0
+    # Display-path label contract (2026-09-18, SSE schema 2). tentative: a lock
+    # demoted as unverifiable but the species deliberately kept — rendered like
+    # locked. label_epoch: +1 on every transition of the DISPLAYED state (lock,
+    # unlock, relabel while locked/tentative), never on candidate churn — the
+    # client rewrites its buffered frames when it changes. lock_pts: pts of the
+    # frame that established the current lock (kept through tentative).
+    # seg_pts: pts where the current contiguous visible segment began (spawn,
+    # revival, merge-adopted young) — the split rekey boundary.
+    tentative: bool = False
+    label_epoch: int = 0
+    lock_pts: Optional[float] = None
+    seg_pts: Optional[float] = None
 
     @property
     def is_stationary(self) -> bool:
