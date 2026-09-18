@@ -1,3 +1,5 @@
+> **HISTORICAL** — Act I overlay design (2026-05-10, three audit passes); failed under load, superseded 2026-05-11 and by the video-clock engine 2026-07-02 (`../../working/specs/2026-07-02-overlay-video-clock-sync-design.md`). The HLS segmenter it specified survives as the snapshot-by-PTS path. Moved 2026-09-18.
+
 # Pi browser-side overlay sync — bedrock design
 
 **Date**: 2026-05-10

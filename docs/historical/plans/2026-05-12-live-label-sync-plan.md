@@ -1,3 +1,5 @@
+> **HISTORICAL** — Codex live-label sync plan (2026-05-12); superseded by the video-clock overlay engine (2026-07-02). Last file in the legacy `docs/superpowers/` path; moved 2026-09-18.
+
 # Live Label Sync Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -18,7 +20,7 @@
 - `pipeline/sse_events.py`: event payload schema if server-side sync metadata is added.
 - `pipeline/process_thread.py`: event payload source if track velocity or event sequence fields are added.
 - `tools/sync_replay_assert.py`: replay/frame-accuracy harness for demo/annotation checks.
-- `docs/working/progress/2026-05-12-codex-live-log.md`: running audit trail.
+- `docs/historical/progress/2026-05-12-codex-live-log.md`: running audit trail.
 
 ---
 
@@ -27,7 +29,7 @@
 **Files:**
 - Modify: `dashboard/pi_dash.html`
 - Create: `tests/test_dashboard_sync_diagnostics.py`
-- Modify: `docs/working/progress/2026-05-12-codex-live-log.md`
+- Modify: `docs/historical/progress/2026-05-12-codex-live-log.md`
 
 - [x] **Step 1: Write the failing test**
 
@@ -117,7 +119,7 @@ Expected: video remains visible, labels still render, diagnostic chip now includ
 - [x] **Step 6: Commit**
 
 ```bash
-git add dashboard/pi_dash.html tests/test_dashboard_sync_diagnostics.py docs/working/progress/2026-05-12-codex-live-log.md
+git add dashboard/pi_dash.html tests/test_dashboard_sync_diagnostics.py docs/historical/progress/2026-05-12-codex-live-log.md
 git commit -m "feat(dashboard): expose live label sync telemetry"
 git push origin pi-main
 ```
@@ -211,7 +213,7 @@ Expose labels, boxes, sync diagnostics, and sync-render mode as URL/localStorage
 ### Task 6: Production Acceptance
 
 **Files:**
-- Modify: `docs/working/progress/2026-05-12-codex-live-log.md`
+- Modify: `docs/historical/progress/2026-05-12-codex-live-log.md`
 
 - [ ] **Step 1: LAN browser check**
 

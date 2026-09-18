@@ -319,3 +319,14 @@ def test_alerts_endpoint_without_log_is_empty(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     monkeypatch.setattr(api, "_ALERT_LOG", tmp_path / "missing.log")
     assert TestClient(api.app).get("/api/alerts").json() == {"count": 0, "count_24h": 0, "items": []}
+
+
+def test_go2rtc_hls_proxy_route_is_gone():
+    """/api/hls/{path} proxied a raw path into go2rtc's admin API (SSRF via
+    '../api/config' over the public tunnel, 2026-09-18). It must not come back."""
+    import dashboard.api as api
+    from fastapi.testclient import TestClient
+    c = TestClient(api.app)
+    for path in ("/api/hls/feeder/index.m3u8", "/api/hls/../api/config", "/api/hls/x/../..%2Fapi%2Fconfig"):
+        assert c.get(path).status_code == 404, path
+    assert not any(getattr(r, "path", "").startswith("/api/hls/") for r in api.app.routes)

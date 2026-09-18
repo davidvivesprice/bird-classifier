@@ -1,6 +1,6 @@
 """HLS segmenter: PyAV passthrough mux + manifest/sidecar writer.
 
-See spec at docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+See spec at docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
 """
 from __future__ import annotations
 import json

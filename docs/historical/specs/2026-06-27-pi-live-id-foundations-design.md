@@ -1,3 +1,5 @@
+> **HISTORICAL** — F0–F3 foundations design; shipped 2026-06-29 (MOG2 bypass, calibrated lock, classifier floor 0.16, SEGV capture). Its Norfair/hit_counter follow-ups are moot since tracker v4 (2026-09-17). Moved 2026-09-18.
+
 # Pi Live-Identification — Foundations Sub-Project (Design)
 
 **Date:** 2026-06-27

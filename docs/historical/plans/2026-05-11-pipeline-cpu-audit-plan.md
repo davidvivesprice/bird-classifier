@@ -1,3 +1,5 @@
+> **HISTORICAL** — 2026-05-11 CPU audit plan from the 213 % CPU era; the root cause (per-frame MOG2 that the Hailo path ignored) was fixed by F1 on 2026-06-28 (CPU 160→20 %). Moved 2026-09-18.
+
 # Pipeline CPU Audit & Bedrock Validation Plan
 
 **Date:** 2026-05-11
@@ -205,9 +207,9 @@ Each agent gets a focused scope. They run independently. Findings synthesize at 
 **Question:** Are my proposed options (1/2/3) correctly framed? Are my brainstormed directions (D1-D4) defensible? Am I missing a better path? Are my claims about Option 1's cost (~150 lines) and benefit (halves decode) accurate?
 
 **Scope:**
-- The handoff doc: `docs/working/progress/2026-05-10-overlay-sync-handoff.md`
-- The spec: `docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md`
-- The plan: `docs/working/plans/2026-05-10-pi-overlay-sync-bedrock.md`
+- The handoff doc: `docs/historical/progress/2026-05-10-overlay-sync-handoff.md`
+- The spec: `docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md`
+- The plan: `docs/historical/plans/2026-05-10-pi-overlay-sync-bedrock.md`
 - This document itself, especially **claims C1-C14** including the brainstorm
 - go2rtc documentation — does it support HLS output with the same PTS we need? At what cost?
 - The actual code that would change for Option 1: `pipeline/frame_capture.py` + `pipeline/hls_segmenter.py` + `bird_pipeline_v3.py`
@@ -292,9 +294,9 @@ Whatever direction we pick, **the new design must have a Q2 gate** (load test fo
 - `vives@pi5.local:~/.config/systemd/user/bird-pipeline.service` — service env
 
 **Specs / handoffs to challenge:**
-- `/Users/vives/bird-classifier-pi/docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md`
-- `/Users/vives/bird-classifier-pi/docs/working/plans/2026-05-10-pi-overlay-sync-bedrock.md`
-- `/Users/vives/bird-classifier-pi/docs/working/progress/2026-05-10-overlay-sync-handoff.md`
+- `/Users/vives/bird-classifier-pi/docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md`
+- `/Users/vives/bird-classifier-pi/docs/historical/plans/2026-05-10-pi-overlay-sync-bedrock.md`
+- `/Users/vives/bird-classifier-pi/docs/historical/progress/2026-05-10-overlay-sync-handoff.md`
 - This file
 
 ---

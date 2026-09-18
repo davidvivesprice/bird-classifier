@@ -1,3 +1,5 @@
+> **HISTORICAL** — Act I HLS+canvas overlay plan (2026-05-10); superseded 2026-05-11 (WebRTC+DOM restoration) and again 2026-07-02 (video-clock engine, ch10 Act III). Moved 2026-09-18.
+
 # Pi Overlay Sync Bedrock Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** Python 3.13 + PyAV 17 on the Pi (segmenter); FastAPI (already exists, no new routes); vanilla HTML/CSS/JS + hls.js ≥1.5.7 (browser); Playwright + Python pytest (harness).
 
-**Spec:** `/Users/vives/bird-classifier-pi/docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md` (commit `b49bd27`)
+**Spec:** `/Users/vives/bird-classifier-pi/docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md` (commit `b49bd27`)
 
 **Prototypes already verified:**
 - `tools/prototype_hls_passthrough.py` (commit `ac77abc`) — PTS preservation, 30 packets, 0.000 ms drift
@@ -411,7 +413,7 @@ Expected: ImportError.
 # pipeline/hls_segmenter.py (initial — pure helpers only)
 """HLS segmenter: PyAV passthrough mux + manifest/sidecar writer.
 
-See spec at docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+See spec at docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
 """
 from __future__ import annotations
 import json
@@ -1308,7 +1310,7 @@ In `main()`, after the existing pipeline setup, add the segmenter startup. Find 
             # HLS segmenter — single-stream PTS-aware segmenter writing to
             # ~/bird-snapshots/hls/feeder/, served by existing
             # /api/hls-live/{camera}/{path:path} route. Spec:
-            # docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+            # docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
             from pipeline.hls_segmenter import HlsSegmenter
             seg_dir = HLS_DIR / name
             hls_segmenter = HlsSegmenter(
@@ -1432,7 +1434,7 @@ Find the `<script type="module">` block that imports VideoRTC (added in earlier 
 ```html
 <!-- Removed in May 2026: <video-stream> custom element. Pi dashboard now
      uses vanilla <video> with hls.js (or iOS native HLS). See
-     docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+     docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
      for the rationale (single transport, single PTS clock, PWA-friendly). -->
 ```
 
@@ -2655,7 +2657,7 @@ If it fails, inspect: which visit didn't match? Was it (a) a real pipeline miss 
 
 - [ ] **Step 2: Commit a runbook entry**
 
-Create `docs/working/progress/2026-05-10-bedrock-overlay-sync-runbook.md`:
+Create `docs/historical/progress/2026-05-10-bedrock-overlay-sync-runbook.md`:
 
 ```markdown
 # Replay harness runbook
@@ -2677,7 +2679,7 @@ Same as above, but step 4 hits `https://pi5.vivessato.com` with CF Access header
 ```
 
 ```bash
-git add docs/working/progress/2026-05-10-bedrock-overlay-sync-runbook.md
+git add docs/historical/progress/2026-05-10-bedrock-overlay-sync-runbook.md
 git commit -m "docs: replay harness runbook"
 ```
 
@@ -2777,7 +2779,7 @@ git commit -m "feat: overlay-sync sentinel — manifest staleness + disk-low ale
 ## Phase E — Manual acceptance (Tasks E1–E4)
 
 These are not code tasks; they are verification steps. Each becomes a checklist
-item in the runbook (`docs/working/progress/2026-05-10-bedrock-overlay-sync-runbook.md`).
+item in the runbook (`docs/historical/progress/2026-05-10-bedrock-overlay-sync-runbook.md`).
 
 ### Task E1: Layer 2a (LAN) on three browsers
 

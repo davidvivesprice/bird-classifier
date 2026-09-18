@@ -1,5 +1,7 @@
 > **HISTORICAL** — This document describes a design, plan, or system state that has been superseded. Kept for decision-trail context.
 
+> **CORRECTION (2026-09-17 flagship post-mortem):** §5's claim that "the DB labels are AIY's 965-species call, not yard's 12-species best guess" was inverted the same afternoon by RC3 step 1 (commit `00dd8bc`, live from 2026-04-25 14:06 ET): `common_name` — and the folder an image is filed under — is the **lock-time vote, i.e. the 12-class yard model on the feeder path**, and AIY's write-time opinion is kept only as `extra_json.authoritative`. Yard has driven the durable record since (AIY disagrees on 64–94 % of rows, May–Sep 2026). See `../../working/specs/2026-09-17-flagship-postmortem.md` RC1 / row 3c. The `~/docs/bird-observatory/working/historical/specs/` twin of this file carries the same note.
+
 # iMac live-classify subsystem — as it actually is, 2026-04-25
 
 **Audience:** future-me, future-Claude, anyone touching the live overlay or snapshot path.

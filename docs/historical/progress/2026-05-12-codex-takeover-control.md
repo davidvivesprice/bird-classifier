@@ -1,3 +1,5 @@
+> **HISTORICAL** — Codex control note (2026-05-12); the still-true branch/pi-main rules live in `CLAUDE.md`. Moved 2026-09-18.
+
 # Codex takeover control note
 
 **Date:** 2026-05-12

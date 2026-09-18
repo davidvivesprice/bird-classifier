@@ -209,7 +209,7 @@ While Phase 1 shadow runs (7+ days), Tier 2 training proceeds in parallel:
 
 ## Cross-System Communication During Handoff
 
-Coordination points recorded in `docs/working/progress/cross-claude-comms.md`:
+Coordination points recorded in `docs/historical/progress/cross-claude-comms.md`:
 
 1. **Phase 0 → Phase 1:** Tick off manual handoff steps above; note in comms
 2. **Phase 1 progress:** Daily validation report summary

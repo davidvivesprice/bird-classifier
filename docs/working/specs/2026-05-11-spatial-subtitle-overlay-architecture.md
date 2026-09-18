@@ -4,9 +4,9 @@
 **Author**: Codex audit pass
 **Status**: Delivery-ready design memo for review
 **Companion docs**:
-- `docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md`
-- `docs/working/plans/2026-05-11-pipeline-cpu-audit-plan.md`
-- `docs/working/progress/2026-05-10-overlay-sync-handoff.md`
+- `../historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md` (moved 2026-09-18)
+- `../historical/plans/2026-05-11-pipeline-cpu-audit-plan.md` (moved 2026-09-18)
+- `../historical/progress/2026-05-10-overlay-sync-handoff.md` (moved 2026-09-18)
 
 ## Executive decision
 

@@ -1,3 +1,5 @@
+> **HISTORICAL** — 2026-05-11 overnight plan; executed — result in `../progress/2026-05-11-overnight-result.md`. Moved 2026-09-18.
+
 # Overnight Execution Plan — Pi Bird Observatory Bedrock Restoration + Optimization
 
 **Date:** 2026-05-11 (night)
@@ -145,7 +147,7 @@ Stretch goals if time remains before sunrise:
 
 ### Phase 5: Sunrise handoff (15 min)
 
-- [ ] Write `docs/working/progress/2026-05-11-overnight-result.md` summarizing what was done, what works, what's pending
+- [ ] Write `docs/historical/progress/2026-05-11-overnight-result.md` summarizing what was done, what works, what's pending
 - [ ] Update todos
 - [ ] Take final dashboard screenshot
 - [ ] Leave one-paragraph TL;DR at top for David's first read

@@ -4617,28 +4617,8 @@ def enhanced_audio_health():
         return {"status": "error", "detail": str(e)}
 
 
-@app.get("/api/hls/{path:path}")
-async def proxy_hls(path: str):
-    """Proxy HLS segments from local go2rtc (port 1984) for fallback video streaming.
-
-    Previously served via nginx on the NAS at /hls/.
-    Now proxied through FastAPI for Cloudflare tunnel access.
-    """
-    import httpx
-    from starlette.responses import StreamingResponse
-
-    go2rtc_url = f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/hls/{path}"
-
-    async def stream():
-        async with httpx.AsyncClient() as client:
-            async with client.stream("GET", go2rtc_url) as resp:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    yield chunk
-
-    # Determine content type from extension
-    ct = "application/vnd.apple.mpegurl" if path.endswith(".m3u8") else "video/mp2t"
-    return StreamingResponse(stream(), media_type=ct,
-                             headers={"Cache-Control": "no-cache"})
+# /api/hls/{path} (a raw-path proxy into go2rtc, unused by any page) was removed
+# 2026-09-18: it let "../api/config" read the admin API through the public tunnel.
 
 
 @app.websocket("/api/ws")
@@ -5670,6 +5650,86 @@ def pipeline_events_proxy(camera: str, start: int, end: int):
         # A real failure must be a real failure — the old handler returned
         # HTTP 200 with {"error": ...}, invisible to clients and monitoring.
         raise HTTPException(status_code=500, detail=f"event store query failed: {e}")
+
+
+# ── UniFi Protect motion oracle (pipeline/unifi_events.py) ─────────────────
+# Protect fires a motion event on any movement, so its events for the feeder
+# camera bound our recall: an event with no track of ours is a candidate miss.
+# bird-unifi-events.service records them into pipeline.db `unifi_events` and
+# writes this health file; without either, the endpoint reports unavailable.
+_UNIFI_HEALTH_PATH = Path("/tmp/unifi-events-health.json")
+_UNIFI_ORACLE_STALE_MS = 180_000
+
+
+def _unifi_compare_conn():
+    db_path = Path.home() / "bird-snapshots" / "logs" / "pipeline.db"
+    if not db_path.exists():
+        return None
+    return _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+
+
+def _unifi_oracle_health():
+    try:
+        return json.loads(_UNIFI_HEALTH_PATH.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _unifi_oracle_summary(health, now_ms):
+    if not isinstance(health, dict):
+        return {"status": "unknown", "stale": True, "started_ms": None,
+                "updated_ms": None, "reconnects": None, "last_event_ms": None,
+                "events_stored": None}
+    updated = health.get("updated_ms") or 0
+    return {
+        "status": health.get("status", "unknown"),
+        "stale": (now_ms - updated) > _UNIFI_ORACLE_STALE_MS,
+        "started_ms": health.get("started_ms"),
+        "updated_ms": updated,
+        "reconnects": health.get("reconnects"),
+        "last_event_ms": health.get("last_event_ms"),
+        "events_stored": health.get("events_stored"),
+    }
+
+
+@app.get("/api/unifi-compare")
+def unifi_compare(hours: int = Query(24, ge=1, le=24 * 30), camera: str = "feeder",
+                  tolerance_ms: int = Query(3000, ge=0, le=60_000)):
+    """Protect motion events vs our tracks: coverage, candidate misses,
+    phantom tracks, and lead/lag (negative = we saw the bird first).
+
+    The window is clipped to the start of the oracle's coverage so tracks from
+    before it was recording are not counted as phantoms. Coverage starts at
+    the earliest stored event or at the current run's start, whichever is
+    earlier — events recorded before a service restart are still oracle data,
+    so a restart must not collapse the 24 h window to "since HH:MM". Sync
+    `def`: runs in the threadpool with its own read-only connection, never on
+    the event loop."""
+    from pipeline.unifi_events import compare_with_tracks, earliest_event_ms
+
+    conn = _unifi_compare_conn()
+    if conn is None:
+        return {"available": False, "reason": "pipeline.db not found"}
+    now_ms = int(_time.time() * 1000)
+    since_ms = now_ms - hours * 3_600_000
+    health = _unifi_oracle_health()
+    clipped = False
+    started = health.get("started_ms") if isinstance(health, dict) else None
+    try:
+        bounds = [b for b in (earliest_event_ms(conn, camera), started) if isinstance(b, int)]
+        if bounds and min(bounds) > since_ms:
+            since_ms, clipped = min(bounds), True
+        result = compare_with_tracks(conn, camera=camera, since_ms=since_ms,
+                                     until_ms=now_ms, tolerance_ms=tolerance_ms)
+    except _sqlite3.OperationalError as e:
+        return {"available": False, "reason": f"oracle query failed: {e}"}
+    finally:
+        conn.close()
+    result["available"] = True
+    result["window"] = {"hours": hours, "since_ms": since_ms, "until_ms": now_ms,
+                        "clipped_to_oracle": clipped}
+    result["oracle"] = _unifi_oracle_summary(health, now_ms)
+    return result
 
 
 # ── Overlay-sync sentinel (Task D1) ────────────────────────────────────────

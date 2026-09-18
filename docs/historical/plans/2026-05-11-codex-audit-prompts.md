@@ -1,3 +1,5 @@
+> **HISTORICAL** — paste-ready Codex prompts for the 2026-05-11 CPU audit; the audit ran and the 213 % CPU era ended with F1 (2026-06-28). Moved 2026-09-18.
+
 # Codex Audit Prompts (paste-ready)
 
 **For:** Codex running on David's MacBook Pro
@@ -147,9 +149,9 @@ You are reviewing an architectural decision document for a live-video + label-ov
 Repo root: ${REPO}
 
 Read these files in order:
-  1. ${REPO}/docs/working/progress/2026-05-10-overlay-sync-handoff.md — full session context
-  2. ${REPO}/docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md — the original spec (3 audit passes; ALSO failed under load)
-  3. ${REPO}/docs/working/plans/2026-05-11-pipeline-cpu-audit-plan.md — the document under review. Pay particular attention to claims C1-C14 and directions D1-D4.
+  1. ${REPO}/docs/historical/progress/2026-05-10-overlay-sync-handoff.md — full session context
+  2. ${REPO}/docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md — the original spec (3 audit passes; ALSO failed under load)
+  3. ${REPO}/docs/historical/plans/2026-05-11-pipeline-cpu-audit-plan.md — the document under review. Pay particular attention to claims C1-C14 and directions D1-D4.
   4. ${REPO}/dashboard/pi_dash.html — the current setupLiveView() (HLS+canvas, currently failing under load)
   5. ${REPO}/pipeline/hls_segmenter.py — the segmenter falling behind
   6. ${REPO}/bird_pipeline_v3.py — pipeline orchestration

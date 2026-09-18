@@ -8,9 +8,7 @@ What lives **inside this repo** under `docs/`:
   - `specs/2026-04-25-hailo-playbook.md` — deep Hailo-8L API/scheduler/DFC reference (the canonical pairing for chapter 04)
   - `specs/2026-07-02-overlay-video-clock-sync-design.md` — live-overlay video-clock sync design (pairs with chapter 10)
   - `progress/2026-07-03-native-crash-isolation.md` — the two-crasher SEGV story + decode/detect child-process cage
-  - `progress/2026-04-25-pi5-handoff.md` — the Pi bring-up handoff (newer progress notes sit alongside it)
   - `historical/2026-04-25-pi-repo-split.md` — why the iMac and Pi repos split (moved out of progress/)
-  - `progress/cross-claude-comms.md` — cross-Claude message bus (historical; one coder owns both sides now)
-- `historical/` — superseded plans, specs, progress logs, and reviews from before the 2026-04-25 iMac/Pi repo split. Each file carries a `> **HISTORICAL**` banner. Not part of the book; kept for decision-trail context.
+- `historical/` — superseded plans, specs, progress logs, and reviews: the pre-2026-04-25 iMac/Pi archive (the ONE home for it since 2026-09-18; the iMac repo keeps only a pointer) plus the Pi-side working docs retired on 2026-09-18 — `progress/2026-04-25-pi5-handoff.md`, the May–June overlay / CPU-audit / Codex logs, the frozen `progress/cross-claude-comms.md` message bus, `progress/tier2-readiness-checkpoint.md`. Each file carries a `> **HISTORICAL**` banner. Not part of the book; kept for decision-trail context.
 
 The audit summary is at the repo root: [`../DOC_AUDIT.md`](../DOC_AUDIT.md).

@@ -1,8 +1,10 @@
+> **HISTORICAL** — Codex takeover running log, 2026-05-12 → 05-21. Live ideas were extracted to `../../working/2026-06-15-idea-extraction-record.md`. Moved 2026-09-18.
+
 # 2026-05-12 Codex Live Log
 
 Purpose: running, backfilled log for the Pi 5 bird observatory takeover. This is the audit trail for what changed, why it changed, what was verified, and what is next.
 
-May 15 summary log: `docs/working/progress/2026-05-15-codex-work-log.md`.
+May 15 summary log: `docs/historical/progress/2026-05-15-codex-work-log.md`.
 
 ## Backfill
 
@@ -15,7 +17,7 @@ May 15 summary log: `docs/working/progress/2026-05-15-codex-work-log.md`.
   - `/Users/vives/docs/bird-observatory-pi/03-pipeline.md`
   - `/Users/vives/docs/bird-observatory-pi/10-overlay-sync.md`
 - Captured the operating goal: labels must appear, be toggleable, stay on the bird, and remain synchronized with the displayed video. Bounding boxes are debugging scaffolding, not the intended final UI.
-- Wrote `/Users/vives/bird-classifier-pi/docs/working/progress/2026-05-12-codex-takeover-control.md` and committed it as `4a3e1f7 docs: codex takeover control note`.
+- Wrote `/Users/vives/bird-classifier-pi/docs/historical/progress/2026-05-12-codex-takeover-control.md` and committed it as `4a3e1f7 docs: codex takeover control note`.
 
 ### Label Events Over Cloudflare
 
@@ -171,7 +173,7 @@ High-res acceptance surface:
 
 ## Plan: Live Label Sync After Snapshot Fix
 
-- Saved detailed plan at `/Users/vives/bird-classifier-pi/docs/superpowers/plans/2026-05-12-live-label-sync-plan.md`.
+- Saved detailed plan at `/Users/vives/bird-classifier-pi/docs/historical/plans/2026-05-12-live-label-sync-plan.md`.
 - Remaining path:
   1. Add video/event sync telemetry.
   2. Add an event buffer and browser-side clock bridge behind a flag.

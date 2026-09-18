@@ -1,6 +1,8 @@
+> **HISTORICAL** — Codex work log, 2026-05-15 → 05-21. Moved 2026-09-18.
+
 # 2026-05-15 Codex Work Log
 
-Purpose: concise operational log for the Pi 5 bird observatory work I took over on May 15. This complements the longer running log at `docs/working/progress/2026-05-12-codex-live-log.md`.
+Purpose: concise operational log for the Pi 5 bird observatory work I took over on May 15. This complements the longer running log at `docs/historical/progress/2026-05-12-codex-live-log.md`.
 
 ## Current State
 

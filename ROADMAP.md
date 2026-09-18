@@ -282,7 +282,7 @@ Read this before touching anything; it encodes hard-won constraints.
   the delayed-display "labels as spatial subtitles over a media clock"
   architecture (the broadcast-style approach). The most complete answer to
   Chapter 1's timing fork.
-- `docs/working/progress/2026-05-11-overnight-result.md` — the WebRTC+DOM
+- `docs/historical/progress/2026-05-11-overnight-result.md` — the WebRTC+DOM
   restoration + what's deferred.
 - `~/docs/bird-observatory-pi/10-overlay-sync.md` — the full overlay history
   with the LIVE/DEFERRED/PAUSED/DEAD avenues table (so you don't re-chase

@@ -18,9 +18,9 @@ What lives **inside this repo** under `docs/`:
 - [`docs/working/specs/2026-04-25-hailo-playbook.md`](docs/working/specs/2026-04-25-hailo-playbook.md) — deep Hailo-8L API + scheduler + DFC compilation reference (the canonical pairing with chapter `04-hailo-engine.md`)
 - [`docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md`](docs/working/specs/2026-07-02-overlay-video-clock-sync-design.md) — the live-overlay video-clock sync design (timing audit + certified numbers)
 - [`docs/working/progress/2026-07-03-native-crash-isolation.md`](docs/working/progress/2026-07-03-native-crash-isolation.md) — the two-crasher SEGV story + the decode/detect child-process cage
-- [`docs/working/progress/2026-04-25-pi5-handoff.md`](docs/working/progress/2026-04-25-pi5-handoff.md) — the Pi bring-up handoff (newer progress notes sit alongside it in `progress/`)
+- [`docs/historical/progress/2026-04-25-pi5-handoff.md`](docs/historical/progress/2026-04-25-pi5-handoff.md) — the Pi bring-up handoff (moved to `historical/` 2026-09-18 together with the May–June progress notes)
 - [`docs/historical/2026-04-25-pi-repo-split.md`](docs/historical/2026-04-25-pi-repo-split.md) — why the iMac and Pi repos split
-- [`docs/working/progress/cross-claude-comms.md`](docs/working/progress/cross-claude-comms.md) — cross-Claude message bus (historical; one coder owns both sides now)
+- [`docs/historical/progress/cross-claude-comms.md`](docs/historical/progress/cross-claude-comms.md) — the frozen two-Claude message bus (one coder owns both sides since 2026-07-01)
 - [`docs/historical/`](docs/historical/) — 60+ banner'd retired plans / specs / progress / reviews
 
 Project mission, principles, and Pi-architecture summary are in [`CLAUDE.md`](CLAUDE.md). Full audit report at [`DOC_AUDIT.md`](DOC_AUDIT.md).

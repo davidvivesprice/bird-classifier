@@ -366,7 +366,7 @@ def main():
             # HLS segmenter — single-stream PTS-aware segmenter writing to
             # ~/bird-snapshots/hls/feeder/, served by existing
             # /api/hls-live/{camera}/{path:path} route. Spec:
-            # docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
+            # docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md
             #
             # PIPELINE_DISABLE_SEGMENTER=1 skips it. The segmenter is the
             # replay/high-res-snapshot path — pure overhead for Chapter 1

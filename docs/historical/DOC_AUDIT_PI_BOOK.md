@@ -153,4 +153,4 @@ All fixes applied directly to `/Users/vives/docs/bird-observatory-pi/docs-book/b
 - `is_nighttime(offset_minutes=30)` default: `solar_utils.py:65` ✓
 - Thermal watch timer: `OnUnitActiveSec=1min` = 60 s ✓, `Nice=10` ✓
 - Thermal CSV fields include CPU temp, ARM clock, fan RPM, Hailo NPU temp, pipeline frame counters, active tracks ✓ (`pi5_thermal_watch.py:36–44`)
-- Python version claim "3.13.5" matches `docs/working/progress/2026-04-25-pi5-handoff.md:46` ✓
+- Python version claim "3.13.5" matches `docs/historical/progress/2026-04-25-pi5-handoff.md:46` ✓

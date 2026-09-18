@@ -18,7 +18,7 @@ callback is invoked (the `avcl` dereference / libav's own log path), so no
 callback swap can prevent it. This is a native libav bug in the decode/read
 path, NOT a logging-config issue. The real fix is decode-process isolation (run
 FrameCapture in a child process so a decode SEGV can't wipe the tracker/lock
-state). See docs/working/progress/cross-claude-comms.md.
+state). See docs/historical/progress/cross-claude-comms.md.
 
 This module is retained only to (a) silence libav's log spam and (b) document
 the dead end. It does NOT stop the crash. Historical attempt below:

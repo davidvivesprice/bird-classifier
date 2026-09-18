@@ -1,3 +1,5 @@
+> **HISTORICAL** — the two-Claude message bus (iMac-Claude ↔ Pi-Claude, David relaying), 2026-04-25 → frozen 2026-07-03; one operator owns both repos since 2026-07-01. Append-only archive (356 KB); a condensed 04-25..05-01 digest is `~/docs/bird-observatory/cross-claude-comms-history.md`. The protocol text below is kept verbatim as a record, not as instructions. Moved 2026-09-18.
+
 # Cross-Claude Comms Channel
 
 Two Claudes work this repo in parallel — one on iMac, one on Pi 5. This file

@@ -1,3 +1,5 @@
+> **HISTORICAL** — 2026-04-29 Tier 2 readiness checkpoint. Its "✅ Ready" row for a **34K-image weak-label dataset at `~/bird-classifier/data/bird_crops_train_labeled/` describes a directory that does not exist on either machine** (checked 2026-09-17 with `find`/`mdfind` on the iMac and the Pi); the cleanlab step it gates was never run (no `label_issues.csv` anywhere) and `tools/tier2_phase1_cleanlab.py` feeds dummy one-hot `pred_probs`. Superseded by the 2026-06-29 flagship dossier and the 2026-09-17 post-mortem (`../../working/specs/2026-09-17-flagship-postmortem.md` §1 row 4b, §3 item 9). Moved 2026-09-18.
+
 # Tier 2 Flagship Training — Readiness Checkpoint (2026-04-29)
 
 **Status:** Phase 0 (eval harness) ✅ shipped. Phases 1–8 (training pipeline) awaiting Phase 0 → Phase 1 kickoff signal.

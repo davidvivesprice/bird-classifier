@@ -1,3 +1,5 @@
+> **HISTORICAL** — result of the 2026-05-11 overnight plan (WebRTC+DOM restoration, 213→125 % CPU). Still cited by ROADMAP for what was deferred. Moved 2026-09-18.
+
 # Overnight Execution — Result (2026-05-11)
 
 **Status at sunrise:** working demo loop on iMac LAN with synced labels on birds, CPU dropped from 213% → ~125%, thermals dropped from 84-86°C (throttled) → ~80°C (not throttled).
@@ -16,7 +18,7 @@ If the dashboard looks broken: revert is `git revert c06b694 5331a1d 994d749 47f
 
 ## What was done
 
-Followed the overnight execution plan at `docs/working/plans/2026-05-11-overnight-execution.md`. Five phases, two parallel audit gates, ~3 hours of work.
+Followed the overnight execution plan at `docs/historical/plans/2026-05-11-overnight-execution.md`. Five phases, two parallel audit gates, ~3 hours of work.
 
 ### Phase 1A — restore browser live-view per CLAUDE.md (commit `c06b694`)
 
@@ -154,10 +156,10 @@ ssh vives@pi5.local "sed -i 's|may10_demo_640x360|may10_demo_normalized|' /home/
 | `pipeline/snapshot_writer.py` | No-copy submit path |
 | `scripts/demo-loop.sh` | Demo video path (now 640×360) |
 | `go2rtc.yaml` | feeder-demo stream (relays mediamtx demo loop on :8654) |
-| `docs/working/plans/2026-05-11-overnight-execution.md` | The plan I executed |
-| `docs/working/plans/2026-05-11-pipeline-cpu-audit-plan.md` | The audit plan (still valid; Codex prompts unused — feel free) |
+| `docs/historical/plans/2026-05-11-overnight-execution.md` | The plan I executed |
+| `docs/historical/plans/2026-05-11-pipeline-cpu-audit-plan.md` | The audit plan (still valid; Codex prompts unused — feel free) |
 | `docs/working/specs/2026-05-11-spatial-subtitle-overlay-architecture.md` | Codex's bedrock spec for the eventual full solution |
-| `docs/working/progress/2026-05-11-overnight-result.md` | This document |
+| `docs/historical/progress/2026-05-11-overnight-result.md` | This document |
 
 ## Commits tonight
 

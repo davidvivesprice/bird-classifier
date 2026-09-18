@@ -1,3 +1,5 @@
+> **HISTORICAL** — 2026-05-10 late-session handoff after the failed HLS+canvas attempt (ch10 Act I). Moved 2026-09-18.
+
 # Overlay sync — session handoff (2026-05-10, late)
 
 **Read this entire doc before doing anything. Do NOT dive into a fix. Ask David for direction first.**
@@ -106,8 +108,8 @@ The "good working state on Mac" we had this morning is at git history BEFORE com
 ## Reading order for post-compact Claude
 
 1. This doc, top to bottom.
-2. `docs/working/specs/2026-05-10-pi-overlay-sync-bedrock-design.md` — the spec (3 audit passes).
-3. `docs/working/plans/2026-05-10-pi-overlay-sync-bedrock.md` — the implementation plan.
+2. `docs/historical/specs/2026-05-10-pi-overlay-sync-bedrock-design.md` — the spec (3 audit passes).
+3. `docs/historical/plans/2026-05-10-pi-overlay-sync-bedrock.md` — the implementation plan.
 4. `dashboard/pi_dash.html` lines 1212–1640 — current setupLiveView (NOT WORKING).
 5. `pipeline/hls_segmenter.py` — the segmenter that falls behind under demo load.
 

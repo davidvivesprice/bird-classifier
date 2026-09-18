@@ -1,3 +1,5 @@
+> **HISTORICAL** — cold-start brief for a Claude.ai session, 2026-05-11 state. Moved 2026-09-18.
+
 # Handoff: Pi Bird Observatory — read this cold
 
 **Intended reader:** a fresh Claude (Claude.ai web) helping David think through architecture/options for his bird-feeder observation system. You have no prior context with this project. This doc gives you enough to converse meaningfully about decisions, trade-offs, and next steps without asking dozens of basic questions.
@@ -188,12 +190,12 @@ To understand the system shape:
 
 To understand the design decisions:
 - `docs/working/specs/2026-05-11-spatial-subtitle-overlay-architecture.md` — Codex's bedrock proposal
-- `docs/working/plans/2026-05-11-pipeline-cpu-audit-plan.md` — the audit plan that drove last night's work
-- `docs/working/plans/2026-05-11-overnight-execution.md` — what last night's plan said it'd do
-- `docs/working/progress/2026-05-11-overnight-result.md` — what it actually did
+- `docs/historical/plans/2026-05-11-pipeline-cpu-audit-plan.md` — the audit plan that drove last night's work
+- `docs/historical/plans/2026-05-11-overnight-execution.md` — what last night's plan said it'd do
+- `docs/historical/progress/2026-05-11-overnight-result.md` — what it actually did
 
 To understand the previous failure modes:
-- `docs/working/progress/2026-05-10-overlay-sync-handoff.md` — the doc I wrote pre-compaction yesterday describing the HLS+canvas attempt that failed
+- `docs/historical/progress/2026-05-10-overlay-sync-handoff.md` — the doc I wrote pre-compaction yesterday describing the HLS+canvas attempt that failed
 
 ## What I'm uncertain about / would value an outside read on
 

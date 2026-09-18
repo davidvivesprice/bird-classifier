@@ -1,3 +1,5 @@
+> **HISTORICAL** — replay-harness runbook from the mediamtx :8654 era (retired — demo mode is a go2rtc exec loop since 2026-07-02, see ch02). Moved 2026-09-18.
+
 # Replay harness runbook
 
 ## Layer 2a (LAN replay)

@@ -1,3 +1,5 @@
+> **HISTORICAL** — F0–F3 live-ID foundations plan; shipped to pi-main 2026-06-29. The tracker knobs it tunes are v3-only (tracker v4 landed 2026-09-17). Moved 2026-09-18.
+
 # Pi Live-ID Foundations — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** Python 3.13, PyAV, OpenCV (TBB), Hailo-8L (pyhailort), Norfair, systemd `--user`, pytest. Edit in `/Users/vives/bird-classifier-pi/`, deploy via `rsync` to `vives@pi5.local:/home/vives/bird-classifier/`, restart `bird-pipeline.service` (`--user`).
 
-**Spec:** `docs/working/specs/2026-06-27-pi-live-id-foundations-design.md` (commit `71973fd`).
+**Spec:** `docs/historical/specs/2026-06-27-pi-live-id-foundations-design.md` (commit `71973fd`).
 
 **Execution order rationale:** Task 1 (crash safety net) first so measurements are stable. Task 2 (MOG2/thermal) next — the biggest, most visible win. Task 3 (classifier) — biggest identification win. Task 4 (health), Task 5 (SEGV root cause), Task 6 (UX) follow; Task 6 is client-side and may be done in parallel anytime.
 
