@@ -1,24 +1,15 @@
 # Superpowers docs — REDIRECT
 
-> **As of 2026-04-26, this content has consolidated to `~/docs/bird-observatory/working/`.**
->
-> The numbered chapters in `~/docs/bird-observatory/` are the canonical reference book; `working/` holds the active scaffolding (specs, plans, progress notes). Edit there, not here.
+> **2026-09-18:** the copies that used to live in this folder are gone. Active scaffolding for the iMac side is `~/docs/bird-observatory/working/`; the pre-split historical archive (plans / specs / progress / reviews, 2026-03 → 2026-04-25) has ONE home: `~/bird-classifier-pi/docs/historical/`. The iMac itself is a frozen reference (ROADMAP 2026-07-03).
 
-For now, the files in this folder still exist — they were copied (not moved) on 2026-04-26 to avoid breaking external references (LaunchAgent plists, code comments). If you find a copy in this folder and a copy under `~/docs/bird-observatory/working/` that disagree, the **`~/docs/`** version wins.
+## Where things went
 
-## Mapping
+| Old repo path | Now |
+|---|---|
+| `docs/superpowers/{specs,plans,progress}/*.md` (active copies) | `~/docs/bird-observatory/working/{specs,plans,progress}/` — the April 2026 plans, handoffs and the iMac as-built spec sit under `working/historical/` |
+| `docs/superpowers/{plans,progress,specs,reviews}/historical/*.md` | `~/bird-classifier-pi/docs/historical/{plans,progress,specs,reviews}/` — same files (byte-identical bar the trailing newline), bannered; the two that existed only here, `2026-04-25-review-ui-shared-helpers.md` and `2026-04-25-evening-handoff.md`, were copied there |
+| `docs/superpowers/progress/historical/cross-claude-comms.md` (04-26 snapshot) | a prefix of `~/bird-classifier-pi/docs/historical/progress/cross-claude-comms.md` (full bus, frozen 2026-07-03) |
+| `docs/superpowers/specs/historical/2026-04-25-hailo-playbook.md` | `~/bird-classifier-pi/docs/working/specs/2026-04-25-hailo-playbook.md` (still the live reference) |
+| `docs/superpowers/progress/2026-04-11-v3-verification/` | still here — `scripts/verify_v3_prototype.py` writes into it; an identical copy is in the Pi archive |
 
-| Repo path | New canonical location |
-|-----------|----------------------|
-| `docs/superpowers/specs/*.md` | `~/docs/bird-observatory/working/specs/` |
-| `docs/superpowers/plans/*.md` | `~/docs/bird-observatory/working/plans/` |
-| `docs/superpowers/progress/*.md` | `~/docs/bird-observatory/working/progress/` |
-| `docs/superpowers/specs/historical/`, etc. | `~/docs/bird-observatory/working/historical/` (empty for now; will populate as in-flight items ship) |
-
-## Why both copies for now?
-
-- LaunchAgent plists still reference `docs/superpowers/plans/2026-04-22-data-integrity-audit.md` and similar
-- Code comments may reference repo paths
-- Dashboard `/api/docs/{path}` serves from this tree
-
-These will be migrated in a follow-up pass. Until then: **edit the `~/docs/` copy; the repo copy is read-only**.
+Code comments in this repo (`reviews_db.py`, `pipeline/*.py`, `tests/`) still cite `docs/superpowers/...` paths; read them against the Pi archive. The `bird-integrity-audit` plist already points at `~/docs/`.
