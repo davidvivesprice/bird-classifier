@@ -4,6 +4,11 @@
 <dict>
 	<key>EnvironmentVariables</key>
 	<dict>
+		<!-- 2026-09-18: AIY-only. The 12-class yard model's guesses had been the canonical
+		     snapshot labels since 2026-04-25 (71% of the flagship manifest); see
+		     bird-classifier-pi/docs/working/specs/2026-09-17-flagship-postmortem.md -->
+		<key>DISABLE_CORAL</key>
+		<string>1</string>
 		<key>PIPELINE_DB_PATH</key>
 		<string>/Users/vives/bird-snapshots/logs/pipeline.db</string>
 		<key>PIPELINE_HEALTH_PORT</key>
