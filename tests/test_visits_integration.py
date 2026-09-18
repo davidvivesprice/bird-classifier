@@ -24,6 +24,9 @@ def real_db():
     if not has_visits:
         conn.close()
         pytest.skip("visits event-model not deployed on this host (iMac-era feature)")
+    if conn.execute("SELECT count(*) FROM visits").fetchone()[0] == 0:
+        conn.close()
+        pytest.skip("visits table exists but was never populated on this host (iMac-era feature)")
     yield conn
     conn.close()
 
