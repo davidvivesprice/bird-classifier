@@ -50,8 +50,13 @@ if [ -f "$DEGRADE_UNTIL" ] && [ "$now" -lt "$(cat "$DEGRADE_UNTIL" 2>/dev/null |
   export DISABLE_CORAL=1
   note "launch: AIY-only (DISABLE_CORAL=1, cooldown active)"
 else
-  [ -f "$DEGRADE_UNTIL" ] && { rm -f "$DEGRADE_UNTIL"; note "cooldown expired → re-enabling Coral"; notify "Coral cooldown over — re-enabling yard/Coral on next run."; }
-  note "launch: normal (Coral enabled)"
+  [ -f "$DEGRADE_UNTIL" ] && { rm -f "$DEGRADE_UNTIL"; note "cooldown expired"; [ "${DISABLE_CORAL:-0}" = "1" ] || notify "Coral cooldown over — re-enabling yard/Coral on next run."; }
+  if [ "${DISABLE_CORAL:-0}" = "1" ]; then
+    # Pinned by the LaunchAgent since 2026-09-18 (yard labels poisoned the corpus).
+    note "launch: AIY-only (DISABLE_CORAL=1 from environment)"
+  else
+    note "launch: normal (Coral enabled)"
+  fi
 fi
 
 exec "$PY" -u "$APP"
