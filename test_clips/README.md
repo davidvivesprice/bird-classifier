@@ -13,10 +13,10 @@ locally; do not commit them.
 
 | Name         | Description        | RTSP URL                                          |
 |--------------|--------------------|---------------------------------------------------|
-| `birds`      | Feeder cam         | `rtsp://192.168.4.9:7447/KWdr6I7LmAwwbC0Y`       |
-| `ground`     | Ground cam         | `rtsp://192.168.4.9:7447/AXBMY59UoTi1Adi2`       |
-| `newbackyard`| New backyard cam   | `rtsp://192.168.4.9:7447/8ieiUhQBl1rNq4z2`       |
-| `magnolia`   | Magnolia cam       | `rtsp://192.168.4.9:7447/T95Uof6qSmukq9x1`       |
+| `birds`      | Feeder cam         | `rtsp://<NVR>:7447/<TOKEN>`       |
+| `ground`     | Ground cam         | `rtsp://<NVR>:7447/<TOKEN>`       |
+| `newbackyard`| New backyard cam   | `rtsp://<NVR>:7447/<TOKEN>`       |
+| `magnolia`   | Magnolia cam       | `rtsp://<NVR>:7447/<TOKEN>`       |
 
 ---
 
@@ -31,28 +31,28 @@ ffmpeg -i <RTSP_URL> -t <DURATION_SECONDS> -c copy <OUTPUT_FILE>
 ### 5-minute feeder clip (birds cam)
 
 ```bash
-ffmpeg -i rtsp://192.168.4.9:7447/KWdr6I7LmAwwbC0Y \
+ffmpeg -i rtsp://<NVR>:7447/<TOKEN> \
     -t 300 -c copy test_clips/feeder_5min.mp4
 ```
 
 ### 5-minute ground cam clip
 
 ```bash
-ffmpeg -i rtsp://192.168.4.9:7447/AXBMY59UoTi1Adi2 \
+ffmpeg -i rtsp://<NVR>:7447/<TOKEN> \
     -t 300 -c copy test_clips/ground_5min.mp4
 ```
 
 ### 1-minute multi-bird clip (feeder cam, pick a busy moment)
 
 ```bash
-ffmpeg -i rtsp://192.168.4.9:7447/KWdr6I7LmAwwbC0Y \
+ffmpeg -i rtsp://<NVR>:7447/<TOKEN> \
     -t 60 -c copy test_clips/multi_bird_1min.mp4
 ```
 
 ### 1-minute difficult-species clip (low light, partial occlusion, etc.)
 
 ```bash
-ffmpeg -i rtsp://192.168.4.9:7447/AXBMY59UoTi1Adi2 \
+ffmpeg -i rtsp://<NVR>:7447/<TOKEN> \
     -t 60 -c copy test_clips/difficult_species_1min.mp4
 ```
 
