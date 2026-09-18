@@ -4538,28 +4538,8 @@ def enhanced_audio_health():
         return {"status": "error", "detail": str(e)}
 
 
-@app.get("/api/hls/{path:path}")
-async def proxy_hls(path: str):
-    """Proxy HLS segments from local go2rtc (port 1984) for fallback video streaming.
-
-    Previously served via nginx on the NAS at /hls/.
-    Now proxied through FastAPI for Cloudflare tunnel access.
-    """
-    import httpx
-    from starlette.responses import StreamingResponse
-
-    go2rtc_url = f"http://{GO2RTC_HOST}:{GO2RTC_PORT}/hls/{path}"
-
-    async def stream():
-        async with httpx.AsyncClient() as client:
-            async with client.stream("GET", go2rtc_url) as resp:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    yield chunk
-
-    # Determine content type from extension
-    ct = "application/vnd.apple.mpegurl" if path.endswith(".m3u8") else "video/mp2t"
-    return StreamingResponse(stream(), media_type=ct,
-                             headers={"Cache-Control": "no-cache"})
+# /api/hls/{path} (a raw-path proxy into go2rtc, unused by any page) was removed
+# 2026-09-18: it let "../api/config" read the admin API through the public tunnel.
 
 
 @app.websocket("/api/ws")
